@@ -519,26 +519,55 @@ app.post('/api/products', authenticate, (req, res) => {
         db.run('ROLLBACK')
         return res.status(500).json({ error: '清空旧数据失败' })
       }
-      const stmt = db.prepare('INSERT OR REPLACE INTO products (id, userId, name, type, code, note, holder, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      products.forEach(p => {
-        stmt.run(p.id, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.createdAt)
-      })
-      stmt.finalize((err) => {
-        if (err) {
-          log(`写入产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-          db.run('ROLLBACK')
-          return res.status(500).json({ error: '数据写入失败' })
-        }
-        db.run('COMMIT', (err) => {
+      
+      // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
+      const incomingIds = products.map(p => p.id)
+      db.all(
+        'SELECT id, userId FROM products WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
+        incomingIds,
+        (err, existingProducts) => {
           if (err) {
-            log(`产品事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+            log(`检查产品ID冲突失败: ${err.message}`, 'ERROR')
             db.run('ROLLBACK')
-            return res.status(500).json({ error: '事务提交失败' })
+            return res.status(500).json({ error: '检查ID冲突失败' })
           }
-          log(`保存产品成功 - userId: ${req.userId}, 数量: ${products.length}`)
-          res.json({ success: true })
-        })
-      })
+          
+          // 构建ID映射：旧ID -> 新ID（仅对冲突的ID生成新ID）
+          const idMapping = {}
+          const conflictingIds = new Set(
+            existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
+          )
+          
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          products.forEach(p => {
+            let finalId = p.id
+            if (conflictingIds.has(p.id)) {
+              finalId = generateId()
+              idMapping[p.id] = finalId
+              log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
+            }
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.createdAt)
+          })
+          
+          stmt.finalize((err) => {
+            if (err) {
+              log(`写入产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+              db.run('ROLLBACK')
+              return res.status(500).json({ error: '数据写入失败' })
+            }
+            db.run('COMMIT', (err) => {
+              if (err) {
+                log(`产品事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+                db.run('ROLLBACK')
+                return res.status(500).json({ error: '事务提交失败' })
+              }
+              log(`保存产品成功 - userId: ${req.userId}, 数量: ${products.length}`)
+              // 返回ID映射，供前端更新事务的productId
+              res.json({ success: true, idMapping })
+            })
+          })
+        }
+      )
     })
   })
 })
@@ -602,49 +631,76 @@ app.post('/api/transactions', authenticate, (req, res) => {
         return
       }
       
-      const stmt = db.prepare('INSERT OR REPLACE INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      let completed = 0
-      let hasError = false
+      // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
+      const incomingIds = transactions.map(t => t.id)
+      if (incomingIds.length === 0) {
+        log(`批量导入交易记录成功 - 用户: ${req.userId}, 数量: 0`)
+        return res.json({ success: true })
+      }
       
-      transactions.forEach((t, index) => {
-        stmt.run(t.id, req.userId, t.productId, t.type, t.date, t.amount, t.price, t.shares, t.fee || 0, t.note || '', (err) => {
-          if (err && !hasError) {
-            hasError = true
-            log(`第 ${index + 1} 条交易记录写入失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-            stmt.finalize(() => {
-              db.run('ROLLBACK', () => {
-                res.status(500).json({ error: `第 ${index + 1} 条记录写入失败: ${err.message}` })
-              })
-            })
-            return
+      db.all(
+        'SELECT id, userId FROM transactions WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
+        incomingIds,
+        (err, existingTxs) => {
+          if (err) {
+            log(`检查交易ID冲突失败: ${err.message}`, 'ERROR')
+            db.run('ROLLBACK')
+            return res.status(500).json({ error: '检查ID冲突失败' })
           }
           
-          completed++
-          if (completed === transactions.length && !hasError) {
-            stmt.finalize((err) => {
-              if (err) {
-                log(`语句执行失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-                db.run('ROLLBACK', () => {
-                  res.status(500).json({ error: '数据写入失败' })
+          const conflictingIds = new Set(
+            existingTxs.filter(t => t.userId !== req.userId).map(t => t.id)
+          )
+          
+          const stmt = db.prepare('INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          let completed = 0
+          let hasError = false
+          
+          transactions.forEach((t, index) => {
+            let finalId = t.id
+            if (conflictingIds.has(t.id)) {
+              finalId = generateId()
+            }
+            stmt.run(finalId, req.userId, t.productId, t.type, t.date, t.amount, t.price, t.shares, t.fee || 0, t.note || '', (err) => {
+              if (err && !hasError) {
+                hasError = true
+                log(`第 ${index + 1} 条交易记录写入失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+                stmt.finalize(() => {
+                  db.run('ROLLBACK', () => {
+                    res.status(500).json({ error: `第 ${index + 1} 条记录写入失败: ${err.message}` })
+                  })
                 })
                 return
               }
               
-              db.run('COMMIT', (err) => {
-                if (err) {
-                  log(`事务提交失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-                  db.run('ROLLBACK', () => {
-                    res.status(500).json({ error: '事务提交失败' })
+              completed++
+              if (completed === transactions.length && !hasError) {
+                stmt.finalize((err) => {
+                  if (err) {
+                    log(`语句执行失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+                    db.run('ROLLBACK', () => {
+                      res.status(500).json({ error: '数据写入失败' })
+                    })
+                    return
+                  }
+                  
+                  db.run('COMMIT', (err) => {
+                    if (err) {
+                      log(`事务提交失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+                      db.run('ROLLBACK', () => {
+                        res.status(500).json({ error: '事务提交失败' })
+                      })
+                    } else {
+                      log(`批量导入交易记录成功 - 用户: ${req.userId}, 数量: ${transactions.length}`)
+                      res.json({ success: true })
+                    }
                   })
-                } else {
-                  log(`批量导入交易记录成功 - 用户: ${req.userId}, 数量: ${transactions.length}`)
-                  res.json({ success: true })
-                }
-              })
+                })
+              }
             })
-          }
-        })
-      })
+          })
+        }
+      )
     })
   })
 })
@@ -730,26 +786,59 @@ app.post('/products', authenticate, (req, res) => {
         db.run('ROLLBACK')
         return res.status(500).json({ error: '清空旧数据失败' })
       }
-      const stmt = db.prepare('INSERT OR REPLACE INTO products (id, userId, name, type, code, note, holder, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      products.forEach(p => {
-        stmt.run(p.id, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.createdAt)
-      })
-      stmt.finalize((err) => {
-        if (err) {
-          log(`[legacy] 写入产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-          db.run('ROLLBACK')
-          return res.status(500).json({ error: '数据写入失败' })
-        }
-        db.run('COMMIT', (err) => {
+      
+      // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
+      const incomingIds = products.map(p => p.id)
+      if (incomingIds.length === 0) {
+        log(`[legacy] 保存产品成功 - userId: ${req.userId}, 数量: 0`)
+        return res.json({ success: true, idMapping: {} })
+      }
+      
+      db.all(
+        'SELECT id, userId FROM products WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
+        incomingIds,
+        (err, existingProducts) => {
           if (err) {
-            log(`[legacy] 产品事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+            log(`[legacy] 检查产品ID冲突失败: ${err.message}`, 'ERROR')
             db.run('ROLLBACK')
-            return res.status(500).json({ error: '事务提交失败' })
+            return res.status(500).json({ error: '检查ID冲突失败' })
           }
-          log(`[legacy] 保存产品成功 - userId: ${req.userId}, 数量: ${products.length}`)
-          res.json({ success: true })
-        })
-      })
+          
+          // 构建ID映射：旧ID -> 新ID（仅对冲突的ID生成新ID）
+          const idMapping = {}
+          const conflictingIds = new Set(
+            existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
+          )
+          
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          products.forEach(p => {
+            let finalId = p.id
+            if (conflictingIds.has(p.id)) {
+              finalId = generateId()
+              idMapping[p.id] = finalId
+              log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
+            }
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.createdAt)
+          })
+          
+          stmt.finalize((err) => {
+            if (err) {
+              log(`[legacy] 写入产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+              db.run('ROLLBACK')
+              return res.status(500).json({ error: '数据写入失败' })
+            }
+            db.run('COMMIT', (err) => {
+              if (err) {
+                log(`[legacy] 产品事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+                db.run('ROLLBACK')
+                return res.status(500).json({ error: '事务提交失败' })
+              }
+              log(`[legacy] 保存产品成功 - userId: ${req.userId}, 数量: ${products.length}`)
+              res.json({ success: true, idMapping })
+            })
+          })
+        }
+      )
     })
   })
 })
@@ -776,26 +865,55 @@ app.post('/transactions', authenticate, (req, res) => {
         db.run('ROLLBACK')
         return res.status(500).json({ error: '清空旧数据失败' })
       }
-      const stmt = db.prepare('INSERT OR REPLACE INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      transactions.forEach(t => {
-        stmt.run(t.id, req.userId, t.productId, t.type, t.date, t.amount, t.price, t.shares, t.fee || 0, t.note || '')
-      })
-      stmt.finalize((err) => {
-        if (err) {
-          log(`[legacy] 写入交易失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-          db.run('ROLLBACK')
-          return res.status(500).json({ error: '数据写入失败' })
-        }
-        db.run('COMMIT', (err) => {
+      
+      // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
+      const incomingIds = transactions.map(t => t.id)
+      if (incomingIds.length === 0) {
+        log(`[legacy] 保存交易成功 - userId: ${req.userId}, 数量: 0`)
+        return res.json({ success: true })
+      }
+      
+      db.all(
+        'SELECT id, userId FROM transactions WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
+        incomingIds,
+        (err, existingTxs) => {
           if (err) {
-            log(`[legacy] 交易事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+            log(`[legacy] 检查交易ID冲突失败: ${err.message}`, 'ERROR')
             db.run('ROLLBACK')
-            return res.status(500).json({ error: '事务提交失败' })
+            return res.status(500).json({ error: '检查ID冲突失败' })
           }
-          log(`[legacy] 保存交易成功 - userId: ${req.userId}, 数量: ${transactions.length}`)
-          res.json({ success: true })
-        })
-      })
+          
+          const conflictingIds = new Set(
+            existingTxs.filter(t => t.userId !== req.userId).map(t => t.id)
+          )
+          
+          const stmt = db.prepare('INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          transactions.forEach(t => {
+            let finalId = t.id
+            if (conflictingIds.has(t.id)) {
+              finalId = generateId()
+            }
+            stmt.run(finalId, req.userId, t.productId, t.type, t.date, t.amount, t.price, t.shares, t.fee || 0, t.note || '')
+          })
+          
+          stmt.finalize((err) => {
+            if (err) {
+              log(`[legacy] 写入交易失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+              db.run('ROLLBACK')
+              return res.status(500).json({ error: '数据写入失败' })
+            }
+            db.run('COMMIT', (err) => {
+              if (err) {
+                log(`[legacy] 交易事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+                db.run('ROLLBACK')
+                return res.status(500).json({ error: '事务提交失败' })
+              }
+              log(`[legacy] 保存交易成功 - userId: ${req.userId}, 数量: ${transactions.length}`)
+              res.json({ success: true })
+            })
+          })
+        }
+      )
     })
   })
 })
@@ -1611,10 +1729,10 @@ const dbRunAsync = (sql, params = []) => new Promise((resolve, reject) => {
  * POST /api/fund/backfill-nav/:productId
  * 补全指定基金产品自成立以来的全部历史净值
  */
-app.post('/fund/backfill-nav/:productId', async (req, res) => {
+app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
   try {
     const { productId } = req.params
-    const product = await dbGetAsync('SELECT * FROM products WHERE id = ?', [productId])
+    const product = await dbGetAsync('SELECT * FROM products WHERE id = ? AND userId = ?', [productId, req.userId])
     if (!product) return res.status(404).json({ error: '产品不存在' })
     if (product.type !== 'fund') return res.status(400).json({ error: '仅基金产品支持此功能' })
     if (!product.code) return res.status(400).json({ error: '基金代码缺失' })
@@ -1641,10 +1759,10 @@ app.post('/fund/backfill-nav/:productId', async (req, res) => {
       return res.status(500).json({ error: `基金 ${product.code} 暂无净值数据` })
     }
 
-    // 查询已有的 nav_update 记录
+    // 查询当前用户已有的 nav_update 记录
     const existingNavs = await dbAllAsync(
-      'SELECT date FROM transactions WHERE productId = ? AND type = ?',
-      [productId, 'nav_update']
+      'SELECT date FROM transactions WHERE productId = ? AND userId = ? AND type = ?',
+      [productId, req.userId, 'nav_update']
     )
     const existingDateSet = new Set(existingNavs.map(t => getDateOnlyTimestamp(t.date)))
 
@@ -1668,7 +1786,7 @@ app.post('/fund/backfill-nav/:productId', async (req, res) => {
       try {
         await dbRunAsync(
           'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [txId, product.userId, productId, 'nav_update', ts, 0, navItem.y, 0, 0, `历史补全 - ${dateStr}`]
+          [txId, req.userId, productId, 'nav_update', ts, 0, navItem.y, 0, 0, `历史补全 - ${dateStr}`]
         )
         inserted++
       } catch (e) {

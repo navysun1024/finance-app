@@ -4,9 +4,8 @@ import { createLogger } from './logger'
 const logger = createLogger('Storage')
 
 const API_BASE = '/api/db'
-const AUTO_UPDATE_KEY = 'finance_auto_update'
 
-function getAuthHeaders() {
+export function getAuthHeaders() {
   const token = localStorage.getItem('token')
   return {
     'Content-Type': 'application/json',
@@ -35,7 +34,7 @@ export async function getProducts(): Promise<Product[]> {
   })
 }
 
-export async function saveProducts(products: Product[]): Promise<void> {
+export async function saveProducts(products: Product[]): Promise<{ idMapping?: Record<string, string> }> {
   return logger.withTiming(`POST /products (${products.length} 条)`, async () => {
     const response = await fetch(`${API_BASE}/products`, {
       method: 'POST',
@@ -52,7 +51,9 @@ export async function saveProducts(products: Product[]): Promise<void> {
       logger.error(`保存产品列表失败: ${response.status} ${response.statusText}`)
       throw new Error('Failed to save products')
     }
+    const result = await response.json()
     logger.debug(`保存产品列表成功, 数量: ${products.length}`)
+    return result
   })
 }
 
@@ -168,23 +169,25 @@ export async function clearAllData(): Promise<void> {
   logger.info('清空所有数据')
   await saveProducts([])
   await saveTransactions([])
-  localStorage.removeItem(AUTO_UPDATE_KEY)
   logger.info('数据已清空')
-}
-
-export function getAutoUpdateEnabled(): boolean {
-  return localStorage.getItem(AUTO_UPDATE_KEY) !== 'false'
-}
-
-export function setAutoUpdateEnabled(enabled: boolean): void {
-  localStorage.setItem(AUTO_UPDATE_KEY, enabled.toString())
 }
 
 export async function exportData(): Promise<string> {
   logger.info('开始导出数据...')
   const products = await getProducts()
-  const transactions = await getTransactions()
-  logger.info(`导出完成: 产品 ${products.length} 条, 交易 ${transactions.length} 条`)
+  const allTransactions = await getTransactions()
+  // 获取基金产品ID列表
+  const fundProductIds = new Set(products.filter(p => p.type === 'fund').map(p => p.id))
+  // 导出时仅排除基金产品的 nav_update 历史净值数据（可通过定时调度器重新获取）
+  // 固收产品的净值数据保留在导出中
+  const transactions = allTransactions.filter(t => {
+    if (t.type === 'nav_update' && fundProductIds.has(t.productId)) {
+      return false // 排除基金产品的净值更新记录
+    }
+    return true
+  })
+  const excludedCount = allTransactions.length - transactions.length
+  logger.info(`导出完成: 产品 ${products.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条基金净值更新记录)`)
   return JSON.stringify({ products, transactions }, null, 2)
 }
 
@@ -201,16 +204,28 @@ export async function importData(jsonString: string): Promise<{ success: boolean
     
     let productCount = 0
     let transactionCount = 0
+    let idMapping: Record<string, string> = {}
     
     if (data.products && Array.isArray(data.products)) {
       logger.info(`导入产品: ${data.products.length} 条`)
-      await saveProducts(data.products)
+      const result = await saveProducts(data.products)
+      idMapping = result.idMapping || {}
       productCount = data.products.length
+      if (Object.keys(idMapping).length > 0) {
+        logger.info(`产品ID冲突，已生成新映射: ${Object.keys(idMapping).length} 个`)
+      }
     }
     if (data.transactions && Array.isArray(data.transactions)) {
-      logger.info(`导入交易: ${data.transactions.length} 条`)
-      await saveTransactions(data.transactions)
-      transactionCount = data.transactions.length
+      // 如果有ID映射，更新事务的productId
+      const transactions = Object.keys(idMapping).length > 0
+        ? data.transactions.map((t: any) => ({
+            ...t,
+            productId: idMapping[t.productId] || t.productId
+          }))
+        : data.transactions
+      logger.info(`导入交易: ${transactions.length} 条`)
+      await saveTransactions(transactions)
+      transactionCount = transactions.length
     }
     
     logger.info('数据导入成功')

@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Wallet, TrendingUp, PieChart, RefreshCw } from 'lucide-vue-next'
-import { getAutoUpdateEnabled } from '@/utils/storage'
 import StatCard from '@/components/StatCard.vue'
 import ProductCard from '@/components/ProductCard.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { calculateXIRR } from '@/utils/xirr'
-import { formatCurrency, formatCurrencyInt, formatPercent, getDateOnly } from '@/utils/format'
-import { fetchFundNav, fetchCmbNav } from '@/utils/fundApi'
+import { formatCurrency, formatCurrencyInt, formatPercent } from '@/utils/format'
 import * as echarts from 'echarts'
 
-const { portfolioSummary, calculatePosition, getProfitHistory, products, transactions, getTransactionsByProductId, addTransaction, refresh } = useFinance()
+const { portfolioSummary, getProfitHistory, transactions, refresh } = useFinance()
 
 const typeChartRefs = ref<Record<string, HTMLDivElement>>({})
 const trendChartRefs = ref<Record<string, HTMLDivElement>>({})
@@ -65,9 +63,6 @@ const summaryByType = computed(() => {
   })
 })
 
-const updatingNavs = ref(false)
-const updateStatus = ref('')
-
 const trendRangeOptions = [
   { label: '近1月', value: '1m', days: 30 },
   { label: '近3月', value: '3m', days: 90 },
@@ -76,77 +71,6 @@ const trendRangeOptions = [
   { label: '全部', value: 'all', days: 0 }
 ]
 const trendRanges = ref<Record<string, string>>({})
-
-const autoUpdateNavs = async () => {
-  const todayTimestamp = getDateOnly(Date.now())
-  
-  const pendingProducts = products.value.filter(p => {
-    if (!p.code) return false
-    const txs = getTransactionsByProductId(p.id)
-    return !txs.some(t => t.type === 'nav_update' && getDateOnly(t.date) === todayTimestamp)
-  })
-  
-  if (pendingProducts.length === 0) return
-  
-  updatingNavs.value = true
-  updateStatus.value = `正在更新 ${pendingProducts.length} 个产品净值...`
-  
-  for (const product of pendingProducts) {
-    try {
-      updateStatus.value = `正在获取 ${product.name}...`
-      let result
-      if (product.type === 'fund') {
-        result = await fetchFundNav(product.code)
-      } else {
-        result = await fetchCmbNav(product.code)
-      }
-      
-      let dateTimestamp = Date.now()
-      if (result.date) {
-        const cleaned = result.date.trim()
-        if (/^\d{8}$/.test(cleaned)) {
-          dateTimestamp = new Date(
-            parseInt(cleaned.substring(0, 4)),
-            parseInt(cleaned.substring(4, 6)) - 1,
-            parseInt(cleaned.substring(6, 8))
-          ).getTime()
-        } else {
-          const parts = cleaned.split(/[-/]/)
-          if (parts.length === 3) {
-            dateTimestamp = new Date(
-              parseInt(parts[0]),
-              parseInt(parts[1]) - 1,
-              parseInt(parts[2])
-            ).getTime()
-          }
-        }
-      }
-      
-      const sourceLabel = product.type === 'fund' ? '天天基金' : '招银理财'
-      const updateTime = new Date().toLocaleString('zh-CN')
-      const navNote = `${sourceLabel}自动查询 - ${updateTime}`
-      
-      const txs = getTransactionsByProductId(product.id)
-      if (!txs.some(t => t.type === 'nav_update' && getDateOnly(t.date) === dateTimestamp)) {
-        addTransaction(
-          product.id,
-          'nav_update',
-          dateTimestamp,
-          0,
-          result.nav,
-          0,
-          0,
-          navNote
-        )
-      }
-    } catch (e) {
-      console.error(`自动更新 ${product.name} 净值失败:`, e)
-    }
-  }
-  
-  updateStatus.value = ''
-  updatingNavs.value = false
-}
 
 const initCharts = () => {
   // 初始化各类型的资产分布柱形图
@@ -371,9 +295,6 @@ onMounted(async () => {
   await nextTick()
   initCharts()
   window.addEventListener('resize', handleResize)
-  if (getAutoUpdateEnabled()) {
-    autoUpdateNavs()
-  }
 })
 
 onUnmounted(() => {
@@ -421,11 +342,6 @@ onUnmounted(() => {
           :color="group.annualRate >= 0 ? 'green' : 'red'"
         />
       </div>
-    </div>
-    
-    <div v-if="updatingNavs" class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center space-x-3">
-      <RefreshCw class="w-5 h-5 text-blue-600 animate-spin" />
-      <span class="text-sm text-blue-700">{{ updateStatus }}</span>
     </div>
     
     <!-- 资产分布图 -->

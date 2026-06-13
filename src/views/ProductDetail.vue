@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
 import { formatCurrency, formatCurrencyInt, formatPercent, formatDate, getDateOnly } from '@/utils/format'
 import { fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchFundStageGains, fetchFundHoldings, type NavResult, type StageGains, type FundHoldingsResult } from '@/utils/fundApi'
+import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
 import * as echarts from 'echarts'
@@ -192,7 +193,7 @@ const handleBackfillNav = async () => {
   navFetchError.value = ''
   navHistorySuccess.value = ''
   try {
-    const res = await fetch(`/api/db/fund/backfill-nav/${productId.value}`, { method: 'POST' })
+    const res = await fetch(`/api/db/fund/backfill-nav/${productId.value}`, { method: 'POST', headers: getAuthHeaders() })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '补全失败')
     if (data.inserted > 0) {
