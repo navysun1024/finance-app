@@ -1,0 +1,62 @@
+export interface Product {
+  id: string
+  name: string
+  type: ProductType
+  code: string
+  note: string
+  holder: string
+  createdAt: number
+}
+
+export type ProductType = 'fund' | 'stock' | 'bond' | 'deposit' | 'fixed_income' | 'other'
+
+export type TransactionType = 'buy' | 'sell' | 'dividend' | 'nav_update'
+
+export interface Transaction {
+  id: string
+  productId: string
+  type: TransactionType
+  date: number
+  amount: number
+  price: number
+  shares: number
+  fee: number
+  note: string
+}
+
+export interface Position {
+  productId: string
+  product: Product
+  totalInvestment: number
+  totalShares: number
+  avgCost: number
+  currentNav: number
+  marketValue: number
+  profit: number
+  profitRate: number
+  annualRate: number
+  holdingDays: number
+  lastNavUpdateDate: number
+  transactions: Transaction[]
+}
+
+export interface PortfolioSummary {
+  totalAssets: number
+  totalInvestment: number
+  totalProfit: number
+  totalProfitRate: number
+  totalAnnualRate: number
+  positions: Position[]
+}
+
+export interface ProductTypeOption {
+  value: ProductType
+  label: string
+  color: string
+}
+
+export interface TransactionTypeOption {
+  value: TransactionType
+  label: string
+  color: string
+}

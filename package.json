@@ -1,0 +1,36 @@
+{
+  "name": "personal-finance-app",
+  "version": "0.85.0",
+  "description": "个人理财收益率统计Web应用 - 支持基金代码查询净值、XIRR年化收益率、Excel导出",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "dev:all": "node server/scraper.mjs & vite --port 5173",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "scraper": "node server/scraper.mjs"
+  },
+  "dependencies": {
+    "axios": "^1.16.1",
+    "cors": "^2.8.6",
+    "echarts": "^5.5.0",
+    "express": "^5.2.1",
+    "lucide-vue-next": "^0.31.0",
+    "puppeteer": "^25.1.0",
+    "sql.js": "^1.14.1",
+    "sqlite3": "^6.0.1",
+    "tailwindcss": "^3.4.14",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.35",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.8",
+    "vue-tsc": "^2.0.0"
+  }
+}
