@@ -98,6 +98,68 @@ export async function saveTransactions(transactions: Transaction[]): Promise<voi
   })
 }
 
+export async function addTransactionToServer(transaction: Transaction): Promise<void> {
+  return logger.withTiming(`POST /transactions/add`, async () => {
+    const response = await fetch(`${API_BASE}/transactions/add`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(transaction)
+    })
+    if (!response.ok) {
+      if (response.status === 401) {
+        logger.warn('认证已过期，跳转登录页')
+        localStorage.removeItem('token')
+        localStorage.removeItem('username')
+        window.location.href = '/login'
+      }
+      logger.error(`添加事务失败: ${response.status} ${response.statusText}`)
+      throw new Error('Failed to add transaction')
+    }
+    logger.debug(`添加事务成功, id: ${transaction.id}`)
+  })
+}
+
+export async function updateTransactionOnServer(transaction: Transaction): Promise<void> {
+  return logger.withTiming(`PUT /transactions/${transaction.id}`, async () => {
+    const response = await fetch(`${API_BASE}/transactions/${transaction.id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(transaction)
+    })
+    if (!response.ok) {
+      if (response.status === 401) {
+        logger.warn('认证已过期，跳转登录页')
+        localStorage.removeItem('token')
+        localStorage.removeItem('username')
+        window.location.href = '/login'
+      }
+      logger.error(`更新事务失败: ${response.status} ${response.statusText}`)
+      throw new Error('Failed to update transaction')
+    }
+    logger.debug(`更新事务成功, id: ${transaction.id}`)
+  })
+}
+
+export async function deleteTransactionFromServer(id: string): Promise<void> {
+  return logger.withTiming(`DELETE /transactions/${id}`, async () => {
+    const response = await fetch(`${API_BASE}/transactions/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      if (response.status === 401) {
+        logger.warn('认证已过期，跳转登录页')
+        localStorage.removeItem('token')
+        localStorage.removeItem('username')
+        window.location.href = '/login'
+      }
+      logger.error(`删除事务失败: ${response.status} ${response.statusText}`)
+      throw new Error('Failed to delete transaction')
+    }
+    logger.debug(`删除事务成功, id: ${id}`)
+  })
+}
+
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2)
 }
@@ -126,23 +188,36 @@ export async function exportData(): Promise<string> {
   return JSON.stringify({ products, transactions }, null, 2)
 }
 
-export async function importData(jsonString: string): Promise<boolean> {
+export async function importData(jsonString: string): Promise<{ success: boolean; message: string }> {
   logger.info('开始导入数据...')
   try {
     const data = JSON.parse(jsonString)
+    
+    // 检查数据格式
+    if (!data.products && !data.transactions) {
+      logger.error('数据格式错误: 缺少 products 或 transactions 字段')
+      return { success: false, message: '数据格式错误: 缺少 products 或 transactions 字段' }
+    }
+    
+    let productCount = 0
+    let transactionCount = 0
+    
     if (data.products && Array.isArray(data.products)) {
       logger.info(`导入产品: ${data.products.length} 条`)
       await saveProducts(data.products)
+      productCount = data.products.length
     }
     if (data.transactions && Array.isArray(data.transactions)) {
       logger.info(`导入交易: ${data.transactions.length} 条`)
       await saveTransactions(data.transactions)
+      transactionCount = data.transactions.length
     }
+    
     logger.info('数据导入成功')
-    return true
+    return { success: true, message: `导入成功: 产品 ${productCount} 条, 交易 ${transactionCount} 条` }
   } catch (e: any) {
     logger.error(`数据导入失败: ${e.message}`, e)
-    return false
+    return { success: false, message: `数据解析失败: ${e.message}` }
   }
 }
 

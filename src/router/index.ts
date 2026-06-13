@@ -1,4 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { h, defineComponent, defineAsyncComponent } from 'vue'
+
+const Products = defineAsyncComponent(() => import('@/views/Products.vue'))
+
+const FundProducts = defineComponent({
+  render() {
+    return h(Products, { type: 'fund' })
+  }
+})
+
+const FixedIncomeProducts = defineComponent({
+  render() {
+    return h(Products, { type: 'fixed_income' })
+  }
+})
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,6 +38,18 @@ const router = createRouter({
       path: '/transactions',
       name: 'transactions',
       component: () => import('@/views/Transactions.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/funds',
+      name: 'funds',
+      component: FundProducts,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/fixed-income',
+      name: 'fixed-income',
+      component: FixedIncomeProducts,
       meta: { requiresAuth: true }
     },
     {
@@ -53,7 +80,7 @@ router.beforeEach((to, _from, next) => {
   if (requiresAuth && !token) {
     next('/login')
   } else if (!requiresAuth && token && (to.path === '/login' || to.path === '/register')) {
-    next('/dashboard')
+    next({ name: 'dashboard' })
   } else {
     next()
   }

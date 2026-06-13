@@ -16,6 +16,17 @@ const handleLogin = async () => {
     return
   }
   
+  // 基本输入验证
+  const trimmedUsername = username.value.trim()
+  if (trimmedUsername.length < 3) {
+    errorMessage.value = '用户名至少3个字符'
+    return
+  }
+  if (password.value.length < 8) {
+    errorMessage.value = '密码至少8个字符'
+    return
+  }
+  
   isLoading.value = true
   errorMessage.value = ''
   
@@ -23,7 +34,7 @@ const handleLogin = async () => {
     const response = await fetch('/api/db/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: username.value, password: password.value })
+      body: JSON.stringify({ username: trimmedUsername, password: password.value })
     })
     
     const data = await response.json()
@@ -31,7 +42,7 @@ const handleLogin = async () => {
     if (response.ok && data.success) {
       localStorage.setItem('token', data.token)
       localStorage.setItem('username', data.username)
-      router.push('/dashboard')
+      router.push({ name: 'dashboard' })
     } else {
       errorMessage.value = data.error || '登录失败'
     }

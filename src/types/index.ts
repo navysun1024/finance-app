@@ -8,7 +8,7 @@ export interface Product {
   createdAt: number
 }
 
-export type ProductType = 'fund' | 'stock' | 'bond' | 'deposit' | 'fixed_income' | 'other'
+export type ProductType = 'fund' | 'fixed_income'
 
 export type TransactionType = 'buy' | 'sell' | 'dividend' | 'nav_update'
 

@@ -72,6 +72,11 @@ async function scrapeCmbNav(productCode) {
     });
 
     page.on('requestfailed', (req) => {
+      // 忽略主动屏蔽的图片/样式/字体请求
+      const type = req.resourceType();
+      if (type === 'image' || type === 'stylesheet' || type === 'font') {
+        return;
+      }
       log(`[scrapeCmbNav] 请求失败: ${req.url()}, 原因: ${req.failure()?.errorText}`, 'WARN');
     });
 
@@ -188,6 +193,11 @@ async function scrapeCmbNavHistory(productCode, days = 10) {
     });
 
     page.on('requestfailed', (req) => {
+      // 忽略主动屏蔽的图片/样式/字体请求
+      const type = req.resourceType();
+      if (type === 'image' || type === 'stylesheet' || type === 'font') {
+        return;
+      }
       log(`[scrapeCmbNavHistory] 请求失败: ${req.url()}, 原因: ${req.failure()?.errorText}`, 'WARN');
     });
 

@@ -1,16 +1,20 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Download, Upload, Trash2, FileText, AlertCircle, Table, RefreshCw } from 'lucide-vue-next'
+import { ref, onMounted } from 'vue'
+import { Download, Upload, Trash2, FileText, AlertCircle, Table, RefreshCw, Clock, Play } from 'lucide-vue-next'
 import { exportData, importData, clearAllData, getAutoUpdateEnabled, setAutoUpdateEnabled, logout, getCurrentUser } from '@/utils/storage'
 import { useFinance } from '@/composables/useFinance'
 import { exportToExcel } from '@/utils/excel'
 
 const importFile = ref<HTMLInputElement | null>(null)
-const importText = ref('')
 const showResetConfirm = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error'>('success')
 const autoUpdateEnabled = ref(getAutoUpdateEnabled())
+
+// 调度器状态
+const schedulerStatus = ref<any>(null)
+const loadingScheduler = ref(false)
+const manualRunning = ref(false)
 
 const { products, transactions, portfolioSummary, refresh } = useFinance()
 
@@ -19,6 +23,55 @@ const toggleAutoUpdate = () => {
   setAutoUpdateEnabled(autoUpdateEnabled.value)
   showMessage(autoUpdateEnabled.value ? '已开启自动更新净值' : '已关闭自动更新净值', 'success')
 }
+
+// 获取调度器状态
+const fetchSchedulerStatus = async () => {
+  try {
+    const res = await fetch('/api/nav-scheduler/status')
+    schedulerStatus.value = await res.json()
+  } catch {
+    schedulerStatus.value = null
+  }
+}
+
+// 手动触发净值更新
+const handleManualRun = async () => {
+  manualRunning.value = true
+  try {
+    const res = await fetch('/api/nav-scheduler/run', { method: 'POST' })
+    const data = await res.json()
+    if (data.success) {
+      const s = data.summary
+      showMessage(`更新完成: 成功 ${s.success}, 跳过 ${s.skipped}, 失败 ${s.failed}`, s.failed > 0 ? 'error' : 'success')
+    } else {
+      showMessage('手动更新失败: ' + (data.error || '未知错误'), 'error')
+    }
+    await fetchSchedulerStatus()
+  } catch (e: any) {
+    showMessage('请求失败: ' + e.message, 'error')
+  } finally {
+    manualRunning.value = false
+  }
+}
+
+// 切换调度器启用/禁用
+const handleToggleScheduler = async () => {
+  loadingScheduler.value = true
+  try {
+    const res = await fetch('/api/nav-scheduler/toggle', { method: 'POST' })
+    const data = await res.json()
+    showMessage(data.enabled ? '定时更新已启用' : '定时更新已暂停', 'success')
+    await fetchSchedulerStatus()
+  } catch {
+    showMessage('操作失败', 'error')
+  } finally {
+    loadingScheduler.value = false
+  }
+}
+
+onMounted(() => {
+  fetchSchedulerStatus()
+})
 
 const handleExport = async () => {
   const data = await exportData()
@@ -49,30 +102,24 @@ const handleExportExcel = () => {
   }
 }
 
-const handleImport = async () => {
-  if (!importText.value.trim()) {
-    showMessage('请输入数据内容', 'error')
-    return
-  }
-  
-  const success = await importData(importText.value)
-  if (success) {
-    await refresh()
-    showMessage('数据导入成功', 'success')
-    importText.value = ''
-  } else {
-    showMessage('数据格式错误', 'error')
-  }
-}
-
-const handleFileImport = () => {
+const handleFileImport = async () => {
   if (!importFile.value?.files?.[0]) return
   
   const file = importFile.value.files[0]
   const reader = new FileReader()
-  reader.onload = (e) => {
-    importText.value = e.target?.result as string
-    handleImport()
+  reader.onload = async (e) => {
+    const text = e.target?.result as string
+    if (!text?.trim()) {
+      showMessage('文件内容为空', 'error')
+      return
+    }
+    const result = await importData(text)
+    if (result.success) {
+      await refresh()
+      showMessage(result.message, 'success')
+    } else {
+      showMessage(result.message, 'error')
+    }
   }
   reader.readAsText(file)
 }
@@ -148,10 +195,8 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </div>
         <div class="flex-1">
           <h3 class="font-semibold text-gray-800">导入数据</h3>
-          <p class="text-gray-500 text-sm mt-1">从JSON文件或文本导入理财数据</p>
+          <p class="text-gray-500 text-sm mt-1">从JSON文件导入理财数据</p>
         </div>
-      </div>
-      <div class="mt-4 space-y-4">
         <input 
           ref="importFile"
           type="file" 
@@ -160,23 +205,10 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
           class="hidden"
           id="import-file"
         />
-        <label for="import-file" class="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+        <label for="import-file" class="inline-flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
           <FileText class="w-5 h-5 text-gray-500" />
-          <span>选择文件</span>
+          <span>选择JSON文件</span>
         </label>
-        <textarea 
-          v-model="importText"
-          placeholder="或直接粘贴JSON数据..."
-          rows="6"
-          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all resize-none font-mono text-sm"
-        ></textarea>
-        <button 
-          @click="handleImport"
-          :disabled="!importText.trim()"
-          class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          导入数据
-        </button>
       </div>
     </div>
     
@@ -202,6 +234,66 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
               autoUpdateEnabled ? 'translate-x-6' : 'translate-x-1'
             ]" 
           />
+        </button>
+      </div>
+    </div>
+    
+    <!-- 定时净值更新调度器 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div class="flex items-start space-x-4">
+        <div class="p-3 bg-cyan-50 rounded-lg">
+          <Clock class="w-6 h-6 text-cyan-600" />
+        </div>
+        <div class="flex-1">
+          <h3 class="font-semibold text-gray-800">定时净值更新</h3>
+          <p class="text-gray-500 text-sm mt-1">每天自动更新4次基金与理财产品净值（09:30 / 12:00 / 15:00 / 20:00）</p>
+        </div>
+        <button
+          @click="handleToggleScheduler"
+          :disabled="loadingScheduler"
+          :class="[
+            'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+            schedulerStatus?.enabled ? 'bg-cyan-600' : 'bg-gray-300'
+          ]"
+        >
+          <span
+            :class="[
+              'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+              schedulerStatus?.enabled ? 'translate-x-6' : 'translate-x-1'
+            ]"
+          />
+        </button>
+      </div>
+      <div v-if="schedulerStatus" class="mt-4 text-sm text-gray-600 space-y-1.5 bg-gray-50 rounded-lg p-3">
+        <div class="flex justify-between">
+          <span class="text-gray-500">调度状态</span>
+          <span :class="schedulerStatus.enabled ? 'text-green-600 font-medium' : 'text-gray-400'">{{ schedulerStatus.enabled ? '已启用' : '已暂停' }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">下次执行</span>
+          <span class="font-mono">{{ schedulerStatus.nextRunTime }}</span>
+        </div>
+        <div v-if="schedulerStatus.lastRunTime" class="flex justify-between">
+          <span class="text-gray-500">上次执行</span>
+          <span class="font-mono">{{ new Date(schedulerStatus.lastRunTime).toLocaleString('zh-CN') }}</span>
+        </div>
+        <div v-if="schedulerStatus.lastRunSummary" class="flex justify-between">
+          <span class="text-gray-500">上次结果</span>
+          <span>成功 {{ schedulerStatus.lastRunSummary.success }} / 跳过 {{ schedulerStatus.lastRunSummary.skipped }} / 失败 {{ schedulerStatus.lastRunSummary.failed }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">累计执行</span>
+          <span>{{ schedulerStatus.totalRuns }} 次</span>
+        </div>
+      </div>
+      <div class="mt-4">
+        <button
+          @click="handleManualRun"
+          :disabled="manualRunning"
+          class="flex items-center space-x-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <Play class="w-4 h-4" :class="{ 'animate-spin': manualRunning }" />
+          <span>{{ manualRunning ? '执行中...' : '立即执行一次' }}</span>
         </button>
       </div>
     </div>

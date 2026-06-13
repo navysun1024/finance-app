@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { ArrowLeft, Plus, Edit2, Trash2, TrendingUp, TrendingDown, RefreshCw, Calendar } from 'lucide-vue-next'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ArrowLeft, Plus, Edit2, Trash2, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
-import { useFinance } from '@/composables/useFinance'
+import { useFinance, initFinance } from '@/composables/useFinance'
 import { formatCurrency, formatCurrencyInt, formatPercent, formatDate, getDateOnly } from '@/utils/format'
-import { fetchFundNav, fetchCmbNav, fetchCmbNavHistory, type NavResult } from '@/utils/fundApi'
+import { fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchFundStageGains, fetchFundHoldings, type NavResult, type StageGains, type FundHoldingsResult } from '@/utils/fundApi'
+import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
 import * as echarts from 'echarts'
 
@@ -14,8 +15,39 @@ const { getProductById, getPositionById, getTransactionsByProductId, addTransact
 
 const fetchingNav = ref(false)
 const fetchingNavHistory = ref(false)
+const fetchingStageGains = ref(false)
+const fetchingHoldings = ref(false)
 const navFetchError = ref('')
 const navHistorySuccess = ref('')
+const stageGains = ref<StageGains | null>(null)
+const holdingsData = ref<FundHoldingsResult | null>(null)
+
+const handleFetchStageGains = async () => {
+  if (!product.value?.code || product.value.type !== 'fund') return
+
+  fetchingStageGains.value = true
+  try {
+    const result = await fetchFundStageGains(product.value.code)
+    stageGains.value = result.data
+  } catch (e: any) {
+    console.error('获取阶段涨幅失败:', e)
+  } finally {
+    fetchingStageGains.value = false
+  }
+}
+
+const handleFetchHoldings = async () => {
+  if (!product.value?.code || product.value.type !== 'fund') return
+
+  fetchingHoldings.value = true
+  try {
+    holdingsData.value = await fetchFundHoldings(product.value.code)
+  } catch (e: any) {
+    console.error('获取持仓信息失败:', e)
+  } finally {
+    fetchingHoldings.value = false
+  }
+}
 
 const handleFetchNav = async () => {
   if (!product.value?.code) return
@@ -58,9 +90,8 @@ const handleFetchNav = async () => {
         }
       }
     }
-    const navNote = result.date
-      ? `${sourceLabel}自动查询 - 净值日期 ${result.date}`
-      : `${sourceLabel}自动查询`
+    const updateTime = new Date().toLocaleString('zh-CN')
+    const navNote = `${sourceLabel}自动查询 - ${updateTime}`
     if (!existingTransactions.some(
       t => t.type === 'nav_update' && getDateOnly(t.date) === dateTimestamp
     )) {
@@ -151,15 +182,148 @@ const handleFetchNavHistory = async () => {
   }
 }
 
+// 补全基金历史净值
+const backfillingNav = ref(false)
+
+const handleBackfillNav = async () => {
+  if (!product.value?.code || product.value.type !== 'fund') return
+
+  backfillingNav.value = true
+  navFetchError.value = ''
+  navHistorySuccess.value = ''
+  try {
+    const res = await fetch(`/api/db/fund/backfill-nav/${productId.value}`, { method: 'POST' })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '补全失败')
+    if (data.inserted > 0) {
+      navHistorySuccess.value = `补全成功！共 ${data.total} 条历史净值，新增 ${data.inserted} 条`
+    } else {
+      navHistorySuccess.value = `无缺失数据，共 ${data.total} 条历史净值已是完整`
+    }
+  } catch (e: any) {
+    navFetchError.value = e.message || '补全失败'
+  } finally {
+    backfillingNav.value = false
+  }
+}
+
 const productId = computed(() => route.params.id as string)
 const product = computed(() => getProductById(productId.value))
 const position = computed(() => getPositionById(productId.value))
 const transactions = computed(() => getTransactionsByProductId(productId.value))
 
+// 交易记录排序
+const txSortKey = ref<keyof Transaction>('date')
+const txSortOrder = ref<'asc' | 'desc'>('desc')
+
+const sortedTransactions = computed(() => {
+  const list = [...transactions.value]
+  list.sort((a, b) => {
+    const aVal = a[txSortKey.value]
+    const bVal = b[txSortKey.value]
+    if (txSortOrder.value === 'asc') {
+      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
+    } else {
+      return aVal < bVal ? 1 : aVal > bVal ? -1 : 0
+    }
+  })
+  return list
+})
+
+const handleTxSort = (key: keyof Transaction) => {
+  if (txSortKey.value === key) {
+    txSortOrder.value = txSortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    txSortKey.value = key
+    txSortOrder.value = 'desc'
+  }
+}
+
+const getTxSortIcon = (key: keyof Transaction) => {
+  if (txSortKey.value !== key) return ChevronsUpDown
+  return txSortOrder.value === 'asc' ? ArrowUp : ArrowDown
+}
+
 const showModal = ref(false)
 const editingTransaction = ref<typeof transactions.value[0] | null>(null)
 const chartRef = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
+const allocationChartRef = ref<HTMLDivElement>()
+const holdingsChartRef = ref<HTMLDivElement>()
+let allocationChart: echarts.ECharts | null = null
+let holdingsChart: echarts.ECharts | null = null
+
+const PIE_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
+]
+
+const renderHoldingsCharts = () => {
+  const data = holdingsData.value
+  if (!data) return
+
+  // 释放旧实例，避免绑定到已销毁的 DOM
+  if (allocationChart) { allocationChart.dispose(); allocationChart = null }
+  if (holdingsChart) { holdingsChart.dispose(); holdingsChart = null }
+
+  // 使用 setTimeout 确保 DOM 完全渲染后再初始化图表
+  setTimeout(() => {
+    // 资产配置饼图
+    if (allocationChartRef.value && data.assetAllocation) {
+      allocationChart = echarts.init(allocationChartRef.value)
+      const aa = data.assetAllocation
+      const allocData = [
+        { name: '股票', value: aa.stockRatio || 0 },
+        { name: '债券', value: aa.bondRatio || 0 },
+        { name: '现金', value: aa.cashRatio || 0 },
+      ]
+      // 计算"其他"占比
+      const total = allocData.reduce((s, d) => s + d.value, 0)
+      const other = Math.max(0, 100 - total)
+      if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)) })
+      allocationChart.setOption({
+        tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
+        legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
+        color: ['#3b82f6', '#10b981', '#f59e0b', '#9ca3af'],
+        series: [{
+          type: 'pie', radius: ['40%', '65%'], center: ['50%', '45%'],
+          label: { show: true, formatter: '{b}\n{d}%', fontSize: 11 },
+          data: allocData
+        }]
+      })
+    }
+    // 前十大重仓股饼图
+    if (holdingsChartRef.value && data.stocks?.length) {
+      holdingsChart = echarts.init(holdingsChartRef.value)
+      const stocks = data.stocks
+      const stocksData: { name: string; value: number; itemStyle?: { color: string } }[] = stocks.map(s => ({ name: s.name, value: s.ratio }))
+      // 计算"其他"占比（前十大之外的部分）
+      const topTotal = stocks.reduce((s, st) => s + st.ratio, 0)
+      const rest = Math.max(0, 100 - topTotal)
+      // "其他"使用灰色，避免与股票颜色重复
+      if (rest > 0.01) stocksData.push({ name: '其他', value: parseFloat(rest.toFixed(2)), itemStyle: { color: '#9ca3af' } })
+      holdingsChart.setOption({
+        tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
+        legend: { show: false },
+        color: PIE_COLORS,
+        series: [{
+          type: 'pie', radius: ['40%', '65%'], center: ['50%', '45%'],
+          label: { show: true, formatter: '{b}\n{d}%', fontSize: 10 },
+          data: stocksData
+        }]
+      })
+    }
+  }, 200)
+}
+
+const navRangeOptions = [
+  { label: '近1月', value: '1m', days: 30 },
+  { label: '近3月', value: '3m', days: 90 },
+  { label: '近6月', value: '6m', days: 180 },
+  { label: '近1年', value: '1y', days: 365 },
+  { label: '全部', value: 'all', days: 0 }
+]
+const navRange = ref<string>('all')
 
 const getProductTypeLabel = (type: string) => {
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === type)
@@ -215,53 +379,95 @@ const handleSubmitTransaction = (data: { productId: string; type: string; date: 
   showModal.value = false
 }
 
-const initChart = () => {
-  if (!chartRef.value) return
-  chart = echarts.init(chartRef.value)
-  
-  const navTransactions = transactions.value
+const allNavTransactions = computed(() => 
+  transactions.value
     .filter(t => t.type === 'nav_update')
     .map(t => ({
-      date: new Date(t.date).toISOString().split('T')[0],
+      date: formatDate(t.date),
       nav: t.price
     }))
     .sort((a, b) => a.date.localeCompare(b.date))
+)
+
+const filteredNavTransactions = computed(() => {
+  const opt = navRangeOptions.find(o => o.value === navRange.value)
+  if (!opt || opt.days === 0) return allNavTransactions.value
+  const cutoff = Date.now() - opt.days * 24 * 60 * 60 * 1000
+  const cutoffStr = formatDate(cutoff)
+  return allNavTransactions.value.filter(t => t.date >= cutoffStr)
+})
+
+const updateChart = () => {
+  if (!chart) return
   
-  const navValues = navTransactions.map(t => t.nav)
+  const navData = filteredNavTransactions.value
+  if (navData.length === 0) {
+    chart.clear()
+    return
+  }
+  
+  const navValues = navData.map(t => t.nav)
   const minNav = Math.min(...navValues, position.value?.currentNav || 1)
   const maxNav = Math.max(...navValues, position.value?.currentNav || 1)
   const navRange = maxNav - minNav
   const padding = navRange * 0.1 || 0.02
+
+  // 构建净值日期索引，用于定位买入/卖出点
+  const navDateIndex = new Map<string, number>()
+  navData.forEach((t, i) => navDateIndex.set(t.date, i))
+
+  // 获取买入/卖出交易
+  const buySellTxs = transactions.value.filter(
+    t => (t.type === 'buy' || t.type === 'sell')
+  )
+
+  const markPointData = buySellTxs
+    .map(tx => {
+      const txDate = formatDate(tx.date)
+      const idx = navDateIndex.get(txDate)
+      if (idx === undefined) return null
+      const isBuy = tx.type === 'buy'
+      return {
+        name: isBuy ? '买入' : '卖出',
+        xAxis: idx,
+        yAxis: navValues[idx],
+        symbol: isBuy ? 'triangle' : 'pin',
+        symbolSize: isBuy ? 10 : 12,
+        symbolRotate: isBuy ? 0 : 180,
+        itemStyle: { color: isBuy ? '#ef4444' : '#3b82f6' },
+        label: {
+          show: false
+        }
+      }
+    })
+    .filter(Boolean)
   
-  const chartOption = {
+  chart.setOption({
     tooltip: {
       trigger: 'axis',
       formatter: '{b}<br/>净值: {c}'
     },
     grid: {
-      left: '10%',
-      right: '5%',
-      bottom: '22%',
-      top: '8%',
-      containLabel: false
+      left: 10,
+      right: 10,
+      bottom: 40,
+      top: 10,
+      containLabel: true
     },
     xAxis: {
       type: 'category',
-      data: navTransactions.map(t => {
+      data: navData.map(t => {
         const dateStr = t.date
-        if (dateStr.length === 10 && dateStr.includes('-')) {
-          const parts = dateStr.split('-')
-          return `${parts[1]}/${parts[2]}`
-        }
-        if (dateStr.length === 8) {
-          return `${dateStr.substring(4, 6)}/${dateStr.substring(6, 8)}`
+        // formatDate 返回 YYYY/MM/DD 格式，转为 YY/MM/DD 显示
+        if (dateStr.length === 10 && dateStr.includes('/')) {
+          return dateStr.substring(2)
         }
         return dateStr
       }),
       axisLabel: {
-        rotate: 0,
+        rotate: 45,
         fontSize: 10,
-        interval: 0
+        interval: 'auto'
       },
       axisTick: {
         alignWithLabel: true
@@ -289,39 +495,71 @@ const initChart = () => {
     },
     series: [{
       type: 'line',
-      data: navTransactions.map(t => t.nav),
+      data: navData.map(t => t.nav),
       smooth: true,
       lineStyle: {
-        color: (position.value?.profit ?? 0) >= 0 ? '#10b981' : '#ef4444',
+        color: '#10b981',
         width: 2
       },
       itemStyle: {
-        color: (position.value?.profit ?? 0) >= 0 ? '#10b981' : '#ef4444'
+        color: '#10b981'
       },
       symbol: 'circle',
-      symbolSize: 6
+      symbolSize: navData.length > 60 ? 0 : 6,
+      markPoint: markPointData.length > 0 ? {
+        data: markPointData,
+        tooltip: {
+          formatter: (params: any) => {
+            const date = navData[params.data.xAxis]?.date || ''
+            const nav = params.data.yAxis
+            return `${params.name}<br/>${date}<br/>净值: ${nav}`
+          }
+        }
+      } : undefined
     }]
-  }
-  
-  chart.setOption(chartOption)
+  }, true)
+}
+
+const initChart = () => {
+  if (!chartRef.value) return
+  chart = echarts.init(chartRef.value)
+  updateChart()
 }
 
 const handleResize = () => {
   chart?.resize()
+  allocationChart?.resize()
+  holdingsChart?.resize()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await initFinance()
   if (!product.value) {
     router.push({ name: 'products' })
     return
   }
   initChart()
   window.addEventListener('resize', handleResize)
+  // 基金产品自动加载阶段涨幅和持仓信息
+  if (product.value.type === 'fund' && product.value.code) {
+    handleFetchStageGains()
+    handleFetchHoldings()
+  }
+})
+
+watch([navRange, filteredNavTransactions], () => {
+  updateChart()
+})
+
+watch(holdingsData, () => {
+  renderHoldingsCharts()
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   chart?.dispose()
+  allocationChart?.dispose()
+  holdingsChart?.dispose()
 })
 </script>
 
@@ -364,6 +602,15 @@ onUnmounted(() => {
           <span>{{ fetchingNavHistory ? '查询中...' : '查询近10天净值' }}</span>
         </button>
         <button
+          v-if="product.code && product.type === 'fund'"
+          @click="handleBackfillNav"
+          :disabled="backfillingNav"
+          class="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+        >
+          <History class="w-4 h-4" :class="{ 'animate-spin': backfillingNav }" />
+          <span>{{ backfillingNav ? '补全中...' : '补全历史净值' }}</span>
+        </button>
+        <button
           v-if="product.code"
           @click="handleFetchNav"
           :disabled="fetchingNav"
@@ -376,28 +623,11 @@ onUnmounted(() => {
     </div>
     <p v-if="navFetchError" class="text-sm text-red-600 mt-2">{{ navFetchError }}</p>
     <p v-if="navHistorySuccess" class="text-sm text-green-600 mt-2">{{ navHistorySuccess }}</p>
-    
-    <div v-if="position" class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <p class="text-gray-500 text-sm">累计投入</p>
-        <p class="text-xl font-bold text-gray-800 mt-1">{{ formatCurrency(position.totalInvestment) }}</p>
-      </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <p class="text-gray-500 text-sm">持有份额</p>
-        <p class="text-xl font-bold text-gray-800 mt-1">{{ position.totalShares.toFixed(4) }} 份</p>
-      </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <p class="text-gray-500 text-sm">平均成本</p>
-        <p class="text-xl font-bold text-gray-800 mt-1">{{ formatCurrency(position.avgCost) }}</p>
-      </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <p class="text-gray-500 text-sm">当前净值</p>
-        <p class="text-xl font-bold text-gray-800 mt-1">{{ position.currentNav.toFixed(4) }}</p>
-      </div>
-    </div>
-    
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+
+    <!-- 持仓概览 + 阶段涨幅 并排显示 -->
+    <div :class="product.type === 'fund' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''">
+      <!-- 持仓概览 -->
+      <div v-if="position" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-lg font-semibold text-gray-800">持仓概览</h3>
           <component 
@@ -405,38 +635,199 @@ onUnmounted(() => {
             :class="['w-5 h-5', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']"
           />
         </div>
-        <div class="space-y-4">
-          <div class="flex justify-between">
-            <span class="text-gray-500">持有天数</span>
-            <span class="font-semibold text-gray-800">{{ position?.holdingDays || 0 }} 天</span>
+        <div :class="['grid gap-4', product.type === 'fund' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-5']">
+          <div>
+            <p class="text-xs text-gray-500">持有天数</p>
+            <p class="font-semibold text-gray-800 mt-1">{{ position?.holdingDays || 0 }} 天</p>
           </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">当前市值</span>
-            <span class="font-semibold text-gray-800">{{ formatCurrencyInt(position?.marketValue || 0) }}</span>
+          <div>
+            <p class="text-xs text-gray-500">当前市值</p>
+            <p class="font-semibold text-gray-800 mt-1">{{ formatCurrencyInt(position?.marketValue || 0) }}</p>
           </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">盈亏金额</span>
-            <span :class="['font-semibold', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+          <div>
+            <p class="text-xs text-gray-500">盈亏金额</p>
+            <p :class="['font-semibold mt-1', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatCurrency(position?.profit || 0) }}
-            </span>
+            </p>
           </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">收益率</span>
-            <span :class="['font-semibold', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+          <div>
+            <p class="text-xs text-gray-500">收益率</p>
+            <p :class="['font-semibold mt-1', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.profitRate || 0) }}
-            </span>
+            </p>
           </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">年化收益率</span>
-            <span :class="['font-semibold', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+          <div v-if="product.type !== 'fund'">
+            <p class="text-xs text-gray-500">年化收益率</p>
+            <p :class="['font-semibold mt-1', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.annualRate || 0) }}
-            </span>
+            </p>
           </div>
         </div>
       </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col min-h-[250px] md:min-h-[320px]">
-        <h3 class="text-lg font-semibold text-gray-800 mb-3">净值走势</h3>
-        <div ref="chartRef" class="flex-1 min-h-0"></div>
+
+      <!-- 阶段涨幅 (仅基金产品显示) -->
+      <div v-if="product.type === 'fund' && stageGains" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-gray-800">阶段涨幅</h3>
+          <button
+            @click="handleFetchStageGains"
+            :disabled="fetchingStageGains"
+            class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+          >
+            <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingStageGains }" />
+            <span>{{ fetchingStageGains ? '刷新中...' : '刷新' }}</span>
+          </button>
+        </div>
+        <div class="grid grid-cols-4 md:grid-cols-4 gap-3">
+          <div v-if="stageGains['1w'] !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">近1周</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['1w'] >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains['1w'] >= 0 ? '+' : '' }}{{ stageGains['1w'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="stageGains['1m'] !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">近1月</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['1m'] >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains['1m'] >= 0 ? '+' : '' }}{{ stageGains['1m'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="stageGains['3m'] !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">近3月</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['3m'] >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains['3m'] >= 0 ? '+' : '' }}{{ stageGains['3m'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="stageGains['6m'] !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">近6月</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['6m'] >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains['6m'] >= 0 ? '+' : '' }}{{ stageGains['6m'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="stageGains['1y'] !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">近1年</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['1y'] >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains['1y'] >= 0 ? '+' : '' }}{{ stageGains['1y'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="stageGains['2y'] !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">近2年</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['2y'] >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains['2y'] >= 0 ? '+' : '' }}{{ stageGains['2y'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="stageGains['3y'] !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">近3年</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['3y'] >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains['3y'] >= 0 ? '+' : '' }}{{ stageGains['3y'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="stageGains.ytd !== undefined" class="text-center">
+            <p class="text-xs text-gray-500">今年来</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains.ytd >= 0 ? 'text-red-600' : 'text-green-600'">
+              {{ stageGains.ytd >= 0 ? '+' : '' }}{{ stageGains.ytd.toFixed(2) }}%
+            </p>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="product.type === 'fund' && !stageGains && !fetchingStageGains" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-gray-800">阶段涨幅</h3>
+          <button
+            @click="handleFetchStageGains"
+            :disabled="fetchingStageGains"
+            class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+          >
+            <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingStageGains }" />
+            <span>加载</span>
+          </button>
+        </div>
+        <p class="text-sm text-gray-500 mt-2">点击加载查看基金阶段涨幅数据</p>
+      </div>
+      <div v-else-if="product.type === 'fund' && fetchingStageGains" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">阶段涨幅</h3>
+        <p class="text-sm text-gray-500">加载中...</p>
+      </div>
+    </div>
+    
+    <!-- 持仓信息 + 净值走势 并排显示 -->
+    <div :class="product.type === 'fund' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch' : ''">
+      <!-- 持仓信息 (仅基金产品显示) -->
+      <div v-if="product.type === 'fund' && holdingsData" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-lg font-semibold text-gray-800">持仓信息</h3>
+          <div class="flex items-center space-x-3">
+            <span v-if="holdingsData.reportDate" class="text-xs text-gray-400">截止 {{ holdingsData.reportDate }}</span>
+            <button
+              @click="handleFetchHoldings"
+              :disabled="fetchingHoldings"
+              class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+            >
+              <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingHoldings }" />
+              <span>{{ fetchingHoldings ? '刷新中...' : '刷新' }}</span>
+            </button>
+          </div>
+        </div>
+        <p v-if="holdingsData.dataSource" class="text-xs text-orange-500 mb-3">ℹ️ {{ holdingsData.dataSource }}</p>
+
+        <!-- 净资产规模 -->
+        <div v-if="holdingsData.assetAllocation?.netAsset" class="text-xs text-gray-500 mb-3">
+          净资产规模：<span class="font-semibold text-gray-700">{{ holdingsData.assetAllocation.netAsset.toFixed(2) }} 亿元</span>
+        </div>
+
+        <!-- 两个饼图左右并排显示 -->
+        <div class="flex flex-row">
+          <!-- 资产配置饼图（左侧） -->
+          <div class="w-1/2 min-w-0">
+            <h4 class="text-sm font-medium text-gray-600 mb-2 text-center">资产配置</h4>
+            <div ref="allocationChartRef" class="w-full" style="height: 220px;"></div>
+          </div>
+          <!-- 前十大重仓股饼图（右侧） -->
+          <div v-if="holdingsData.stocks && holdingsData.stocks.length > 0" class="w-1/2 min-w-0">
+            <h4 class="text-sm font-medium text-gray-600 mb-2 text-center">前十大重仓股</h4>
+            <div ref="holdingsChartRef" class="w-full" style="height: 220px;"></div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="product.type === 'fund' && !holdingsData && !fetchingHoldings" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-gray-800">持仓信息</h3>
+          <button
+            @click="handleFetchHoldings"
+            :disabled="fetchingHoldings"
+            class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+          >
+            <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingHoldings }" />
+            <span>加载</span>
+          </button>
+        </div>
+        <p class="text-sm text-gray-500 mt-2">点击加载查看基金持仓信息</p>
+      </div>
+      <div v-else-if="product.type === 'fund' && fetchingHoldings && !holdingsData" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">持仓信息</h3>
+        <p class="text-sm text-gray-500">加载中...</p>
+      </div>
+      
+      <!-- 净值走势 -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col min-h-[300px] md:min-h-[400px]">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-lg font-semibold text-gray-800">净值走势</h3>
+          <div class="flex items-center space-x-1 bg-gray-100 rounded-lg p-0.5">
+            <button
+              v-for="opt in navRangeOptions"
+              :key="opt.value"
+              @click="navRange = opt.value"
+              :class="[
+                'px-2.5 py-1 text-xs rounded-md transition-colors',
+                navRange === opt.value
+                  ? 'bg-white text-gray-800 shadow-sm font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+        <div ref="chartRef" class="flex-1 min-h-0 w-full"></div>
       </div>
     </div>
     
@@ -456,18 +847,30 @@ onUnmounted(() => {
         <table class="w-full">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">日期</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">类型</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">金额</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">单价/净值</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">份额</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">手续费</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none" @click="handleTxSort('date')">
+                <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-4 h-4" :class="txSortKey === 'date' ? 'text-primary-600' : ''" /></div>
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none" @click="handleTxSort('type')">
+                <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-4 h-4" :class="txSortKey === 'type' ? 'text-primary-600' : ''" /></div>
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none" @click="handleTxSort('amount')">
+                <div class="flex items-center space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-4 h-4" :class="txSortKey === 'amount' ? 'text-primary-600' : ''" /></div>
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none" @click="handleTxSort('price')">
+                <div class="flex items-center space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-4 h-4" :class="txSortKey === 'price' ? 'text-primary-600' : ''" /></div>
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none" @click="handleTxSort('shares')">
+                <div class="flex items-center space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-4 h-4" :class="txSortKey === 'shares' ? 'text-primary-600' : ''" /></div>
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none" @click="handleTxSort('fee')">
+                <div class="flex items-center space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-4 h-4" :class="txSortKey === 'fee' ? 'text-primary-600' : ''" /></div>
+              </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">备注</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <tr v-for="transaction in transactions" :key="transaction.id" class="hover:bg-gray-50">
+            <tr v-for="transaction in sortedTransactions" :key="transaction.id" class="hover:bg-gray-50">
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{{ formatDate(transaction.date) }}</td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <span 

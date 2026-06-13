@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import type { Product, Transaction, Position, PortfolioSummary, ProductType, TransactionType } from '@/types';
-import { getProducts, saveProducts, getTransactions, saveTransactions, generateId } from '@/utils/storage';
+import { getProducts, saveProducts, getTransactions, saveTransactions, generateId, addTransactionToServer, updateTransactionOnServer, deleteTransactionFromServer } from '@/utils/storage';
 import { calculateXIRR } from '@/utils/xirr';
 export const PRODUCT_TYPE_OPTIONS: {
  value: ProductType;
@@ -8,11 +8,7 @@ export const PRODUCT_TYPE_OPTIONS: {
  color: string;
 }[] = [
  { value: 'fund', label: '基金', color: '#3b82f6' },
- { value: 'stock', label: '股票', color: '#ef4444' },
- { value: 'bond', label: '债券', color: '#10b981' },
- { value: 'deposit', label: '存款', color: '#f59e0b' },
- { value: 'fixed_income', label: '固收理财', color: '#8b5cf6' },
- { value: 'other', label: '其他', color: '#6b7280' }
+ { value: 'fixed_income', label: '固收理财', color: '#8b5cf6' }
 ];
 export const TRANSACTION_TYPE_OPTIONS: {
  value: TransactionType;
@@ -27,7 +23,11 @@ export const TRANSACTION_TYPE_OPTIONS: {
 const products = ref<Product[]>([]);
 const transactions = ref<Transaction[]>([]);
 const isLoading = ref(false);
-export async function initFinance() {
+let initPromise: Promise<void> | null = null;
+
+async function ensureDataLoaded() {
+ if (products.value.length === 0 && transactions.value.length === 0 && !initPromise) {
+ initPromise = (async () => {
  isLoading.value = true;
  try {
  products.value = await getProducts();
@@ -35,8 +35,18 @@ export async function initFinance() {
  } finally {
  isLoading.value = false;
  }
+ })();
+ }
+ if (initPromise) await initPromise;
+}
+
+export async function initFinance() {
+ await ensureDataLoaded();
 }
 export function useFinance() {
+ // 自动初始化：首次调用时若数据为空则加载
+ ensureDataLoaded();
+
  const refresh = async () => {
  products.value = await getProducts();
  transactions.value = await getTransactions();
@@ -70,10 +80,13 @@ export function useFinance() {
  }
  };
  const deleteProduct = async (id: string) => {
+ const txsToDelete = transactions.value.filter(t => t.productId === id);
  products.value = products.value.filter(p => p.id !== id);
  transactions.value = transactions.value.filter(t => t.productId !== id);
  await saveProducts(products.value);
- await saveTransactions(transactions.value);
+ for (const tx of txsToDelete) {
+ await deleteTransactionFromServer(tx.id).catch(() => {});
+ }
  };
  const addTransaction = async (productId: string, type: TransactionType, date: number, amount: number, price: number, shares: number, fee: number = 0, note: string = '') => {
  const transaction: Transaction = {
@@ -88,7 +101,7 @@ export function useFinance() {
  note
  };
  transactions.value.push(transaction);
- await saveTransactions(transactions.value);
+ await addTransactionToServer(transaction);
  return transaction;
  };
  const updateTransaction = async (id: string, productId: string, type: TransactionType, date: number, amount: number, price: number, shares: number, fee: number = 0, note: string = '') => {
@@ -105,12 +118,12 @@ export function useFinance() {
  fee,
  note
  };
- await saveTransactions(transactions.value);
+ await updateTransactionOnServer(transactions.value[index]);
  }
  };
  const deleteTransaction = async (id: string) => {
  transactions.value = transactions.value.filter(t => t.id !== id);
- await saveTransactions(transactions.value);
+ await deleteTransactionFromServer(id);
  };
  const getProductById = (id: string): Product | undefined => {
  return products.value.find(p => p.id === id);

@@ -7,6 +7,7 @@ import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 const props = defineProps<{
   visible: boolean
   editProduct?: Product | null
+  defaultType?: ProductType
 }>()
 
 const emit = defineEmits<{
@@ -29,7 +30,7 @@ watch(() => props.visible, (val) => {
     holder.value = props.editProduct.holder || ''
   } else if (val) {
     name.value = ''
-    type.value = 'fund'
+    type.value = props.defaultType || 'fund'
     code.value = ''
     note.value = ''
     holder.value = ''
@@ -75,7 +76,7 @@ const handleSubmit = () => {
               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
             />
           </div>
-          <div>
+          <div v-if="!props.defaultType">
             <label class="block text-sm font-medium text-gray-700 mb-2">产品类型</label>
             <select 
               v-model="type"

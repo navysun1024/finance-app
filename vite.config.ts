@@ -56,6 +56,10 @@ export default defineConfig({
         target: 'http://localhost:3002',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/db/, '')
+      },
+      '/api/nav-scheduler': {
+        target: 'http://localhost:3002',
+        changeOrigin: true
       }
     }
   }

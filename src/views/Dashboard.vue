@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Wallet, TrendingUp, PieChart, RefreshCw } from 'lucide-vue-next'
 import { getAutoUpdateEnabled } from '@/utils/storage'
 import StatCard from '@/components/StatCard.vue'
 import ProductCard from '@/components/ProductCard.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
+import { calculateXIRR } from '@/utils/xirr'
 import { formatCurrency, formatCurrencyInt, formatPercent, getDateOnly } from '@/utils/format'
 import { fetchFundNav, fetchCmbNav } from '@/utils/fundApi'
 import * as echarts from 'echarts'
 
-const { portfolioSummary, getProfitHistory, products, getTransactionsByProductId, addTransaction, refresh } = useFinance()
+const { portfolioSummary, calculatePosition, getProfitHistory, products, transactions, getTransactionsByProductId, addTransaction, refresh } = useFinance()
 
 const typeChartRefs = ref<Record<string, HTMLDivElement>>({})
 const trendChartRefs = ref<Record<string, HTMLDivElement>>({})
@@ -31,8 +32,50 @@ const positionsByType = computed(() => {
     .map(opt => ({ type: opt.value, label: opt.label, color: opt.color, positions: map.get(opt.value)! }))
 })
 
+// 按产品类型分组的统计汇总
+const summaryByType = computed(() => {
+  return positionsByType.value.map(group => {
+    const totalAssets = group.positions.reduce((sum, p) => sum + p.marketValue, 0)
+    const totalInvestment = group.positions.reduce((sum, p) => sum + p.totalInvestment, 0)
+    const totalProfit = group.positions.reduce((sum, p) => sum + p.profit, 0)
+    const totalProfitRate = totalInvestment > 0 ? (totalProfit / totalInvestment) * 100 : 0
+    
+    // 使用 XIRR 计算该类型所有产品的综合年化收益率
+    const productIds = new Set(group.positions.map(p => p.product.id))
+    const typeTransactions = transactions.value.filter(t => productIds.has(t.productId))
+    const buyTxs = typeTransactions.filter(t => t.type === 'buy').map(t => ({
+      date: t.date, amount: t.amount, fee: t.fee
+    }))
+    const sellTxs = typeTransactions.filter(t => t.type === 'sell').map(t => ({
+      date: t.date, amount: t.amount
+    }))
+    const dividendTxs = typeTransactions.filter(t => t.type === 'dividend').map(t => ({
+      date: t.date, amount: t.amount
+    }))
+    const annualRate = calculateXIRR(buyTxs, sellTxs, dividendTxs, totalAssets) * 100
+    
+    return {
+      ...group,
+      totalAssets,
+      totalInvestment,
+      totalProfit,
+      totalProfitRate,
+      annualRate
+    }
+  })
+})
+
 const updatingNavs = ref(false)
 const updateStatus = ref('')
+
+const trendRangeOptions = [
+  { label: '近1月', value: '1m', days: 30 },
+  { label: '近3月', value: '3m', days: 90 },
+  { label: '近6月', value: '6m', days: 180 },
+  { label: '近1年', value: '1y', days: 365 },
+  { label: '全部', value: 'all', days: 0 }
+]
+const trendRanges = ref<Record<string, string>>({})
 
 const autoUpdateNavs = async () => {
   const todayTimestamp = getDateOnly(Date.now())
@@ -80,9 +123,8 @@ const autoUpdateNavs = async () => {
       }
       
       const sourceLabel = product.type === 'fund' ? '天天基金' : '招银理财'
-      const navNote = result.date
-        ? `${sourceLabel}自动查询 - 净值日期 ${result.date}`
-        : `${sourceLabel}自动查询`
+      const updateTime = new Date().toLocaleString('zh-CN')
+      const navNote = `${sourceLabel}自动查询 - ${updateTime}`
       
       const txs = getTransactionsByProductId(product.id)
       if (!txs.some(t => t.type === 'nav_update' && getDateOnly(t.date) === dateTimestamp)) {
@@ -155,9 +197,11 @@ const updateTypeBarChart = (type: string, _typeLabel: string, _color: string, po
   const chart = typeCharts.get(type)
   if (!chart) return
 
-  const colorMap = buildProductColorMap(positions)
-  const typeTotal = positions.reduce((sum, p) => sum + p.marketValue, 0)
-  const data = positions
+  // 过滤掉持仓金额小于200元的产品
+  const filtered = positions.filter(p => p.marketValue >= 200)
+  const colorMap = buildProductColorMap(filtered)
+  const typeTotal = filtered.reduce((sum, p) => sum + p.marketValue, 0)
+  const data = filtered
     .map((p) => ({ name: p.product.name, value: p.marketValue, color: colorMap.get(p.product.name)! }))
     .sort((a, b) => a.value - b.value) // 升序排列，金额最大的显示在最上方
 
@@ -220,18 +264,25 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
   const chart = trendCharts.get(type)
   if (!chart) return
 
-  const history = getProfitHistory(30)
-  const dates = history.map(h => h.date)
+  const rangeValue = trendRanges.value[type] || '1m'
+  const opt = trendRangeOptions.find(o => o.value === rangeValue)
+  const days = opt ? opt.days : 30
+  const history = days > 0 ? getProfitHistory(days) : getProfitHistory(3650)
+  const dates = history.map(h => {
+      const parts = h.date.split('-')
+      return `${parts[0].substring(2)}/${parts[1]}/${parts[2]}`
+    })
 
-  // 只保留该类型下的产品
+  // 过滤掉持仓金额小于200元的产品
+  const filteredPositions = positions.filter(p => p.marketValue >= 200)
   const productNames: string[] = []
-  for (const pos of positions) {
+  for (const pos of filteredPositions) {
     if (!productNames.includes(pos.product.name)) {
       productNames.push(pos.product.name)
     }
   }
 
-  const colorMap = buildProductColorMap(positions)
+  const colorMap = buildProductColorMap(filteredPositions)
 
   const series = productNames.map((name) => {
     const productColor = colorMap.get(name) || PRODUCT_COLORS[0]
@@ -267,18 +318,18 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
     },
     legend: {
       data: productNames,
-      orient: 'vertical',
-      right: 0,
-      top: 'middle',
+      orient: 'horizontal',
+      bottom: 0,
+      left: 'center',
       itemWidth: 10,
       itemHeight: 8,
-      textStyle: { fontSize: 9, width: 96, overflow: 'truncate' },
+      textStyle: { fontSize: 10 },
       show: productNames.length > 1
     },
     grid: {
       left: 5,
-      right: productNames.length > 1 ? 120 : 10,
-      bottom: 40,
+      right: 10,
+      bottom: productNames.length > 1 ? 65 : 40,
       top: 5,
       containLabel: true
     },
@@ -299,6 +350,16 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
     series
   })
 }
+
+const updateAllTrendCharts = () => {
+  for (const group of positionsByType.value) {
+    updateTypeTrendChart(group.type, group.label, group.color, group.positions)
+  }
+}
+
+watch(trendRanges, () => {
+  updateAllTrendCharts()
+}, { deep: true })
 
 const handleResize = () => {
   for (const chart of typeCharts.values()) chart.resize()
@@ -326,33 +387,40 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-6">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard 
-        title="总资产" 
-        :value="formatCurrencyInt(portfolioSummary.totalAssets)" 
-        :icon="Wallet" 
-        color="blue"
-      />
-      <StatCard 
-        title="累计投入" 
-        :value="formatCurrency(portfolioSummary.totalInvestment)" 
-        :icon="RefreshCw" 
-        color="yellow"
-      />
-      <StatCard 
-        title="总盈亏" 
-        :value="formatCurrency(portfolioSummary.totalProfit)" 
-        :change="portfolioSummary.totalProfitRate"
-        :icon="TrendingUp" 
-        :color="portfolioSummary.totalProfit >= 0 ? 'green' : 'red'"
-      />
-      <StatCard 
-        title="年化收益率" 
-        :value="formatPercent(portfolioSummary.totalAnnualRate)" 
-        :change="portfolioSummary.totalAnnualRate"
-        :icon="PieChart" 
-        :color="portfolioSummary.totalAnnualRate >= 0 ? 'green' : 'red'"
-      />
+    <!-- 按产品类型分组的统计卡片 -->
+    <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-3">
+      <div class="flex items-center space-x-2">
+        <span class="w-3 h-3 rounded-full" :style="{ backgroundColor: group.color }"></span>
+        <h3 class="text-base font-semibold text-gray-700">{{ group.label }}</h3>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard 
+          title="总资产" 
+          :value="formatCurrencyInt(group.totalAssets)" 
+          :icon="Wallet" 
+          color="blue"
+        />
+        <StatCard 
+          title="累计投入" 
+          :value="formatCurrency(group.totalInvestment)" 
+          :icon="RefreshCw" 
+          color="yellow"
+        />
+        <StatCard 
+          title="总盈亏" 
+          :value="formatCurrency(group.totalProfit)" 
+          :change="group.totalProfitRate"
+          :icon="TrendingUp" 
+          :color="group.totalProfit >= 0 ? 'green' : 'red'"
+        />
+        <StatCard 
+          title="年化收益率" 
+          :value="formatPercent(group.annualRate)" 
+          :change="group.annualRate"
+          :icon="PieChart" 
+          :color="group.annualRate >= 0 ? 'green' : 'red'"
+        />
+      </div>
     </div>
     
     <div v-if="updatingNavs" class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center space-x-3">
@@ -377,9 +445,26 @@ onUnmounted(() => {
     <!-- 收益趋势图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div v-for="group in positionsByType" :key="group.type + '-trend'" class="bg-white rounded-xl shadow-sm border border-gray-100 pt-5 px-5 pb-3">
-        <div class="flex items-center mb-4">
-          <span class="w-3 h-3 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
-          <h3 class="text-lg font-semibold text-gray-800">{{ group.label }}收益趋势 (近30天)</h3>
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="w-3 h-3 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
+            <h3 class="text-lg font-semibold text-gray-800">{{ group.label }}收益趋势</h3>
+          </div>
+          <div class="flex items-center space-x-1 bg-gray-100 rounded-lg p-0.5">
+            <button
+              v-for="opt in trendRangeOptions"
+              :key="opt.value"
+              @click="trendRanges[group.type] = opt.value"
+              :class="[
+                'px-2.5 py-1 text-xs rounded-md transition-colors',
+                (trendRanges[group.type] || '1m') === opt.value
+                  ? 'bg-white text-gray-800 shadow-sm font-medium'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
         </div>
         <div :ref="setTrendChartRef(group.type)" class="h-72 md:h-80"></div>
       </div>

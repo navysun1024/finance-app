@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router'
-import { LayoutDashboard, PlusCircle, FolderOpen, Settings } from 'lucide-vue-next'
+import { LayoutDashboard, PlusCircle, TrendingUp, DollarSign, Settings } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
@@ -8,7 +8,8 @@ const route = useRoute()
 const navItems = [
   { name: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
   { name: 'transactions', label: '交易记账', icon: PlusCircle },
-  { name: 'products', label: '产品列表', icon: FolderOpen },
+  { name: 'funds', label: '基金', icon: TrendingUp },
+  { name: 'fixed-income', label: '固收理财', icon: DollarSign },
   { name: 'settings', label: '设置', icon: Settings }
 ]
 
@@ -20,7 +21,7 @@ const isActive = (name: string) => route.name === name
     <div class="container mx-auto px-4">
       <div class="flex items-center justify-between h-16">
         <div class="flex items-center space-x-8">
-          <h1 class="text-xl font-bold text-primary-600">理财收益统计</h1>
+          <h1 class="text-xl font-bold text-primary-600">AssetPulse</h1>
           <div class="flex items-center space-x-1">
             <button
               v-for="item in navItems"
