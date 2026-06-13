@@ -1,0 +1,21 @@
+services:
+  finance-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance-app
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      # 持久化数据库（容器重建不丢数据）
+      - finance-data:/app/data
+      # 持久化日志（方便查看）
+      - finance-logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+      - NODE_ENV=production
+
+volumes:
+  finance-data:
+  finance-logs:

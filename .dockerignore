@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.gitignore
+.DS_Store
+*.db
+logs
+*.zip
+.qoder
+.trae
+CODE_WIKI.md
+test_full_import.mjs
