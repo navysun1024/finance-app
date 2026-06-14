@@ -3,10 +3,10 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { Plus, Edit2, Trash2, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
 import { useFinance } from '@/composables/useFinance'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import type { ProductType } from '@/types'
-import { formatDate, formatCurrency } from '@/utils/format'
-import { fetchFundStageGains, fetchFundStageGainsBatch, fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchAggregatedHoldings, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
+import { formatCurrency } from '@/utils/format'
+import { fetchFundStageGainsBatch, fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchAggregatedHoldings, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
 
 const props = defineProps<{
   type?: ProductType
@@ -14,7 +14,6 @@ const props = defineProps<{
 
 const { products, addProduct, updateProduct, deleteProduct, calculatePosition, PRODUCT_TYPE_OPTIONS } = useFinance()
 const router = useRouter()
-const route = useRoute()
 
 const showModal = ref(false)
 const editingProduct = ref<typeof products.value[0] | null>(null)

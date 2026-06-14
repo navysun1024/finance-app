@@ -8,7 +8,7 @@ import { formatCurrency, formatDate } from '@/utils/format'
 import { batchImport, type BatchImportResult } from '@/utils/storage'
 import type { TransactionType, Transaction } from '@/types'
 
-const { products, transactions, addProduct, addTransaction, updateTransaction, deleteTransaction, refresh, TRANSACTION_TYPE_OPTIONS } = useFinance()
+const { products, transactions, addTransaction, updateTransaction, deleteTransaction, refresh, TRANSACTION_TYPE_OPTIONS } = useFinance()
 
 const showModal = ref(false)
 const showBatchImport = ref(false)

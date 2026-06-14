@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import type { Product, Transaction, Position, PortfolioSummary, ProductType, TransactionType } from '@/types';
-import { getProducts, saveProducts, getTransactions, saveTransactions, generateId, addTransactionToServer, updateTransactionOnServer, deleteTransactionFromServer } from '@/utils/storage';
+import { getProducts, saveProducts, getTransactions, generateId, addTransactionToServer, updateTransactionOnServer, deleteTransactionFromServer } from '@/utils/storage';
 import { calculateXIRR } from '@/utils/xirr';
 export const PRODUCT_TYPE_OPTIONS: {
  value: ProductType;
