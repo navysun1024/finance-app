@@ -101,6 +101,9 @@ const setTrendChartRef = (type: string) => (el: any) => {
   if (el) trendChartRefs.value[type] = el as HTMLDivElement
 }
 
+// 判断是否为移动端（屏幕宽度 < 640px）
+const isMobile = () => window.innerWidth < 640
+
 // 产品颜色调色板（分布图与收益趋势图共用，同一产品颜色一致）
 const PRODUCT_COLORS = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4']
 
@@ -129,6 +132,8 @@ const updateTypeBarChart = (type: string, _typeLabel: string, _color: string, po
     .map((p) => ({ name: p.product.name, value: p.marketValue, color: colorMap.get(p.product.name)! }))
     .sort((a, b) => a.value - b.value) // 升序排列，金额最大的显示在最上方
 
+  const mobile = isMobile()
+
   chart.setOption({
     tooltip: {
       trigger: 'axis',
@@ -140,10 +145,10 @@ const updateTypeBarChart = (type: string, _typeLabel: string, _color: string, po
       }
     },
     grid: {
-      left: 10,
-      right: 70,
-      top: 10,
-      bottom: 10,
+      left: mobile ? 8 : 10,
+      right: mobile ? 50 : 70,
+      top: mobile ? 5 : 10,
+      bottom: mobile ? 8 : 10,
       containLabel: true
     },
     xAxis: {
@@ -153,30 +158,34 @@ const updateTypeBarChart = (type: string, _typeLabel: string, _color: string, po
           if (value >= 10000) return (value / 10000).toFixed(1) + '万'
           return value.toString()
         },
-        fontSize: 10
+        fontSize: mobile ? 9 : 10
       }
     },
     yAxis: {
       type: 'category',
       data: data.map(d => d.name),
       axisLabel: {
-        fontSize: 11,
-        width: 80,
+        fontSize: mobile ? 10 : 11,
+        width: mobile ? 60 : 80,
         overflow: 'truncate'
       }
     },
     series: [{
       type: 'bar',
       data: data.map(d => ({ name: d.name, value: d.value, itemStyle: { color: d.color } })),
-      barMaxWidth: 28,
+      barMaxWidth: mobile ? 20 : 28,
+      barCategoryGap: mobile ? '40%' : '20%',
       label: {
         show: true,
         position: 'right',
         formatter: (params: any) => {
+          if (mobile) {
+            return `${formatCurrencyInt(params.value)}`
+          }
           const pct = typeTotal > 0 ? ((params.value / typeTotal) * 100).toFixed(1) : '0'
           return `${formatCurrencyInt(params.value)}元 (${pct}%)`
         },
-        fontSize: 11,
+        fontSize: mobile ? 9 : 11,
         fontWeight: 'bold',
         color: '#374151'
       }
@@ -223,6 +232,8 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
     }
   })
 
+const mobile = isMobile()
+
   chart.setOption({
     tooltip: {
       trigger: 'axis',
@@ -245,26 +256,28 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
       orient: 'horizontal',
       bottom: 0,
       left: 'center',
-      itemWidth: 10,
-      itemHeight: 8,
-      textStyle: { fontSize: 10 },
+      itemWidth: 6,
+      itemHeight: 6,
+      textStyle: { fontSize: mobile ? 8 : 10 },
+      formatter: (name: string) => name.substring(0, Math.ceil(name.length * 0.7)),
       show: productNames.length > 1
     },
     grid: {
-      left: 5,
-      right: 10,
-      bottom: productNames.length > 1 ? 65 : 40,
-      top: 5,
+      left: mobile ? 3 : 5,
+      right: mobile ? 5 : 10,
+      bottom: productNames.length > 1 ? (mobile ? 80 : 65) : (mobile ? 40 : 40),
+      top: mobile ? 3 : 5,
       containLabel: true
     },
     xAxis: {
       type: 'category',
       data: dates,
-      axisLabel: { rotate: 40, fontSize: 10 }
+      axisLabel: { rotate: 45, fontSize: mobile ? 8 : 10 }
     },
     yAxis: {
       type: 'value',
       axisLabel: {
+        fontSize: mobile ? 9 : 10,
         formatter: (value: number) => {
           if (Math.abs(value) >= 10000) return (value / 10000).toFixed(1) + '万'
           return value.toString()
@@ -307,14 +320,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-5">
     <!-- 按产品类型分组的统计卡片 -->
-    <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-3">
+    <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-2">
       <div class="flex items-center space-x-2">
         <span class="w-3 h-3 rounded-full shadow-lg" :style="{ backgroundColor: group.color }"></span>
         <h3 class="text-base font-semibold text-white drop-shadow-sm">{{ group.label }}</h3>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard 
           title="总资产" 
           :value="formatCurrencyInt(group.totalAssets)" 
@@ -345,26 +358,26 @@ onUnmounted(() => {
     </div>
     
     <!-- 资产分布图 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div v-for="group in positionsByType" :key="group.type + '-dist'" class="glass-card rounded-2xl pt-5 px-5 pb-3 hover:bg-white/80 transition-all duration-300">
-        <div class="flex items-center mb-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div v-for="group in positionsByType" :key="group.type + '-dist'" class="glass-card rounded-2xl pt-4 px-4 pb-2 hover:bg-white/80 transition-all duration-300">
+        <div class="flex items-center mb-3">
           <span class="w-3 h-3 rounded-full mr-2 shadow-lg" :style="{ backgroundColor: group.color }"></span>
-          <h3 class="text-lg font-semibold text-gray-800">{{ group.label }}分布</h3>
-          <span class="ml-auto text-sm text-gray-500">
+          <h3 class="text-base font-semibold text-gray-800">{{ group.label }}分布</h3>
+          <span class="ml-auto text-xs text-gray-500">
             合计 {{ formatCurrencyInt(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}元
           </span>
         </div>
-        <div :ref="setChartRef(group.type)" class="h-56 md:h-64"></div>
+        <div :ref="setChartRef(group.type)" class="h-52 sm:h-48 md:h-56"></div>
       </div>
     </div>
 
     <!-- 收益趋势图 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div v-for="group in positionsByType" :key="group.type + '-trend'" class="glass-card rounded-2xl pt-5 px-5 pb-3 hover:bg-white/80 transition-all duration-300">
-        <div class="flex items-center justify-between mb-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div v-for="group in positionsByType" :key="group.type + '-trend'" class="glass-card rounded-2xl pt-4 px-4 pb-2 hover:bg-white/80 transition-all duration-300">
+        <div class="flex items-center justify-between mb-3">
           <div class="flex items-center">
             <span class="w-3 h-3 rounded-full mr-2 shadow-lg" :style="{ backgroundColor: group.color }"></span>
-            <h3 class="text-lg font-semibold text-gray-800">{{ group.label }}收益趋势</h3>
+            <h3 class="text-base font-semibold text-gray-800">{{ group.label }}收益趋势</h3>
           </div>
           <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
             <button
@@ -372,7 +385,7 @@ onUnmounted(() => {
               :key="opt.value"
               @click="trendRanges[group.type] = opt.value"
               :class="[
-                'px-2.5 py-1 text-xs rounded-lg transition-all duration-300',
+                'px-2 py-0.5 text-xs rounded-lg transition-all duration-300',
                 (trendRanges[group.type] || '1m') === opt.value
                   ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
                   : 'text-gray-500 hover:text-gray-700'
@@ -382,12 +395,12 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
-        <div :ref="setTrendChartRef(group.type)" class="h-72 md:h-80"></div>
+        <div :ref="setTrendChartRef(group.type)" class="h-48 sm:h-56 md:h-64"></div>
       </div>
     </div>
     
     <div>
-      <h3 class="text-lg font-semibold text-white drop-shadow-sm mb-4">持仓明细</h3>
+      <h3 class="text-base sm:text-lg font-semibold text-white drop-shadow-sm mb-3 sm:mb-4">持仓明细</h3>
       <div v-if="portfolioSummary.positions.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <ProductCard 
           v-for="position in portfolioSummary.positions" 
@@ -395,9 +408,9 @@ onUnmounted(() => {
           :position="position" 
         />
       </div>
-      <div v-else class="glass-card rounded-2xl p-8 text-center">
-        <p class="text-gray-600">暂无持仓数据</p>
-        <p class="text-gray-500 text-sm mt-2">请先添加理财产品和交易记录</p>
+      <div v-else class="glass-card rounded-2xl p-6 sm:p-8 text-center">
+        <p class="text-gray-600 text-sm sm:text-base">暂无持仓数据</p>
+        <p class="text-gray-500 text-xs sm:text-sm mt-2">请先添加理财产品和交易记录</p>
       </div>
     </div>
   </div>

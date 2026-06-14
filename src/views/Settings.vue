@@ -319,10 +319,10 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     <div class="glass-card rounded-2xl p-6">
       <h3 class="font-semibold text-gray-800 mb-2">应用信息</h3>
       <div class="text-gray-500 text-sm space-y-2">
-        <p>版本号: <span class="font-mono text-indigo-600">v1.0.1</span></p>
+        <p>版本号: <span class="font-mono text-indigo-600">v1.0.2</span></p>
         <p>技术栈: Vue 3 + Vite + TailwindCSS + ECharts</p>
         <div class="mt-3 pt-3 border-t border-gray-200/50">
-          <p class="font-semibold text-gray-700 mb-2">v1.0.1 版本变更 (2026-06-12)</p>
+          <p class="font-semibold text-gray-700 mb-2">v1.0.2 版本变更 (2026-06-12)</p>
           <ul class="list-disc list-inside space-y-1 text-gray-500">
             <li>表格视觉优化：表头加深、行高紧凑、内容强制不换行</li>
             <li>移动端导航栏移至底部，修复顶部空白问题</li>

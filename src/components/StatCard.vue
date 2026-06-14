@@ -19,17 +19,17 @@ const bgColorClasses = {
 </script>
 
 <template>
-  <div class="glass-card rounded-2xl p-6 hover:bg-white/80 transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5">
+  <div class="glass-card rounded-2xl p-3 sm:p-4 hover:bg-white/80 transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5">
     <div class="flex items-start justify-between">
       <div>
-        <p class="text-gray-500 text-sm mb-2">{{ title }}</p>
-        <p class="text-2xl font-bold text-gray-800">{{ value }}</p>
-        <p v-if="change !== undefined" :class="['text-sm mt-1 font-medium', change >= 0 ? 'text-profit' : 'text-loss']">
+        <p class="text-gray-500 text-xs mb-1">{{ title }}</p>
+        <p class="text-xl font-bold text-gray-800">{{ value }}</p>
+        <p v-if="change !== undefined" :class="['text-xs mt-0.5 font-medium', change >= 0 ? 'text-profit' : 'text-loss']">
           {{ change >= 0 ? '+' : '' }}{{ change.toFixed(2) }}%
         </p>
       </div>
-      <div :class="['p-3 rounded-xl shadow-lg', bgColorClasses[color || 'blue']]">
-        <component :is="icon" class="w-6 h-6 text-white" />
+      <div :class="['p-2 rounded-xl shadow-lg', bgColorClasses[color || 'blue']]">
+        <component :is="icon" class="w-5 h-5 text-white" />
       </div>
     </div>
   </div>

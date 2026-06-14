@@ -24,10 +24,10 @@ const getProductTypeColor = (type: string) => {
 
 <template>
   <div 
-    class="glass-card rounded-2xl p-5 hover:bg-white/80 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 cursor-pointer"
+    class="glass-card rounded-2xl p-3 sm:p-5 hover:bg-white/80 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 cursor-pointer"
     @click="router.push({ name: 'product-detail', params: { id: position.productId } })"
   >
-    <div class="flex items-start justify-between mb-4">
+    <div class="flex items-start justify-between mb-3 sm:mb-4">
       <div>
         <h3 class="font-semibold text-gray-800">{{ position.product.name }}</h3>
         <span 
@@ -42,7 +42,7 @@ const getProductTypeColor = (type: string) => {
         :class="['w-5 h-5', position.profitRate >= 0 ? 'text-profit' : 'text-loss']"
       />
     </div>
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid grid-cols-2 gap-3 sm:gap-4">
       <div>
         <p class="text-gray-500 text-xs">市值</p>
         <p class="font-semibold text-gray-800">{{ formatCurrencyInt(position.marketValue) }}</p>
