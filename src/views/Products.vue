@@ -517,13 +517,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       
       <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length > 0" class="overflow-x-auto">
         <table class="w-full">
-          <thead class="bg-gray-50">
+          <thead class="bg-gray-200">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">股票名称</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">股票代码</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500">持仓金额</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500">占比</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">持有基金</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600">股票名称</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600">股票代码</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600">持仓金额</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600">占比</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600">持有基金</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -607,10 +607,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <div class="glass-card rounded-2xl overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full">
-          <thead class="bg-gray-50">
+          <thead class="bg-gray-200">
             <tr>
               <th 
-                class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('name')"
               >
                 <div class="flex items-center space-x-1">
@@ -620,9 +620,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-600" />
                 </div>
               </th>
-              <th v-if="props.type !== 'fund'" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">持有人</th>
+              <th v-if="props.type !== 'fund'" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">持有人</th>
               <th 
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('marketValue')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -633,7 +633,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('profitRate')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -644,7 +644,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('profit')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -655,7 +655,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('holdingDays')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -667,7 +667,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </th>
               <th 
                 v-if="props.type !== 'fund'"
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('annualRate')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -680,7 +680,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <!-- 基金类型特有列：阶段涨幅 -->
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('stageGains1m')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -692,7 +692,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </th>
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('stageGains3m')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -704,7 +704,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </th>
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('stageGainsYtd')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -715,7 +715,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100/80 transition-colors select-none"
+                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('dailyReturn')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -725,7 +725,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-600" />
                 </div>
               </th>
-              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+              <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
