@@ -213,7 +213,10 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </div>
         <div class="flex-1">
           <h3 class="font-semibold text-gray-800">定时净值更新</h3>
-          <p class="text-gray-500 text-sm mt-1">每天自动更新4次基金与理财产品净值（09:30 / 12:00 / 15:00 / 20:00）</p>
+          <p class="text-gray-500 text-sm mt-1">
+            每天自动更新基金与理财产品净值
+            <span v-if="schedulerStatus?.scheduleTimes">（{{ schedulerStatus.scheduleTimes.join(' / ') }}）</span>
+          </p>
         </div>
         <button
           @click="handleToggleScheduler"

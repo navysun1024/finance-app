@@ -1082,8 +1082,9 @@ app.post('/batch-import', authenticate, (req, res) => {
 
 // ==================== 定时净值更新调度器 ====================
 
-// 每天4次定时更新时间（HH:mm 格式，北京时间）
-const SCHEDULE_TIMES = ['09:30', '12:00', '15:00', '20:00']
+// 每天3次定时更新时间（HH:mm 格式，北京时间）
+// 06:00 补充捕获前一晚延迟发布的净值（如QDII），20:00/22:30 覆盖当日新发布的净值
+const SCHEDULE_TIMES = ['06:00', '20:00', '22:30']
 
 // 记录每个时间点今天是否已执行过，避免重复执行
 const scheduleRunLog = new Map() // key: 'HH:mm', value: 'YYYY-MM-DD'
