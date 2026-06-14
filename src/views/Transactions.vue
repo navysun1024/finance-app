@@ -269,7 +269,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
           <thead class="bg-gray-200">
             <tr>
               <th 
-                class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
                 @click="handleSort('date')"
               >
                 <div class="flex items-center space-x-1">
@@ -278,7 +278,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                 </div>
               </th>
               <th 
-                class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
                 @click="handleSort('productId')"
               >
                 <div class="flex items-center space-x-1">
@@ -287,7 +287,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                 </div>
               </th>
               <th 
-                class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
                 @click="handleSort('type')"
               >
                 <div class="flex items-center space-x-1">
@@ -296,7 +296,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                 </div>
               </th>
               <th 
-                class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
                 @click="handleSort('amount')"
               >
                 <div class="flex items-center space-x-1">
@@ -305,7 +305,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                 </div>
               </th>
               <th 
-                class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
                 @click="handleSort('price')"
               >
                 <div class="flex items-center space-x-1">
@@ -314,7 +314,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                 </div>
               </th>
               <th 
-                class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
                 @click="handleSort('shares')"
               >
                 <div class="flex items-center space-x-1">
@@ -323,7 +323,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                 </div>
               </th>
               <th 
-                class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none"
                 @click="handleSort('fee')"
               >
                 <div class="flex items-center space-x-1">
@@ -331,15 +331,15 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                   <component :is="getSortIcon('fee')" class="w-4 h-4" :class="sortKey === 'fee' ? 'text-primary-600' : ''" />
                 </div>
               </th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">备注</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">备注</th>
+              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
           <tr v-for="transaction in filteredTransactions" :key="transaction.id" class="hover:bg-gray-50">
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{{ formatDate(transaction.date) }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{{ getProductName(transaction.productId) }}</td>
-            <td class="px-6 py-4 whitespace-nowrap">
+            <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-800">{{ formatDate(transaction.date) }}</td>
+            <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-800">{{ getProductName(transaction.productId) }}</td>
+            <td class="px-4 py-2.5 whitespace-nowrap">
               <span 
                 class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
                 :style="{ backgroundColor: getTransactionTypeColor(transaction.type) + '20', color: getTransactionTypeColor(transaction.type) }"
@@ -347,14 +347,14 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
                 {{ getTransactionTypeLabel(transaction.type) }}
               </span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm" :class="transaction.type === 'buy' ? 'text-gray-800' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
+            <td class="px-4 py-2.5 whitespace-nowrap text-sm" :class="transaction.type === 'buy' ? 'text-gray-800' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
               {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ transaction.price.toFixed(4) }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ transaction.shares.toFixed(4) }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ formatCurrency(transaction.fee) }}</td>
-            <td class="px-6 py-4 text-sm text-gray-600">{{ transaction.note || '-' }}</td>
-            <td class="px-6 py-4 whitespace-nowrap">
+            <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ transaction.price.toFixed(4) }}</td>
+            <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ transaction.shares.toFixed(4) }}</td>
+            <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ formatCurrency(transaction.fee) }}</td>
+            <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ transaction.note || '-' }}</td>
+            <td class="px-4 py-2.5 whitespace-nowrap">
               <div class="flex items-center space-x-2">
                 <button 
                   @click="handleEdit(transaction)"

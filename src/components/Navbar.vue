@@ -69,7 +69,7 @@ onUnmounted(() => {
         </div>
         <!-- 右侧：用户信息 + 版本号 -->
         <div class="flex items-center space-x-3 text-sm">
-          <span class="text-gray-400 font-mono text-xs">v1.0</span>
+          <span class="text-gray-400 font-mono text-xs">v1.0.1</span>
           <div ref="userMenuRef" class="relative">
             <button
               @click="toggleUserMenu"

@@ -519,29 +519,29 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <table class="w-full">
           <thead class="bg-gray-200">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600">股票名称</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600">股票代码</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600">持仓金额</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600">占比</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600">持有基金</th>
+              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600">股票名称</th>
+              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600">股票代码</th>
+              <th class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600">持仓金额</th>
+              <th class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600">占比</th>
+              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600">持有基金</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
             <tr v-for="(stock, idx) in aggregatedHoldings.stocks" :key="stock.code" class="hover:bg-gray-50">
-              <td class="px-4 py-3">
+              <td class="px-4 py-2.5 whitespace-nowrap">
                 <div class="flex items-center">
                   <span class="w-5 h-5 rounded-full bg-primary-100 text-primary-700 text-xs flex items-center justify-center mr-2">{{ idx + 1 }}</span>
                   <span class="font-medium text-gray-800">{{ stock.name }}</span>
                 </div>
               </td>
-              <td class="px-4 py-3 text-gray-600">{{ stock.code }}</td>
-              <td class="px-4 py-3 text-right font-medium text-gray-800">{{ formatCurrency(stock.totalValue) }}</td>
-              <td class="px-4 py-3 text-right">
+              <td class="px-4 py-2.5 whitespace-nowrap text-gray-600">{{ stock.code }}</td>
+              <td class="px-4 py-2.5 whitespace-nowrap text-right font-medium text-gray-800">{{ formatCurrency(stock.totalValue) }}</td>
+              <td class="px-4 py-2.5 whitespace-nowrap text-right">
                 <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-blue-50 text-blue-700">
                   {{ stock.ratio.toFixed(2) }}%
                 </span>
               </td>
-              <td class="px-4 py-3">
+              <td class="px-4 py-2.5 whitespace-nowrap">
                 <div class="flex flex-wrap gap-1">
                   <span 
                     v-for="fund in stock.funds.slice(0, 3)" 
@@ -610,7 +610,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           <thead class="bg-gray-200">
             <tr>
               <th 
-                class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('name')"
               >
                 <div class="flex items-center space-x-1">
@@ -620,9 +620,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-600" />
                 </div>
               </th>
-              <th v-if="props.type !== 'fund'" class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">持有人</th>
+              <th v-if="props.type !== 'fund'" class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">持有人</th>
               <th 
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('marketValue')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -633,7 +633,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('profitRate')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -644,7 +644,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('profit')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -655,7 +655,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('holdingDays')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -667,7 +667,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </th>
               <th 
                 v-if="props.type !== 'fund'"
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('annualRate')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -680,7 +680,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <!-- 基金类型特有列：阶段涨幅 -->
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('stageGains1m')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -692,7 +692,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </th>
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('stageGains3m')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -704,7 +704,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </th>
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('stageGainsYtd')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -715,7 +715,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
                 @click="handleSort('dailyReturn')"
               >
                 <div class="flex items-center justify-end space-x-1">
@@ -725,7 +725,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-600" />
                 </div>
               </th>
-              <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+              <th class="px-4 py-2 whitespace-nowrap text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -735,7 +735,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               class="hover:bg-gray-50 cursor-pointer"
               @click="router.push({ name: 'product-detail', params: { id: product.id } })"
             >
-              <td class="px-4 py-4">
+              <td class="px-4 py-2.5 whitespace-nowrap">
                 <div class="flex items-center space-x-3">
                   <div 
                     class="w-10 h-10 rounded-lg flex items-center justify-center text-white font-semibold flex-shrink-0"
@@ -757,10 +757,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   </div>
                 </div>
               </td>
-              <td v-if="props.type !== 'fund'" class="px-4 py-4 whitespace-nowrap">
+              <td v-if="props.type !== 'fund'" class="px-4 py-2.5 whitespace-nowrap">
                 <p class="text-gray-600">{{ product.holder || '-' }}</p>
               </td>
-              <td class="px-4 py-4 text-right whitespace-nowrap">
+              <td class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p class="font-semibold text-gray-800">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }} 元</p>
                 </template>
@@ -768,7 +768,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">-</p>
                 </template>
               </td>
-              <td class="px-4 py-4 text-right whitespace-nowrap">
+              <td class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p 
                     class="font-semibold"
@@ -781,7 +781,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">-</p>
                 </template>
               </td>
-              <td class="px-4 py-4 text-right whitespace-nowrap">
+              <td class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p 
                     class="font-semibold"
@@ -794,7 +794,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">-</p>
                 </template>
               </td>
-              <td class="px-4 py-4 text-right whitespace-nowrap">
+              <td class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p class="font-semibold text-gray-800">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
                 </template>
@@ -802,7 +802,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">-</p>
                 </template>
               </td>
-              <td v-if="props.type !== 'fund'" class="px-4 py-4 text-right whitespace-nowrap">
+              <td v-if="props.type !== 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p 
                     class="font-semibold"
@@ -816,7 +816,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
               </td>
               <!-- 基金类型特有列：阶段涨幅 -->
-              <td v-if="props.type === 'fund'" class="px-4 py-4 text-right whitespace-nowrap">
+              <td v-if="props.type === 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
                     class="font-semibold"
@@ -829,7 +829,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td v-if="props.type === 'fund'" class="px-4 py-4 text-right whitespace-nowrap">
+              <td v-if="props.type === 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
                     class="font-semibold"
@@ -842,7 +842,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td v-if="props.type === 'fund'" class="px-4 py-4 text-right whitespace-nowrap">
+              <td v-if="props.type === 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
                     class="font-semibold"
@@ -855,7 +855,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td class="px-4 py-4 text-right whitespace-nowrap">
+              <td class="px-4 py-2.5 text-right whitespace-nowrap">
                 <template v-if="getDailyReturn(product.code)">
                   <p 
                     class="font-semibold text-sm"
@@ -869,7 +869,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-sm text-gray-400">{{ loadingDailyReturn ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td class="px-4 py-4 text-center whitespace-nowrap" @click.stop>
+              <td class="px-4 py-2.5 text-center whitespace-nowrap" @click.stop>
                 <div class="flex items-center justify-center space-x-2">
                   <button 
                     @click="handleEdit(product)"

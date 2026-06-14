@@ -319,10 +319,17 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     <div class="glass-card rounded-2xl p-6">
       <h3 class="font-semibold text-gray-800 mb-2">应用信息</h3>
       <div class="text-gray-500 text-sm space-y-2">
-        <p>版本号: <span class="font-mono text-indigo-600">v1.0</span></p>
+        <p>版本号: <span class="font-mono text-indigo-600">v1.0.1</span></p>
         <p>技术栈: Vue 3 + Vite + TailwindCSS + ECharts</p>
         <div class="mt-3 pt-3 border-t border-gray-200/50">
-          <p class="font-semibold text-gray-700 mb-2">v1.0 版本变更 (2026-06-02)</p>
+          <p class="font-semibold text-gray-700 mb-2">v1.0.1 版本变更 (2026-06-12)</p>
+          <ul class="list-disc list-inside space-y-1 text-gray-500">
+            <li>表格视觉优化：表头加深、行高紧凑、内容强制不换行</li>
+            <li>移动端导航栏移至底部，修复顶部空白问题</li>
+            <li>Docker 部署支持飞牛NAS，含完整构建与数据持久化方案</li>
+            <li>修复 Alpine Nginx SVG favicon 不显示问题</li>
+          </ul>
+          <p class="font-semibold text-gray-700 mb-2 mt-4">v1.0 版本变更 (2026-06-02)</p>
           <ul class="list-disc list-inside space-y-1 text-gray-500">
             <li>全新毛玻璃质感 UI 主题，冷色调渐变背景</li>
             <li>历史交易列表新增日期区间筛选，默认显示近三个月</li>
