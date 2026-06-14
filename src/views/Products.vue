@@ -412,7 +412,14 @@ const handleDelete = (id: string) => {
 onMounted(() => {
   fetchAllStageGains()
   fetchAllDailyReturns()
-  // 持仓汇总改为懒加载，不在页面加载时获取
+  // 持仓汇总：页面加载时尝试读取 localStorage 缓存（不发API请求）
+  if (props.type === 'fund') {
+    const cached = getAggregatedHoldingsCache()
+    if (cached) {
+      aggregatedHoldings.value = cached.data
+      aggregatedHoldingsFromCache.value = true
+    }
+  }
 })
 
 watch(() => products.value, () => {
@@ -436,14 +443,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
   <div class="space-y-6">
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h2 class="text-xl font-bold text-gray-800">
+        <h2 class="text-xl font-bold text-white drop-shadow-sm">
           {{ props.type === 'fund' ? '基金列表' : props.type === 'fixed_income' ? '固收理财列表' : '产品列表' }}
         </h2>
-        <p class="text-gray-500 text-sm mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="text-white/80 text-sm mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
       <button 
         @click="handleAdd"
-        class="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+        class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all duration-300 hover:-translate-y-0.5"
       >
         <Plus class="w-5 h-5" />
         <span>新增产品</span>
@@ -452,21 +459,21 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
 
 <!-- 汇总统计卡片 -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
         <p class="text-xs text-gray-500 mb-1">总市值</p>
         <p class="text-xl font-bold text-gray-800">{{ formatCurrency(summaryStats.totalMarketValue) }}</p>
       </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
         <p class="text-xs text-gray-500 mb-1">总成本</p>
         <p class="text-xl font-bold text-gray-800">{{ formatCurrency(summaryStats.totalCost) }}</p>
       </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
         <p class="text-xs text-gray-500 mb-1">持仓收益</p>
         <p class="text-xl font-bold" :class="summaryStats.totalProfit >= 0 ? 'text-red-600' : 'text-green-600'">
           {{ summaryStats.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(summaryStats.totalProfit) }}
         </p>
       </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
         <p class="text-xs text-gray-500 mb-1">持仓收益率</p>
         <p class="text-xl font-bold" :class="summaryStats.profitRate >= 0 ? 'text-red-600' : 'text-green-600'">
           {{ summaryStats.profitRate >= 0 ? '+' : '' }}{{ summaryStats.profitRate.toFixed(2) }}%
@@ -475,8 +482,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     </div>
 
     <!-- 持仓股票分布汇总（仅基金页面显示） -->
-    <div v-if="props.type === 'fund'" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-      <div class="p-4 border-b border-gray-100 flex items-center justify-between">
+    <div v-if="props.type === 'fund'" class="glass-card rounded-2xl overflow-hidden hover:bg-white/80 transition-all duration-300">
+      <div class="p-4 border-b border-gray-200/50 flex items-center justify-between">
         <div>
           <h3 class="text-lg font-semibold text-gray-800">持仓股票分布</h3>
           <p class="text-xs text-gray-500 mt-1">
@@ -497,7 +504,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           </button>
           <button
             @click="toggleAggregatedHoldings"
-            class="text-sm text-primary-600 hover:text-primary-800"
+            class="text-sm text-indigo-600 hover:text-indigo-700"
           >
             {{ showAggregatedHoldings ? '收起' : '展开' }}
           </button>
@@ -582,13 +589,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           v-model="searchQuery"
           type="text" 
           placeholder="搜索产品名称或备注..."
-          class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+          class="glass-input w-full pl-10 pr-4 py-2 rounded-xl outline-none"
         />
       </div>
       <select 
         v-if="!props.type"
         v-model="filterType"
-        class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+        class="glass-input px-4 py-2 rounded-xl outline-none"
       >
         <option value="all">全部类型</option>
         <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
@@ -597,7 +604,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </select>
     </div>
     
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="glass-card rounded-2xl overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full">
           <thead class="bg-gray-50">
@@ -883,8 +890,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         </table>
       </div>
       <div v-if="filteredProducts.length === 0" class="p-8 text-center">
-        <p class="text-gray-500">暂无{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
-        <p class="text-gray-400 text-sm mt-2">点击上方按钮添加{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="text-gray-600">暂无{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
+        <p class="text-gray-500 text-sm mt-2">点击上方按钮添加{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
     </div>
     

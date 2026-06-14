@@ -311,8 +311,8 @@ onUnmounted(() => {
     <!-- 按产品类型分组的统计卡片 -->
     <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-3">
       <div class="flex items-center space-x-2">
-        <span class="w-3 h-3 rounded-full" :style="{ backgroundColor: group.color }"></span>
-        <h3 class="text-base font-semibold text-gray-700">{{ group.label }}</h3>
+        <span class="w-3 h-3 rounded-full shadow-lg" :style="{ backgroundColor: group.color }"></span>
+        <h3 class="text-base font-semibold text-white drop-shadow-sm">{{ group.label }}</h3>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 
@@ -346,9 +346,9 @@ onUnmounted(() => {
     
     <!-- 资产分布图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div v-for="group in positionsByType" :key="group.type + '-dist'" class="bg-white rounded-xl shadow-sm border border-gray-100 pt-5 px-5 pb-3">
+      <div v-for="group in positionsByType" :key="group.type + '-dist'" class="glass-card rounded-2xl pt-5 px-5 pb-3 hover:bg-white/80 transition-all duration-300">
         <div class="flex items-center mb-4">
-          <span class="w-3 h-3 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
+          <span class="w-3 h-3 rounded-full mr-2 shadow-lg" :style="{ backgroundColor: group.color }"></span>
           <h3 class="text-lg font-semibold text-gray-800">{{ group.label }}分布</h3>
           <span class="ml-auto text-sm text-gray-500">
             合计 {{ formatCurrencyInt(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}元
@@ -360,21 +360,21 @@ onUnmounted(() => {
 
     <!-- 收益趋势图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div v-for="group in positionsByType" :key="group.type + '-trend'" class="bg-white rounded-xl shadow-sm border border-gray-100 pt-5 px-5 pb-3">
+      <div v-for="group in positionsByType" :key="group.type + '-trend'" class="glass-card rounded-2xl pt-5 px-5 pb-3 hover:bg-white/80 transition-all duration-300">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center">
-            <span class="w-3 h-3 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
+            <span class="w-3 h-3 rounded-full mr-2 shadow-lg" :style="{ backgroundColor: group.color }"></span>
             <h3 class="text-lg font-semibold text-gray-800">{{ group.label }}收益趋势</h3>
           </div>
-          <div class="flex items-center space-x-1 bg-gray-100 rounded-lg p-0.5">
+          <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
             <button
               v-for="opt in trendRangeOptions"
               :key="opt.value"
               @click="trendRanges[group.type] = opt.value"
               :class="[
-                'px-2.5 py-1 text-xs rounded-md transition-colors',
+                'px-2.5 py-1 text-xs rounded-lg transition-all duration-300',
                 (trendRanges[group.type] || '1m') === opt.value
-                  ? 'bg-white text-gray-800 shadow-sm font-medium'
+                  ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
                   : 'text-gray-500 hover:text-gray-700'
               ]"
             >
@@ -387,7 +387,7 @@ onUnmounted(() => {
     </div>
     
     <div>
-      <h3 class="text-lg font-semibold text-gray-800 mb-4">持仓明细</h3>
+      <h3 class="text-lg font-semibold text-white drop-shadow-sm mb-4">持仓明细</h3>
       <div v-if="portfolioSummary.positions.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <ProductCard 
           v-for="position in portfolioSummary.positions" 
@@ -395,9 +395,9 @@ onUnmounted(() => {
           :position="position" 
         />
       </div>
-      <div v-else class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-        <p class="text-gray-500">暂无持仓数据</p>
-        <p class="text-gray-400 text-sm mt-2">请先添加理财产品和交易记录</p>
+      <div v-else class="glass-card rounded-2xl p-8 text-center">
+        <p class="text-gray-600">暂无持仓数据</p>
+        <p class="text-gray-500 text-sm mt-2">请先添加理财产品和交易记录</p>
       </div>
     </div>
   </div>

@@ -9,7 +9,7 @@ const showNavbar = () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-100">
+  <div class="min-h-screen">
     <Navbar v-if="showNavbar()" />
     <main :class="['container mx-auto px-4 py-6', showNavbar() ? 'pt-20 pb-24 md:pb-6' : '']">
       <RouterView />

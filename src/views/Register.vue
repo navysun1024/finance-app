@@ -104,14 +104,19 @@ const goToLogin = () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gradient-to-br from-green-50 to-teal-100 flex items-center justify-center p-4">
-    <div class="w-full max-w-md">
-      <div class="bg-white rounded-2xl shadow-xl p-8">
+  <div class="min-h-screen flex items-center justify-center p-4 relative">
+    <!-- 装饰圆形 -->
+    <div class="absolute top-20 right-10 w-72 h-72 bg-emerald-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse"></div>
+    <div class="absolute top-40 left-10 w-72 h-72 bg-cyan-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse" style="animation-delay: 2s;"></div>
+    <div class="absolute bottom-20 right-1/3 w-72 h-72 bg-teal-300 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse" style="animation-delay: 4s;"></div>
+    
+    <div class="w-full max-w-md relative z-10">
+      <div class="glass-card rounded-3xl shadow-2xl p-8">
         <div class="text-center mb-8">
-          <div class="w-16 h-16 bg-gradient-to-r from-green-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-4">
-            <UserPlus class="w-8 h-8 text-white" />
+          <div class="w-20 h-20 bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl shadow-teal-500/30">
+            <UserPlus class="w-10 h-10 text-white" />
           </div>
-          <h1 class="text-2xl font-bold text-gray-800">创建账户</h1>
+          <h1 class="text-3xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">创建账户</h1>
           <p class="text-gray-500 mt-2">开始您的投资之旅</p>
         </div>
         
@@ -119,14 +124,14 @@ const goToLogin = () => {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">用户名</label>
             <div class="relative">
-              <User class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <User class="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 v-model="username"
                 type="text"
                 placeholder="请输入用户名（3-32位字母、数字、下划线或中文）"
                 :class="[
-                  'w-full pl-10 pr-10 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all',
-                  username && usernameValid ? 'border-green-500' : username && !usernameValid ? 'border-red-400' : 'border-gray-300'
+                  'glass-input w-full pl-12 pr-10 py-3.5 rounded-xl outline-none text-gray-800 placeholder-gray-400',
+                  username && usernameValid ? 'border-green-500' : username && !usernameValid ? 'border-red-400' : ''
                 ]"
               />
               <Check v-if="username && usernameValid" class="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500" />
@@ -138,17 +143,17 @@ const goToLogin = () => {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">密码</label>
             <div class="relative">
-              <Lock class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Lock class="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 v-model="password"
                 :type="showPassword ? 'text' : 'password'"
                 placeholder="请输入密码（至少8位）"
-                class="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
+                class="glass-input w-full pl-12 pr-12 py-3.5 rounded-xl outline-none text-gray-800 placeholder-gray-400"
               />
               <button
                 type="button"
                 @click="showPassword = !showPassword"
-                class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                class="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <Eye v-if="showPassword" class="w-5 h-5" />
                 <EyeOff v-else class="w-5 h-5" />
@@ -174,20 +179,20 @@ const goToLogin = () => {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">确认密码</label>
             <div class="relative">
-              <Lock class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Lock class="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 v-model="confirmPassword"
                 :type="showConfirmPassword ? 'text' : 'password'"
                 placeholder="请再次输入密码"
                 :class="[
-                  'w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all',
-                  confirmPassword && confirmPassword === password ? 'border-green-500' : confirmPassword && confirmPassword !== password ? 'border-red-400' : 'border-gray-300'
+                  'glass-input w-full pl-12 pr-12 py-3.5 rounded-xl outline-none text-gray-800 placeholder-gray-400',
+                  confirmPassword && confirmPassword === password ? 'border-green-500' : confirmPassword && confirmPassword !== password ? 'border-red-400' : ''
                 ]"
               />
               <button
                 type="button"
                 @click="showConfirmPassword = !showConfirmPassword"
-                class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                class="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <Eye v-if="showConfirmPassword" class="w-5 h-5" />
                 <EyeOff v-else class="w-5 h-5" />
@@ -196,14 +201,14 @@ const goToLogin = () => {
             <p v-if="confirmPassword && confirmPassword !== password" class="text-xs text-red-500 mt-1">两次输入的密码不一致</p>
           </div>
           
-          <div v-if="errorMessage" class="text-red-500 text-sm text-center">
+          <div v-if="errorMessage" class="text-red-500 text-sm text-center bg-red-50/80 backdrop-blur-sm rounded-xl py-2">
             {{ errorMessage }}
           </div>
           
           <button
             type="submit"
             :disabled="isLoading"
-            class="w-full bg-gradient-to-r from-green-500 to-teal-500 text-white py-3 rounded-lg font-medium hover:from-green-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center space-x-2"
+            class="w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white py-3.5 rounded-xl font-medium hover:shadow-xl hover:shadow-teal-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center space-x-2 hover:-translate-y-0.5"
           >
             <span>{{ isLoading ? '注册中...' : '注 册' }}</span>
           </button>
@@ -213,7 +218,7 @@ const goToLogin = () => {
           <p class="text-gray-500">
             <button
               @click="goToLogin"
-              class="text-green-600 hover:text-green-700 font-medium flex items-center justify-center space-x-1 mx-auto"
+              class="text-indigo-600 hover:text-indigo-700 font-medium flex items-center justify-center space-x-1 mx-auto hover:underline transition-all"
             >
               <ArrowLeft class="w-4 h-4" />
               <span>返回登录</span>

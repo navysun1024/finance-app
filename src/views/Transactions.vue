@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Plus, Edit2, Trash2, Search, ArrowUp, ArrowDown, ChevronsUpDown, Upload, CheckCircle, AlertTriangle, X } from 'lucide-vue-next'
+import { Plus, Edit2, Trash2, Search, ArrowUp, ArrowDown, ChevronsUpDown, Upload, CheckCircle, AlertTriangle, X, Calendar } from 'lucide-vue-next'
 import TransactionModal from '@/components/TransactionModal.vue'
 import BatchImportModal from '@/components/BatchImportModal.vue'
 import { useFinance } from '@/composables/useFinance'
@@ -20,12 +20,44 @@ const filterType = ref<TransactionType | 'all'>('buy')
 const sortKey = ref<keyof Transaction>('date')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
+// 日期区间筛选
+const dateRangeOptions = [
+  { value: '1m', label: '近1月' },
+  { value: '3m', label: '近3月' },
+  { value: '6m', label: '近6月' },
+  { value: '1y', label: '近1年' },
+  { value: 'all', label: '全部' },
+  { value: 'custom', label: '自定义' }
+]
+const dateRange = ref('3m')
+const customStartDate = ref('')
+const customEndDate = ref('')
+
+// 根据预设选项计算日期范围
+const computedDateBounds = computed(() => {
+  if (dateRange.value === 'all') return null
+  if (dateRange.value === 'custom') {
+    const start = customStartDate.value ? new Date(customStartDate.value).getTime() : 0
+    const end = customEndDate.value ? new Date(customEndDate.value + 'T23:59:59').getTime() : Date.now()
+    return { start, end }
+  }
+  const now = Date.now()
+  const days: Record<string, number> = { '1m': 30, '3m': 90, '6m': 180, '1y': 365 }
+  const d = days[dateRange.value] || 90
+  return { start: now - d * 24 * 60 * 60 * 1000, end: now }
+})
+
 onMounted(async () => {
   await refresh()
 })
 
 const filteredTransactions = computed(() => {
   let result = [...transactions.value]
+  // 按日期区间筛选
+  const bounds = computedDateBounds.value
+  if (bounds) {
+    result = result.filter(t => t.date >= bounds.start && t.date <= bounds.end)
+  }
   // 按交易类型筛选
   if (filterType.value !== 'all') {
     result = result.filter(t => t.type === filterType.value)
@@ -157,18 +189,18 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
 <template>
   <div class="space-y-6">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <h2 class="text-xl font-bold text-gray-800">交易记账</h2>
+      <h2 class="text-xl font-bold text-white drop-shadow-sm">交易记账</h2>
       <div class="flex items-center space-x-3">
         <button 
           @click="showBatchImport = true"
-          class="flex items-center space-x-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          class="flex items-center space-x-2 px-4 py-2 glass-btn text-gray-700 rounded-xl text-sm"
         >
           <Upload class="w-4 h-4" />
           <span>批量导入</span>
         </button>
         <button 
           @click="handleAdd"
-          class="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm"
+          class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all duration-300 hover:-translate-y-0.5 text-sm"
         >
           <Plus class="w-4 h-4" />
           <span>新增交易</span>
@@ -183,12 +215,12 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
           v-model="searchQuery"
           type="text" 
           placeholder="搜索产品名称或备注..."
-          class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+          class="glass-input w-full pl-10 pr-4 py-2 rounded-xl outline-none"
         />
       </div>
       <select 
         v-model="filterType"
-        class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+        class="glass-input px-4 py-2 rounded-xl outline-none"
       >
         <option value="all">全部类型</option>
         <option v-for="option in TRANSACTION_TYPE_OPTIONS" :key="option.value" :value="option.value">
@@ -197,7 +229,41 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
       </select>
     </div>
     
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <!-- 日期区间选择 -->
+    <div class="flex flex-wrap items-center gap-2">
+      <Calendar class="w-4 h-4 text-gray-500 flex-shrink-0" />
+      <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+        <button
+          v-for="opt in dateRangeOptions"
+          :key="opt.value"
+          @click="dateRange = opt.value"
+          :class="[
+            'px-3 py-1 text-xs rounded-lg transition-all duration-300',
+            dateRange === opt.value
+              ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
+              : 'text-gray-500 hover:text-gray-700'
+          ]"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+      <template v-if="dateRange === 'custom'">
+        <input
+          v-model="customStartDate"
+          type="date"
+          class="glass-input px-3 py-1 text-xs rounded-xl outline-none"
+        />
+        <span class="text-gray-400 text-xs">至</span>
+        <input
+          v-model="customEndDate"
+          type="date"
+          class="glass-input px-3 py-1 text-xs rounded-xl outline-none"
+        />
+      </template>
+      <span class="text-xs text-gray-500 ml-auto">共 {{ filteredTransactions.length }} 条记录</span>
+    </div>
+    
+    <div class="glass-card rounded-2xl overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full">
           <thead class="bg-gray-50">
@@ -309,8 +375,8 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
         </table>
       </div>
       <div v-if="filteredTransactions.length === 0" class="px-6 py-12 text-center">
-        <p class="text-gray-500">暂无交易记录</p>
-        <p class="text-gray-400 text-sm mt-2">点击上方按钮添加交易记录</p>
+        <p class="text-gray-600">暂无交易记录</p>
+        <p class="text-gray-500 text-sm mt-2">点击上方按钮添加交易记录</p>
       </div>
     </div>
     

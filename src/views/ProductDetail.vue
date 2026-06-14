@@ -217,8 +217,39 @@ const transactions = computed(() => getTransactionsByProductId(productId.value))
 const txSortKey = ref<keyof Transaction>('date')
 const txSortOrder = ref<'asc' | 'desc'>('desc')
 
+// 交易记录日期区间筛选
+const txDateRangeOptions = [
+  { value: '1m', label: '近1月' },
+  { value: '3m', label: '近3月' },
+  { value: '6m', label: '近6月' },
+  { value: '1y', label: '近1年' },
+  { value: 'all', label: '全部' },
+  { value: 'custom', label: '自定义' }
+]
+const txDateRange = ref('3m')
+const txCustomStartDate = ref('')
+const txCustomEndDate = ref('')
+
+const txDateBounds = computed(() => {
+  if (txDateRange.value === 'all') return null
+  if (txDateRange.value === 'custom') {
+    const start = txCustomStartDate.value ? new Date(txCustomStartDate.value).getTime() : 0
+    const end = txCustomEndDate.value ? new Date(txCustomEndDate.value + 'T23:59:59').getTime() : Date.now()
+    return { start, end }
+  }
+  const now = Date.now()
+  const days: Record<string, number> = { '1m': 30, '3m': 90, '6m': 180, '1y': 365 }
+  const d = days[txDateRange.value] || 90
+  return { start: now - d * 24 * 60 * 60 * 1000, end: now }
+})
+
 const sortedTransactions = computed(() => {
-  const list = [...transactions.value]
+  let list = [...transactions.value]
+  // 按日期区间筛选
+  const bounds = txDateBounds.value
+  if (bounds) {
+    list = list.filter(t => t.date >= bounds.start && t.date <= bounds.end)
+  }
   list.sort((a, b) => {
     const aVal = a[txSortKey.value]
     const bVal = b[txSortKey.value]
@@ -843,6 +874,39 @@ onUnmounted(() => {
           <span>新增交易</span>
         </button>
       </div>
+      <!-- 日期区间选择 -->
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <Calendar class="w-4 h-4 text-gray-500 flex-shrink-0" />
+        <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+          <button
+            v-for="opt in txDateRangeOptions"
+            :key="opt.value"
+            @click="txDateRange = opt.value"
+            :class="[
+              'px-3 py-1 text-xs rounded-lg transition-all duration-300',
+              txDateRange === opt.value
+                ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+        <template v-if="txDateRange === 'custom'">
+          <input
+            v-model="txCustomStartDate"
+            type="date"
+            class="glass-input px-3 py-1 text-xs rounded-xl outline-none"
+          />
+          <span class="text-gray-400 text-xs">至</span>
+          <input
+            v-model="txCustomEndDate"
+            type="date"
+            class="glass-input px-3 py-1 text-xs rounded-xl outline-none"
+          />
+        </template>
+        <span class="text-xs text-gray-500 ml-auto">共 {{ sortedTransactions.length }} 条记录</span>
+      </div>
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div class="overflow-x-auto">
         <table class="w-full">
@@ -915,6 +979,10 @@ onUnmounted(() => {
         <div v-if="transactions.length === 0" class="px-6 py-12 text-center">
           <p class="text-gray-500">暂无交易记录</p>
           <p class="text-gray-400 text-sm mt-2">点击上方按钮添加交易记录</p>
+        </div>
+        <div v-else-if="sortedTransactions.length === 0" class="px-6 py-12 text-center">
+          <p class="text-gray-500">当前日期区间内无交易记录</p>
+          <p class="text-gray-400 text-sm mt-2">试试切换为“全部”查看更多</p>
         </div>
       </div>
       </div>

@@ -137,18 +137,18 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
 <template>
   <div class="max-w-2xl mx-auto space-y-6">
     <div>
-      <h2 class="text-xl font-bold text-gray-800">数据管理</h2>
-      <p class="text-gray-500 text-sm mt-1">管理您的理财数据，支持导出、导入和重置操作</p>
+      <h2 class="text-xl font-bold text-white drop-shadow-sm">数据管理</h2>
+      <p class="text-white/80 text-sm mt-1">管理您的理财数据，支持导出、导入和重置操作</p>
     </div>
     
-    <div v-if="message" :class="['p-4 rounded-lg mb-6', messageType === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+    <div v-if="message" :class="['p-4 rounded-xl mb-6 backdrop-blur-sm', messageType === 'success' ? 'bg-green-400/30 text-green-100' : 'bg-red-400/30 text-red-100']">
       {{ message }}
     </div>
     
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div class="glass-card rounded-2xl p-6 hover:bg-white/80 transition-all duration-300">
       <div class="flex items-start space-x-4">
-        <div class="p-3 bg-blue-50 rounded-lg">
-          <Download class="w-6 h-6 text-blue-600" />
+        <div class="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/30">
+          <Download class="w-6 h-6 text-white" />
         </div>
         <div class="flex-1">
           <h3 class="font-semibold text-gray-800">导出数据</h3>
@@ -156,17 +156,17 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </div>
         <button 
           @click="handleExport"
-          class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          class="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all duration-300 hover:-translate-y-0.5"
         >
           导出
         </button>
       </div>
     </div>
     
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div class="glass-card rounded-2xl p-6 hover:bg-white/80 transition-all duration-300">
       <div class="flex items-start space-x-4">
-        <div class="p-3 bg-green-50 rounded-lg">
-          <Table class="w-6 h-6 text-green-600" />
+        <div class="p-3 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl shadow-lg shadow-emerald-500/30">
+          <Table class="w-6 h-6 text-white" />
         </div>
         <div class="flex-1">
           <h3 class="font-semibold text-gray-800">导出投资明细Excel</h3>
@@ -174,17 +174,17 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </div>
         <button 
           @click="handleExportExcel"
-          class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-xl hover:shadow-lg hover:shadow-emerald-500/30 transition-all duration-300 hover:-translate-y-0.5"
         >
           导出Excel
         </button>
       </div>
     </div>
     
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div class="glass-card rounded-2xl p-6 hover:bg-white/80 transition-all duration-300">
       <div class="flex items-start space-x-4">
-        <div class="p-3 bg-orange-50 rounded-lg">
-          <Upload class="w-6 h-6 text-orange-600" />
+        <div class="p-3 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl shadow-lg shadow-amber-500/30">
+          <Upload class="w-6 h-6 text-white" />
         </div>
         <div class="flex-1">
           <h3 class="font-semibold text-gray-800">导入数据</h3>
@@ -198,7 +198,7 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
           class="hidden"
           id="import-file"
         />
-        <label for="import-file" class="inline-flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+        <label for="import-file" class="inline-flex items-center space-x-2 px-4 py-2 glass-btn rounded-xl cursor-pointer hover:bg-white/80 transition-all duration-300">
           <FileText class="w-5 h-5 text-gray-500" />
           <span>选择JSON文件</span>
         </label>
@@ -206,10 +206,10 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     </div>
     
     <!-- 定时净值更新调度器 -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div class="glass-card rounded-2xl p-6 hover:bg-white/80 transition-all duration-300">
       <div class="flex items-start space-x-4">
-        <div class="p-3 bg-cyan-50 rounded-lg">
-          <Clock class="w-6 h-6 text-cyan-600" />
+        <div class="p-3 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-lg shadow-cyan-500/30">
+          <Clock class="w-6 h-6 text-white" />
         </div>
         <div class="flex-1">
           <h3 class="font-semibold text-gray-800">定时净值更新</h3>
@@ -231,7 +231,7 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
           />
         </button>
       </div>
-      <div v-if="schedulerStatus" class="mt-4 text-sm text-gray-600 space-y-1.5 bg-gray-50 rounded-lg p-3">
+      <div v-if="schedulerStatus" class="mt-4 text-sm text-gray-600 space-y-1.5 bg-white/50 rounded-xl p-3 backdrop-blur-sm">
         <div class="flex justify-between">
           <span class="text-gray-500">调度状态</span>
           <span :class="schedulerStatus.enabled ? 'text-green-600 font-medium' : 'text-gray-400'">{{ schedulerStatus.enabled ? '已启用' : '已暂停' }}</span>
@@ -257,7 +257,7 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         <button
           @click="handleManualRun"
           :disabled="manualRunning"
-          class="flex items-center space-x-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 hover:-translate-y-0.5"
         >
           <Play class="w-4 h-4" :class="{ 'animate-spin': manualRunning }" />
           <span>{{ manualRunning ? '执行中...' : '立即执行一次' }}</span>
@@ -265,10 +265,10 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
       </div>
     </div>
     
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div class="glass-card rounded-2xl p-6 hover:bg-white/80 transition-all duration-300">
       <div class="flex items-start space-x-4">
-        <div class="p-3 bg-red-50 rounded-lg">
-          <Trash2 class="w-6 h-6 text-red-600" />
+        <div class="p-3 bg-gradient-to-br from-red-500 to-rose-600 rounded-xl shadow-lg shadow-red-500/30">
+          <Trash2 class="w-6 h-6 text-white" />
         </div>
         <div class="flex-1">
           <h3 class="font-semibold text-gray-800">重置数据</h3>
@@ -276,17 +276,17 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </div>
         <button 
           @click="showResetConfirm = true"
-          class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          class="px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-xl hover:shadow-lg hover:shadow-red-500/30 transition-all duration-300 hover:-translate-y-0.5"
         >
           重置
         </button>
       </div>
     </div>
     
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div class="glass-card rounded-2xl p-6 hover:bg-white/80 transition-all duration-300">
       <div class="flex items-start space-x-4">
-        <div class="p-3 bg-purple-50 rounded-lg">
-          <span class="w-6 h-6 flex items-center justify-center bg-purple-600 text-white rounded-full text-sm font-bold">
+        <div class="p-3 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl shadow-lg shadow-blue-500/30">
+          <span class="w-6 h-6 flex items-center justify-center text-white rounded-full text-sm font-bold">
             {{ getCurrentUser().username?.charAt(0).toUpperCase() || '?' }}
           </span>
         </div>
@@ -296,16 +296,16 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </div>
         <button 
           @click="logout"
-          class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+          class="px-4 py-2 glass-btn text-gray-700 rounded-xl hover:bg-white/80 transition-all duration-300"
         >
           退出登录
         </button>
       </div>
     </div>
     
-    <div class="bg-blue-50 rounded-xl p-6">
-      <h3 class="font-semibold text-blue-800 mb-2">数据存储说明</h3>
-      <ul class="text-blue-600 text-sm space-y-1">
+    <div class="glass-card rounded-2xl p-6">
+      <h3 class="font-semibold text-indigo-700 mb-2">数据存储说明</h3>
+      <ul class="text-gray-600 text-sm space-y-1">
         <li>• 所有数据存储在服务端的SQLite数据库中</li>
         <li>• 登录后可在任意设备访问您的数据</li>
         <li>• 建议定期导出数据进行备份</li>
@@ -313,23 +313,30 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
       </ul>
     </div>
     
-    <div class="bg-gray-50 rounded-xl p-6">
-      <h3 class="font-semibold text-gray-700 mb-2">应用信息</h3>
+    <div class="glass-card rounded-2xl p-6">
+      <h3 class="font-semibold text-gray-800 mb-2">应用信息</h3>
       <div class="text-gray-500 text-sm space-y-2">
-        <p>版本号: <span class="font-mono">v0.90</span></p>
+        <p>版本号: <span class="font-mono text-indigo-600">v1.0</span></p>
         <p>技术栈: Vue 3 + Vite + TailwindCSS + ECharts</p>
-        <div class="mt-3 pt-3 border-t border-gray-300">
-          <p class="font-semibold text-gray-600 mb-2">v0.90 版本变更 (2026-06-02)</p>
+        <div class="mt-3 pt-3 border-t border-gray-200/50">
+          <p class="font-semibold text-gray-700 mb-2">v1.0 版本变更 (2026-06-02)</p>
+          <ul class="list-disc list-inside space-y-1 text-gray-500">
+            <li>全新毛玻璃质感 UI 主题，冷色调渐变背景</li>
+            <li>历史交易列表新增日期区间筛选，默认显示近三个月</li>
+            <li>产品详情页历史交易同步支持日期区间筛选</li>
+            <li>修复跨用户数据隔离 Bug，导入数据不再影响其他用户</li>
+            <li>新增基金历史净值补全功能，支持东方财富数据源</li>
+            <li>基金页面持仓汇总缓存优化，页面刷新后自动恢复</li>
+            <li>导航栏、卡片、按钮、输入框全面升级为玻璃质感</li>
+            <li>登录/注册页面视觉重构，添加动态装饰元素</li>
+          </ul>
+          <p class="font-semibold text-gray-700 mb-2 mt-4">v0.90 版本变更 (2026-06-01)</p>
           <ul class="list-disc list-inside space-y-1 text-gray-500">
             <li>新增净值定时更新调度器，支持配置执行时间与间隔</li>
             <li>固收理财历史净值缓存优化，页面加载速度显著提升</li>
             <li>产品列表搜索支持按产品代码搜索</li>
             <li>基金页面持仓汇总默认隐藏，点击展开查看</li>
-            <li>删除仪表盘自动更新净值功能，改用定时调度器</li>
             <li>JSON 导入文件大小限制提升至 10MB</li>
-            <li>导入数据错误提示优化，显示具体原因</li>
-            <li>添加网页 favicon 图标</li>
-            <li>重构 README 文档，完善项目结构说明</li>
           </ul>
         </div>
       </div>
@@ -338,27 +345,27 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     <Teleport to="body">
       <div 
         v-if="showResetConfirm" 
-        class="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
+        class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4"
         @click.self="showResetConfirm = false"
       >
-        <div class="bg-white rounded-t-xl md:rounded-xl shadow-xl w-full max-w-md">
+        <div class="glass-card rounded-t-2xl md:rounded-2xl shadow-2xl w-full max-w-md">
           <div class="p-6">
-            <div class="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
-              <AlertCircle class="w-6 h-6 text-red-600" />
+            <div class="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-red-500 to-rose-600 rounded-xl mx-auto mb-4 shadow-lg shadow-red-500/30">
+              <AlertCircle class="w-6 h-6 text-white" />
             </div>
             <h3 class="text-lg font-semibold text-gray-800 text-center mb-2">确认重置</h3>
             <p class="text-gray-500 text-center">确定要清除所有理财数据吗？此操作无法撤销！</p>
           </div>
-          <div class="flex justify-end space-x-3 p-6 border-t border-gray-200">
+          <div class="flex justify-end space-x-3 p-6 border-t border-gray-200/50">
             <button 
               @click="showResetConfirm = false" 
-              class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              class="px-4 py-2 glass-btn text-gray-600 rounded-xl transition-all duration-300"
             >
               取消
             </button>
             <button 
               @click="handleReset" 
-              class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              class="px-4 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-xl hover:shadow-lg hover:shadow-red-500/30 transition-all duration-300 hover:-translate-y-0.5"
             >
               确认重置
             </button>

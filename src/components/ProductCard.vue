@@ -24,15 +24,15 @@ const getProductTypeColor = (type: string) => {
 
 <template>
   <div 
-    class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow cursor-pointer"
+    class="glass-card rounded-2xl p-5 hover:bg-white/80 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 cursor-pointer"
     @click="router.push({ name: 'product-detail', params: { id: position.productId } })"
   >
     <div class="flex items-start justify-between mb-4">
       <div>
         <h3 class="font-semibold text-gray-800">{{ position.product.name }}</h3>
         <span 
-          class="inline-block mt-1 px-2 py-0.5 text-xs rounded-full"
-          :style="{ backgroundColor: getProductTypeColor(position.product.type) + '20', color: getProductTypeColor(position.product.type) }"
+          class="inline-block mt-1 px-2 py-0.5 text-xs rounded-full backdrop-blur-sm"
+          :style="{ backgroundColor: getProductTypeColor(position.product.type) + '25', color: getProductTypeColor(position.product.type) }"
         >
           {{ getProductTypeLabel(position.product.type) }}
         </span>
