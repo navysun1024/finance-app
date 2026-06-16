@@ -51,7 +51,7 @@ export function useFinance() {
  products.value = await getProducts();
  transactions.value = await getTransactions();
  };
- const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '') => {
+ const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '') => {
  const product: Product = {
  id: generateId(),
  name,
@@ -59,13 +59,15 @@ export function useFinance() {
  code,
  note,
  holder,
+ dcaAmount,
+ dcaCycle,
  createdAt: Date.now()
  };
  products.value.push(product);
  await saveProducts(products.value);
  return product;
  };
- const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '') => {
+ const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '') => {
  const index = products.value.findIndex(p => p.id === id);
  if (index !== -1) {
  products.value[index] = {
@@ -74,7 +76,9 @@ export function useFinance() {
  type,
  code,
  note,
- holder
+ holder,
+ dcaAmount,
+ dcaCycle
  };
  await saveProducts(products.value);
  }

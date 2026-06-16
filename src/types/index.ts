@@ -5,10 +5,22 @@ export interface Product {
   code: string
   note: string
   holder: string
+  dcaAmount: number
+  dcaCycle: string
   createdAt: number
 }
 
 export type ProductType = 'fund' | 'fixed_income'
+
+export type DcaCycle = '' | 'daily' | 'weekly' | 'biweekly' | 'monthly'
+
+export const DCA_CYCLE_OPTIONS: { value: DcaCycle; label: string }[] = [
+  { value: '', label: '不定投' },
+  { value: 'daily', label: '每日' },
+  { value: 'weekly', label: '每周' },
+  { value: 'biweekly', label: '每两周' },
+  { value: 'monthly', label: '每月' }
+]
 
 export type TransactionType = 'buy' | 'sell' | 'dividend' | 'nav_update'
 

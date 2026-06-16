@@ -78,7 +78,7 @@ const handleImport = () => {
     <div 
       v-if="visible" 
       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      @click.self="emit('close')"
+      @mousedown.self="emit('close')"
     >
       <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
         <div class="flex items-center justify-between p-5 border-b border-gray-200">

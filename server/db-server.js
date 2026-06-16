@@ -62,6 +62,18 @@ db.run(`ALTER TABLE products ADD COLUMN holder TEXT DEFAULT ''`, (err) => {
   }
 })
 
+db.run(`ALTER TABLE products ADD COLUMN dcaAmount REAL DEFAULT 0`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN dcaCycle TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
 db.run(`
   CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
@@ -538,7 +550,7 @@ app.post('/api/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -546,7 +558,7 @@ app.post('/api/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -764,6 +776,18 @@ app.delete('/transactions/:id', authenticate, (req, res) => {
   )
 })
 
+// 获取基金限购信息
+app.get('/api/fund/purchase-limit/:code', async (req, res) => {
+  const { code } = req.params
+  try {
+    const result = await fetchFundPurchaseLimit(code)
+    res.json(result)
+  } catch (e) {
+    log(`获取限购信息失败 - code: ${code}, 错误: ${e.message}`, 'ERROR')
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.get('/products', authenticate, (req, res) => {
   db.all('SELECT * FROM products WHERE userId = ? ORDER BY createdAt DESC', [req.userId], (err, rows) => {
     if (err) {
@@ -810,7 +834,7 @@ app.post('/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -818,7 +842,7 @@ app.post('/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -968,7 +992,7 @@ app.post('/batch-import', authenticate, (req, res) => {
         return
       }
 
-      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, dcaAmount, dcaCycle, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       let productDone = 0
 
       products.forEach((product) => {
@@ -984,7 +1008,7 @@ app.post('/batch-import', authenticate, (req, res) => {
           return
         }
 
-        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.createdAt, (err) => {
+        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.dcaAmount || 0, product.dcaCycle || '', product.createdAt, (err) => {
           if (err) {
             log(`批量导入 - 产品插入失败: ${product.name}, 错误: ${err.message}`, 'ERROR')
             db.run('ROLLBACK')
@@ -1115,6 +1139,68 @@ function httpRequest(url, options = {}) {
 }
 
 /**
+ * 将限购信息合并到产品备注中（保留用户原有备注，替换旧的限购信息）
+ */
+function mergePurchaseLimitNote(existingNote, purchaseLimitLabel) {
+  // 移除旧的限购标记（以 "限购:" / "不限购" / "暂停申购" 开头的行）
+  const cleaned = existingNote
+    .split('\n')
+    .filter(line => !/^(限购:|不限购$|暂停申购$)/.test(line.trim()))
+    .join('\n')
+    .trim()
+
+  if (!purchaseLimitLabel) return cleaned
+  return cleaned ? `${cleaned}\n${purchaseLimitLabel}` : purchaseLimitLabel
+}
+
+/**
+ * 从东方财富获取基金限购信息
+ * @returns {{ purchaseLimitLabel: string }} 如 "限购: 单日上限5万元" 或 "不限购"
+ */
+async function fetchFundPurchaseLimit(fundCode) {
+  try {
+    const url = `http://fundf10.eastmoney.com/jbgk_${fundCode}.html`
+    const { status, data: html } = await httpRequest(url, {
+      headers: {
+        'Referer': 'http://fund.eastmoney.com/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    })
+
+    if (status !== 200 || !html) {
+      return { purchaseLimitLabel: '' }
+    }
+
+    // 提取交易状态: <span>限大额</span> / <span>开放申购</span> / <span>暂停申购</span>
+    const statusMatch = html.match(/交易状态[：:]\s*<span>(.*?)\s*<\/span>/)
+    if (!statusMatch) return { purchaseLimitLabel: '' }
+
+    const tradeStatus = statusMatch[1].trim()
+
+    // 优先判断是否暂停申购（即使页面显示了限购金额，暂停状态也应该优先）
+    if (tradeStatus === '暂停申购') {
+      return { purchaseLimitLabel: '暂停申购' }
+    }
+
+    // 提取限购金额: 单日累计购买上限5.00万元 或 单日累计购买上限10元
+    const limitMatch = html.match(/单日累计购买上限([\d.]+)(万元|元)/)
+
+    if (limitMatch) {
+      const amount = parseFloat(limitMatch[1])
+      const unit = limitMatch[2]
+      const amountLabel = unit === '万元' ? `${amount}万元` : `${amount}元`
+      return { purchaseLimitLabel: `限购: 单日上限${amountLabel}` }
+    }
+
+    // 开放申购且无限购说明
+    return { purchaseLimitLabel: '不限购' }
+  } catch (e) {
+    log(`[限购] 基金 ${fundCode} 限购信息获取失败: ${e.message}`, 'WARN')
+    return { purchaseLimitLabel: '' }
+  }
+}
+
+/**
  * 从东方财富获取基金净值（服务端直接调用，无需 Vite 代理）
  */
 async function fetchFundNavServer(fundCode) {
@@ -1156,7 +1242,10 @@ async function fetchFundNavServer(fundCode) {
     }
   }
 
-  return { nav: last.y, date: dateStr, name: fundName, dailyReturn }
+  // 并行获取限购信息
+  const { purchaseLimitLabel } = await fetchFundPurchaseLimit(fundCode)
+
+  return { nav: last.y, date: dateStr, name: fundName, dailyReturn, purchaseLimitLabel }
 }
 
 /**
@@ -1343,6 +1432,22 @@ async function runNavUpdate() {
               (err) => { if (err) reject(err); else resolve() }
             )
           })
+
+          // 更新产品备注中的限购信息
+          if (result.purchaseLimitLabel) {
+            try {
+              const newNote = mergePurchaseLimitNote(product.note || '', result.purchaseLimitLabel)
+              await new Promise((resolve, reject) => {
+                db.run(
+                  'UPDATE products SET note = ? WHERE id = ? AND userId = ?',
+                  [newNote, product.id, userId],
+                  (err) => { if (err) reject(err); else resolve() }
+                )
+              })
+            } catch (noteErr) {
+              log(`[NAV调度] 更新产品备注失败: ${product.name}, 错误: ${noteErr.message}`, 'WARN')
+            }
+          }
 
           // 更新已记录集合
           if (!updatedMap.has(product.id)) updatedMap.set(product.id, new Set())

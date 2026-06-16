@@ -186,9 +186,15 @@ export async function exportData(): Promise<string> {
     }
     return true
   })
+  // 确保产品包含定投字段（兼容旧数据）
+  const productsWithDca = products.map(p => ({
+    ...p,
+    dcaAmount: p.dcaAmount || 0,
+    dcaCycle: p.dcaCycle || ''
+  }))
   const excludedCount = allTransactions.length - transactions.length
-  logger.info(`导出完成: 产品 ${products.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条基金净值更新记录)`)
-  return JSON.stringify({ products, transactions }, null, 2)
+  logger.info(`导出完成: 产品 ${productsWithDca.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条基金净值更新记录)`)
+  return JSON.stringify({ products: productsWithDca, transactions }, null, 2)
 }
 
 export async function importData(jsonString: string): Promise<{ success: boolean; message: string }> {
@@ -208,9 +214,15 @@ export async function importData(jsonString: string): Promise<{ success: boolean
     
     if (data.products && Array.isArray(data.products)) {
       logger.info(`导入产品: ${data.products.length} 条`)
-      const result = await saveProducts(data.products)
+      // 确保产品包含定投字段（兼容旧数据）
+      const productsWithDca = data.products.map((p: any) => ({
+        ...p,
+        dcaAmount: p.dcaAmount || 0,
+        dcaCycle: p.dcaCycle || ''
+      }))
+      const result = await saveProducts(productsWithDca)
       idMapping = result.idMapping || {}
-      productCount = data.products.length
+      productCount = productsWithDca.length
       if (Object.keys(idMapping).length > 0) {
         logger.info(`产品ID冲突，已生成新映射: ${Object.keys(idMapping).length} 个`)
       }

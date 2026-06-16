@@ -101,7 +101,7 @@ const handleSubmit = () => {
     <div 
       v-if="visible" 
       class="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
-      @click.self="emit('close')"
+      @mousedown.self="emit('close')"
     >
       <div class="bg-white rounded-t-xl md:rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between p-5 border-b border-gray-200">

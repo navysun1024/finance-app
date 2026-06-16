@@ -7,6 +7,20 @@ export interface NavResult {
   date: string
   name: string
   dailyReturn?: number | null
+  purchaseLimitLabel?: string
+}
+
+/**
+ * 获取基金限购信息
+ */
+export async function fetchFundPurchaseLimit(fundCode: string): Promise<string> {
+  try {
+    const response = await fetch(`/api/db/api/fund/purchase-limit/${fundCode}`)
+    const result = await response.json()
+    return result.purchaseLimitLabel || ''
+  } catch {
+    return ''
+  }
 }
 
 export async function fetchFundNav(fundCode: string): Promise<NavResult> {
@@ -50,12 +64,16 @@ export async function fetchFundNav(fundCode: string): Promise<NavResult> {
       }
     }
 
-    logger.info(`基金 ${fundCode} 净值查询成功: nav=${last.y}, date=${dateStr}, name=${fundName}, dailyReturn=${dailyReturn}`)
+    // 并行获取限购信息
+    const purchaseLimitLabel = await fetchFundPurchaseLimit(fundCode)
+
+    logger.info(`基金 ${fundCode} 净值查询成功: nav=${last.y}, date=${dateStr}, name=${fundName}, dailyReturn=${dailyReturn}, limit=${purchaseLimitLabel}`)
     return {
       nav: last.y,
       date: dateStr,
       name: fundName,
-      dailyReturn
+      dailyReturn,
+      purchaseLimitLabel
     }
   })
 }

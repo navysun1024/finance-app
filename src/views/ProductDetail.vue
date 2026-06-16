@@ -12,7 +12,7 @@ import * as echarts from 'echarts'
 
 const route = useRoute()
 const router = useRouter()
-const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, PRODUCT_TYPE_OPTIONS } = useFinance()
+const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, PRODUCT_TYPE_OPTIONS } = useFinance()
 
 const fetchingNav = ref(false)
 const fetchingNavHistory = ref(false)
@@ -105,6 +105,28 @@ const handleFetchNav = async () => {
         0,
         0,
         navNote
+      )
+    }
+
+    // 将限购信息写入产品备注
+    if (result.purchaseLimitLabel) {
+      const currentNote = product.value.note || ''
+      // 移除旧的限购标记，追加新的
+      const cleaned = currentNote
+        .split('\n')
+        .filter(line => !/^(限购:|不限购$|暂停申购$)/.test(line.trim()))
+        .join('\n')
+        .trim()
+      const newNote = cleaned ? `${cleaned}\n${result.purchaseLimitLabel}` : result.purchaseLimitLabel
+      updateProduct(
+        product.value.id,
+        product.value.name,
+        product.value.type,
+        newNote,
+        product.value.code,
+        product.value.holder,
+        product.value.dcaAmount,
+        product.value.dcaCycle
       )
     }
   } catch (e: any) {

@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 import type { Product, ProductType } from '@/types'
 import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
+import { DCA_CYCLE_OPTIONS } from '@/types'
 
 const props = defineProps<{
   visible: boolean
@@ -12,7 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string }): void
+  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string }): void
 }>()
 
 const name = ref('')
@@ -20,6 +21,8 @@ const type = ref<ProductType>('fund')
 const code = ref('')
 const note = ref('')
 const holder = ref('')
+const dcaAmount = ref(0)
+const dcaCycle = ref('')
 
 watch(() => props.visible, (val) => {
   if (val && props.editProduct) {
@@ -28,12 +31,16 @@ watch(() => props.visible, (val) => {
     code.value = props.editProduct.code || ''
     note.value = props.editProduct.note
     holder.value = props.editProduct.holder || ''
+    dcaAmount.value = props.editProduct.dcaAmount || 0
+    dcaCycle.value = props.editProduct.dcaCycle || ''
   } else if (val) {
     name.value = ''
     type.value = props.defaultType || 'fund'
     code.value = ''
     note.value = ''
     holder.value = ''
+    dcaAmount.value = 0
+    dcaCycle.value = ''
   }
 })
 
@@ -44,7 +51,9 @@ const handleSubmit = () => {
     type: type.value, 
     note: note.value.trim(), 
     code: code.value.trim(),
-    holder: holder.value.trim()
+    holder: holder.value.trim(),
+    dcaAmount: dcaAmount.value,
+    dcaCycle: dcaCycle.value
   })
 }
 </script>
@@ -54,7 +63,7 @@ const handleSubmit = () => {
     <div 
       v-if="visible" 
       class="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
-      @click.self="emit('close')"
+      @mousedown.self="emit('close')"
     >
       <div class="bg-white rounded-t-xl md:rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between p-5 border-b border-gray-200">
@@ -107,6 +116,29 @@ const handleSubmit = () => {
               placeholder="请输入持有人姓名"
               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
             />
+          </div>
+          <div class="flex space-x-4">
+            <div class="flex-1">
+              <label class="block text-sm font-medium text-gray-700 mb-2">定投金额</label>
+              <input 
+                v-model.number="dcaAmount"
+                type="number" 
+                min="0"
+                placeholder="0"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              />
+            </div>
+            <div class="flex-1">
+              <label class="block text-sm font-medium text-gray-700 mb-2">定投周期</label>
+              <select 
+                v-model="dcaCycle"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              >
+                <option v-for="option in DCA_CYCLE_OPTIONS" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">备注</label>

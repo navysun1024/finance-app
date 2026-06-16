@@ -5,6 +5,7 @@ import ProductModal from '@/components/ProductModal.vue'
 import { useFinance } from '@/composables/useFinance'
 import { useRouter } from 'vue-router'
 import type { ProductType } from '@/types'
+import { DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency } from '@/utils/format'
 import { fetchFundStageGainsBatch, fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchAggregatedHoldings, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
 
@@ -383,6 +384,12 @@ const getProductTypeLabel = (type: string) => {
   return option ? option.label : type
 }
 
+const getDcaLabel = (dcaAmount: number, dcaCycle: string) => {
+  if (!dcaAmount || !dcaCycle) return ''
+  const cycleOption = DCA_CYCLE_OPTIONS.find(o => o.value === dcaCycle)
+  return cycleOption ? `${dcaAmount}元/${cycleOption.label}` : ''
+}
+
 const getProductTypeColor = (type: string) => {
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === type)
   return option ? option.color : '#6b7280'
@@ -418,6 +425,9 @@ onMounted(() => {
     if (cached) {
       aggregatedHoldings.value = cached.data
       aggregatedHoldingsFromCache.value = true
+    } else {
+      // 默认展开，无缓存时自动加载
+      fetchAllAggregatedHoldings()
     }
   }
 })
@@ -429,11 +439,11 @@ watch(() => products.value, () => {
   fetchAllDailyReturns()
 })
 
-const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string }) => {
+const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder)
+    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle)
   } else {
-    addProduct(data.name, data.type, data.note, data.code, data.holder)
+    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle)
   }
   showModal.value = false
 }
@@ -736,24 +746,18 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               @click="router.push({ name: 'product-detail', params: { id: product.id } })"
             >
               <td class="px-4 py-2.5 whitespace-nowrap">
-                <div class="flex items-center space-x-3">
-                  <div 
-                    class="w-10 h-10 rounded-lg flex items-center justify-center text-white font-semibold flex-shrink-0"
-                    :style="{ backgroundColor: getProductTypeColor(product.type) }"
-                  >
-                    {{ product.name.charAt(0) }}
-                  </div>
-                  <div class="min-w-0">
-                    <h3 class="font-semibold text-gray-800 truncate">{{ product.name }}</h3>
-                    <div class="flex items-center space-x-2 mt-0.5">
-                      <span 
-                        class="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
-                        :style="{ backgroundColor: getProductTypeColor(product.type) + '20', color: getProductTypeColor(product.type) }"
-                      >
-                        {{ getProductTypeLabel(product.type) }}
-                      </span>
-                      <span v-if="product.code" class="text-xs font-mono text-gray-500">代码: {{ product.code }}</span>
-                    </div>
+                <div>
+                  <h3 class="font-semibold text-gray-800 truncate">{{ product.name }}</h3>
+                  <div class="flex items-center space-x-2 mt-0.5">
+                    <span 
+                      class="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+                      :style="{ backgroundColor: getProductTypeColor(product.type) + '20', color: getProductTypeColor(product.type) }"
+                    >
+                      {{ getProductTypeLabel(product.type) }}
+                    </span>
+                    <span v-if="product.code" class="text-xs font-mono text-gray-500">代码: {{ product.code }}</span>
+                    <span v-if="product.note" class="text-xs text-amber-600 truncate max-w-[160px]" :title="product.note">{{ product.note }}</span>
+                    <span v-if="product.dcaAmount && product.dcaCycle" class="text-xs text-blue-600">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                   </div>
                 </div>
               </td>

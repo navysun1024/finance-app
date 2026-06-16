@@ -207,6 +207,79 @@ interface Position {
 }
 ```
 
+## 数据库表结构
+
+数据库使用 SQLite，文件位于 `data/finance.db`。共 4 张表：
+
+### 1. users — 用户表
+
+存储用户账户信息，用于认证系统。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PRIMARY KEY | 用户唯一 ID |
+| username | TEXT | UNIQUE NOT NULL | 用户名 |
+| password | TEXT | NOT NULL | 密码哈希（bcrypt） |
+| createdAt | INTEGER | NOT NULL | 注册时间戳 |
+
+### 2. products — 产品表
+
+存储理财产品信息，每个用户可拥有多个产品。通过 `userId` 实现数据隔离。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PRIMARY KEY | 产品唯一 ID |
+| userId | TEXT | NOT NULL | 所属用户 ID（关联 users.id） |
+| name | TEXT | NOT NULL | 产品名称 |
+| type | TEXT | NOT NULL | 产品类型：`fund`（基金）/ `fixed_income`（固收理财） |
+| code | TEXT | DEFAULT '' | 产品代码（如基金代码 110044） |
+| note | TEXT | DEFAULT '' | 备注（含限购信息等自动追加内容） |
+| holder | TEXT | DEFAULT '' | 持有人姓名 |
+| dcaAmount | REAL | DEFAULT 0 | 定投金额（元） |
+| dcaCycle | TEXT | DEFAULT '' | 定投周期：`daily` / `weekly` / `biweekly` / `monthly` |
+| createdAt | INTEGER | NOT NULL | 创建时间戳 |
+
+### 3. transactions — 交易记录表
+
+存储所有交易操作，通过 `productId` 关联产品。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PRIMARY KEY | 交易唯一 ID |
+| userId | TEXT | NOT NULL | 所属用户 ID（关联 users.id） |
+| productId | TEXT | NOT NULL | 关联产品 ID（关联 products.id） |
+| type | TEXT | NOT NULL | 交易类型：`buy`（买入）/ `sell`（卖出）/ `dividend`（分红）/ `nav_update`（净值更新） |
+| date | INTEGER | NOT NULL | 交易日期时间戳 |
+| amount | REAL | NOT NULL | 交易金额 |
+| price | REAL | NOT NULL | 交易价格/净值 |
+| shares | REAL | NOT NULL | 交易份额 |
+| fee | REAL | DEFAULT 0 | 手续费 |
+| note | TEXT | DEFAULT '' | 备注（如数据来源、更新时间等） |
+
+### 4. data_cache — 数据缓存表
+
+缓存爬取的外部数据（如基金阶段涨幅、持仓信息），减少重复请求，加速页面加载。设有过期时间索引自动清理。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| cache_key | TEXT | PRIMARY KEY | 缓存键（如 `fund_stage_gains_110044`） |
+| cache_data | TEXT | NOT NULL | 缓存数据（JSON 字符串） |
+| updated_at | INTEGER | NOT NULL | 更新时间戳 |
+| expires_at | INTEGER | NOT NULL | 过期时间戳（已创建索引 `idx_data_cache_expires`） |
+
+### 表关系
+
+```
+users (1) ──────< (N) products
+                      │
+                      │ (1)
+                      │
+                      ▼
+                  (N) transactions
+
+data_cache（独立表，无外键关联）
+```
+
 ## 路由与页面
 
 | 路径 | 名称 | 视图组件 | 需要认证 |
