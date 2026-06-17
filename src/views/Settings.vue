@@ -137,11 +137,11 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
 <template>
   <div class="max-w-2xl mx-auto space-y-6">
     <div>
-      <h2 class="text-xl font-bold text-white drop-shadow-sm">数据管理</h2>
-      <p class="text-white/80 text-sm mt-1">管理您的理财数据，支持导出、导入和重置操作</p>
+      <h2 class="text-xl font-bold text-white" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">数据管理</h2>
+      <p class="text-blue-100 text-sm mt-1">管理您的理财数据，支持导出、导入和重置操作</p>
     </div>
     
-    <div v-if="message" :class="['p-4 rounded-xl mb-6 backdrop-blur-sm', messageType === 'success' ? 'bg-green-400/30 text-green-100' : 'bg-red-400/30 text-red-100']">
+    <div v-if="message" :class="['p-4 rounded-xl mb-6 backdrop-blur-sm font-medium', messageType === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800']">
       {{ message }}
     </div>
     

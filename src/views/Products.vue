@@ -453,10 +453,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
   <div class="space-y-6">
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h2 class="text-xl font-bold text-white drop-shadow-sm">
+        <h2 class="text-xl font-bold text-white" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">
           {{ props.type === 'fund' ? '基金列表' : props.type === 'fixed_income' ? '固收理财列表' : '产品列表' }}
         </h2>
-        <p class="text-white/80 text-sm mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="text-blue-100 text-sm mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
       <button 
         @click="handleAdd"

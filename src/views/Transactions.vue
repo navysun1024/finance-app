@@ -189,7 +189,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
 <template>
   <div class="space-y-6">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <h2 class="text-xl font-bold text-white drop-shadow-sm">交易记账</h2>
+      <h2 class="text-xl font-bold text-white" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">交易记账</h2>
       <div class="flex items-center space-x-3">
         <button 
           @click="showBatchImport = true"

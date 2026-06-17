@@ -810,7 +810,7 @@ onUnmounted(() => {
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-semibold text-gray-800">持仓信息</h3>
           <div class="flex items-center space-x-3">
-            <span v-if="holdingsData.reportDate" class="text-xs text-gray-400">截止 {{ holdingsData.reportDate }}</span>
+            <span v-if="holdingsData.reportDate" class="text-xs text-gray-500">截止 {{ holdingsData.reportDate }}</span>
             <button
               @click="handleFetchHoldings"
               :disabled="fetchingHoldings"
@@ -920,7 +920,7 @@ onUnmounted(() => {
             type="date"
             class="glass-input px-3 py-1 text-xs rounded-xl outline-none"
           />
-          <span class="text-gray-400 text-xs">至</span>
+          <span class="text-gray-500 text-xs">至</span>
           <input
             v-model="txCustomEndDate"
             type="date"

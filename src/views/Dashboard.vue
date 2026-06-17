@@ -175,6 +175,9 @@ const updateTypeBarChart = (type: string, _typeLabel: string, _color: string, po
       data: data.map(d => ({ name: d.name, value: d.value, itemStyle: { color: d.color } })),
       barMaxWidth: mobile ? 20 : 28,
       barCategoryGap: mobile ? '40%' : '20%',
+      itemStyle: {
+        borderRadius: [0, 6, 6, 0]
+      },
       label: {
         show: true,
         position: 'right',
@@ -217,8 +220,9 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
 
   const colorMap = buildProductColorMap(filteredPositions)
 
-  const series = productNames.map((name) => {
+  const series = productNames.map((name, index) => {
     const productColor = colorMap.get(name) || PRODUCT_COLORS[0]
+    const isLastSeries = index === productNames.length - 1
     return {
       name,
       type: 'bar',
@@ -227,7 +231,15 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
       itemStyle: { color: productColor },
       data: history.map(h => {
         const pp = h.productProfits.find(p => p.productName === name)
-        return pp ? pp.profit : 0
+        const value = pp ? pp.profit : 0
+        // 只对最上面的系列做圆角处理
+        if (isLastSeries) {
+          return {
+            value,
+            itemStyle: { borderRadius: value >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4] }
+          }
+        }
+        return value
       })
     }
   })
@@ -325,7 +337,7 @@ onUnmounted(() => {
     <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-2">
       <div class="flex items-center space-x-2">
         <span class="w-3 h-3 rounded-full shadow-lg" :style="{ backgroundColor: group.color }"></span>
-        <h3 class="text-base font-semibold text-white drop-shadow-sm">{{ group.label }}</h3>
+        <h3 class="text-base font-semibold text-white" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">{{ group.label }}</h3>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard 
@@ -400,7 +412,7 @@ onUnmounted(() => {
     </div>
     
     <div>
-      <h3 class="text-base sm:text-lg font-semibold text-white drop-shadow-sm mb-3 sm:mb-4">持仓明细</h3>
+      <h3 class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">持仓明细</h3>
       <div v-if="portfolioSummary.positions.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <ProductCard 
           v-for="position in portfolioSummary.positions" 

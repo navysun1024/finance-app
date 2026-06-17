@@ -69,7 +69,7 @@ onUnmounted(() => {
         </div>
         <!-- 右侧：用户信息 + 版本号 -->
         <div class="flex items-center space-x-3 text-sm">
-          <span class="text-gray-400 font-mono text-xs">v1.1.0</span>
+          <span class="text-gray-500 font-mono text-xs">v1.1.0</span>
           <div ref="userMenuRef" class="relative">
             <button
               @click="toggleUserMenu"
@@ -86,7 +86,7 @@ onUnmounted(() => {
                 class="absolute right-0 top-full mt-2 w-48 glass-card rounded-xl shadow-xl overflow-hidden"
               >
                 <div class="px-4 py-3 border-b border-gray-200/50">
-                  <p class="text-xs text-gray-400">当前登录</p>
+                  <p class="text-xs text-gray-500">当前登录</p>
                   <p class="text-sm font-medium text-gray-700 truncate">{{ getCurrentUser().username }}</p>
                 </div>
                 <div class="py-1">

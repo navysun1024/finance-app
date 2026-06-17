@@ -167,11 +167,11 @@ const goToLogin = () => {
               <p class="text-xs text-gray-500">密码强度：<span :class="{ 'text-red-500': passwordStrength.level <= 1, 'text-orange-500': passwordStrength.level === 2, 'text-yellow-600': passwordStrength.level === 3, 'text-green-500': passwordStrength.level >= 4 }">{{ passwordStrength.label }}</span></p>
               <!-- 密码规则提示 -->
               <div class="mt-2 grid grid-cols-2 gap-1 text-xs">
-                <span :class="passwordRules.length ? 'text-green-500' : 'text-gray-400'">{{ passwordRules.length ? '✓' : '○' }} 至少8个字符</span>
-                <span :class="passwordRules.upper ? 'text-green-500' : 'text-gray-400'">{{ passwordRules.upper ? '✓' : '○' }} 包含大写字母</span>
-                <span :class="passwordRules.lower ? 'text-green-500' : 'text-gray-400'">{{ passwordRules.lower ? '✓' : '○' }} 包含小写字母</span>
-                <span :class="passwordRules.number ? 'text-green-500' : 'text-gray-400'">{{ passwordRules.number ? '✓' : '○' }} 包含数字</span>
-                <span :class="passwordRules.special ? 'text-green-500' : 'text-gray-400'">{{ passwordRules.special ? '✓' : '○' }} 包含特殊字符</span>
+                <span :class="passwordRules.length ? 'text-green-500' : 'text-gray-500'">{{ passwordRules.length ? '✓' : '○' }} 至少8个字符</span>
+                <span :class="passwordRules.upper ? 'text-green-500' : 'text-gray-500'">{{ passwordRules.upper ? '✓' : '○' }} 包含大写字母</span>
+                <span :class="passwordRules.lower ? 'text-green-500' : 'text-gray-500'">{{ passwordRules.lower ? '✓' : '○' }} 包含小写字母</span>
+                <span :class="passwordRules.number ? 'text-green-500' : 'text-gray-500'">{{ passwordRules.number ? '✓' : '○' }} 包含数字</span>
+                <span :class="passwordRules.special ? 'text-green-500' : 'text-gray-500'">{{ passwordRules.special ? '✓' : '○' }} 包含特殊字符</span>
               </div>
             </div>
           </div>
