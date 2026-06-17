@@ -303,6 +303,7 @@ export function useFinance() {
  const navBefore = currentNav;
  const dayTransactions = productTransactions.filter(t => t.date >= dayStart && t.date <= dayEnd);
  let hasNavUpdateToday = false;
+ let sharesAtNavUpdate = shares; // 记录净值更新时的份额，用于计算当日净值变动收益
 
  for (const t of dayTransactions) {
  if (t.type === 'buy') {
@@ -313,19 +314,19 @@ export function useFinance() {
  currentNav = avgCost;
  }
  } else if (t.type === 'sell') {
- const costBasis = t.shares * avgCost;
- dailyProfit += t.amount - costBasis;
+ // 赎回只更新份额，不计入赎回收益（赎回收益含历史累积，不属于当日新增）
  shares = Math.max(0, shares - t.shares);
  } else if (t.type === 'dividend') {
  dailyProfit += t.amount;
  } else if (t.type === 'nav_update') {
  currentNav = t.price;
+ sharesAtNavUpdate = shares; // 净值更新时的份额（赎回前的全部份额）
  hasNavUpdateToday = true;
  }
  }
 
  if (hasNavByPreviousDay) {
- dailyProfit += (currentNav - navBefore) * shares;
+ dailyProfit += (currentNav - navBefore) * sharesAtNavUpdate;
  }
 
  if (hasNavUpdateToday) {

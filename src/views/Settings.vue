@@ -319,10 +319,10 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     <div class="glass-card rounded-2xl p-6">
       <h3 class="font-semibold text-gray-800 mb-2">应用信息</h3>
       <div class="text-gray-500 text-sm space-y-2">
-        <p>版本号: <span class="font-mono text-indigo-600">v1.1.0</span></p>
+        <p>版本号: <span class="font-mono text-indigo-600">v1.1.1</span></p>
         <p>技术栈: Vue 3 + Vite + TailwindCSS + ECharts</p>
         <div class="mt-3 pt-3 border-t border-gray-200/50">
-          <p class="font-semibold text-gray-700 mb-2">v1.1.0 版本变更 (2026-06-15)</p>
+          <p class="font-semibold text-gray-700 mb-2">v1.1.1 版本变更 (2026-06-15)</p>
           <ul class="list-disc list-inside space-y-1 text-gray-500">
             <li>新增产品定投属性：支持设置定投金额和定投周期（每日/每周/每两周/每月）</li>
             <li>产品备注显示限购信息，支持暂停申购状态识别</li>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { Wallet, TrendingUp, PieChart, RefreshCw } from 'lucide-vue-next'
+import { Wallet, TrendingUp, PieChart, RefreshCw, BarChart, Calendar } from 'lucide-vue-next'
 import StatCard from '@/components/StatCard.vue'
 import ProductCard from '@/components/ProductCard.vue'
+import ProfitCalendar from '@/components/ProfitCalendar.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { calculateXIRR } from '@/utils/xirr'
 import { formatCurrency, formatCurrencyInt, formatPercent } from '@/utils/format'
@@ -71,6 +72,44 @@ const trendRangeOptions = [
   { label: '全部', value: 'all', days: 0 }
 ]
 const trendRanges = ref<Record<string, string>>({})
+
+// 收益趋势视图模式: 'chart' 或 'calendar'
+const trendViewMode = ref<Record<string, 'chart' | 'calendar'>>({})
+
+// 日历收益数据缓存（按类型懒加载）
+const calendarDataCache = ref<Record<string, { date: string; profit: number }[]>>({})
+const calendarDataLoaded = ref<Record<string, boolean>>({})
+
+// 按需加载某类型的日历数据
+const loadCalendarData = (type: string) => {
+  if (calendarDataLoaded.value[type]) return
+  const history = getProfitHistory(3650)
+  
+  // 获取该类型下的所有产品ID
+  const typeProductIds = new Set(
+    portfolioSummary.value.positions
+      .filter(p => p.product.type === type)
+      .map(p => p.product.id)
+  )
+  
+  // 只累加该类型产品的每日收益
+  calendarDataCache.value[type] = history.map(h => {
+    const typeProfit = h.productProfits
+      .filter(pp => typeProductIds.has(pp.productId))
+      .reduce((sum, pp) => sum + pp.profit, 0)
+    return {
+      date: h.date,
+      profit: Math.round(typeProfit * 100) / 100
+    }
+  })
+  calendarDataLoaded.value[type] = true
+}
+
+// 切换到日历视图时触发
+const switchToCalendar = (type: string) => {
+  trendViewMode.value[type] = 'calendar'
+  nextTick(() => loadCalendarData(type))
+}
 
 const initCharts = () => {
   // 初始化各类型的资产分布柱形图
@@ -391,23 +430,65 @@ onUnmounted(() => {
             <span class="w-3 h-3 rounded-full mr-2 shadow-lg" :style="{ backgroundColor: group.color }"></span>
             <h3 class="text-base font-semibold text-gray-800">{{ group.label }}收益趋势</h3>
           </div>
-          <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
-            <button
-              v-for="opt in trendRangeOptions"
-              :key="opt.value"
-              @click="trendRanges[group.type] = opt.value"
-              :class="[
-                'px-2 py-0.5 text-xs rounded-lg transition-all duration-300',
-                (trendRanges[group.type] || '1m') === opt.value
-                  ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
-                  : 'text-gray-500 hover:text-gray-700'
-              ]"
-            >
-              {{ opt.label }}
-            </button>
+          <div class="flex items-center space-x-2">
+            <!-- 时间区间选择（仅图表模式显示） -->
+            <div v-if="(trendViewMode[group.type] || 'chart') === 'chart'" class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+              <button
+                v-for="opt in trendRangeOptions"
+                :key="opt.value"
+                @click="trendRanges[group.type] = opt.value"
+                :class="[
+                  'px-2 py-0.5 text-xs rounded-lg transition-all duration-300',
+                  (trendRanges[group.type] || '1m') === opt.value
+                    ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
+                    : 'text-gray-500 hover:text-gray-700'
+                ]"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+            <!-- 图表/日历切换按钮 -->
+            <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+              <button
+                @click="trendViewMode[group.type] = 'chart'"
+                :class="[
+                  'p-1.5 rounded-lg transition-all duration-300',
+                  (trendViewMode[group.type] || 'chart') === 'chart'
+                    ? 'bg-white/80 text-indigo-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                ]"
+                title="柱状图"
+              >
+                <BarChart class="w-4 h-4" />
+              </button>
+              <button
+                @click="switchToCalendar(group.type)"
+                :class="[
+                  'p-1.5 rounded-lg transition-all duration-300',
+                  (trendViewMode[group.type] || 'chart') === 'calendar'
+                    ? 'bg-white/80 text-indigo-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                ]"
+                title="收益日历"
+              >
+                <Calendar class="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
-        <div :ref="setTrendChartRef(group.type)" class="h-48 sm:h-56 md:h-64"></div>
+        <!-- 图表视图 -->
+        <div v-show="(trendViewMode[group.type] || 'chart') === 'chart'" :ref="setTrendChartRef(group.type)" class="h-48 sm:h-56 md:h-64"></div>
+        <!-- 日历视图 -->
+        <div v-if="(trendViewMode[group.type] || 'chart') === 'calendar'" class="h-48 sm:h-56 md:h-64 px-2 pb-2">
+          <div v-if="!calendarDataLoaded[group.type]" class="flex items-center justify-center h-full">
+            <span class="text-gray-500 text-sm">加载中...</span>
+          </div>
+          <ProfitCalendar 
+            v-else
+            :profit-data="calendarDataCache[group.type] || []" 
+            :product-type="group.type"
+          />
+        </div>
       </div>
     </div>
     
