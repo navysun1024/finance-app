@@ -73,42 +73,82 @@ const trendRangeOptions = [
 ]
 const trendRanges = ref<Record<string, string>>({})
 
-// 收益趋势视图模式: 'chart' 或 'calendar'
+// 收益趋势视图模式: 'chart' 或 'calendar'（默认日历）
 const trendViewMode = ref<Record<string, 'chart' | 'calendar'>>({})
 
-// 日历收益数据缓存（按类型懒加载）
-const calendarDataCache = ref<Record<string, { date: string; profit: number }[]>>({})
+// 日历收益数据缓存（按类型懒加载，包含各产品明细）
+interface CalendarDayData {
+  date: string
+  profit: number
+  productProfits: { productName: string; profit: number }[]
+}
+const calendarDataCache = ref<Record<string, CalendarDayData[]>>({})
 const calendarDataLoaded = ref<Record<string, boolean>>({})
 
-// 按需加载某类型的日历数据
-const loadCalendarData = (type: string) => {
-  if (calendarDataLoaded.value[type]) return
-  const history = getProfitHistory(3650)
-  
-  // 获取该类型下的所有产品ID
+// 全局缓存：按天数分级的原始收益历史数据
+const rawHistoryCache = new Map<number, ReturnType<typeof getProfitHistory>>()
+
+// 获取指定天数的收益历史（带缓存，相同天数只算一次）
+const getRawHistory = (days: number) => {
+  if (!rawHistoryCache.has(days)) {
+    rawHistoryCache.set(days, getProfitHistory(days))
+  }
+  return rawHistoryCache.get(days)!
+}
+
+// 从历史数据中按类型过滤出日历数据
+const buildCalendarData = (history: ReturnType<typeof getProfitHistory>, type: string): CalendarDayData[] => {
   const typeProductIds = new Set(
     portfolioSummary.value.positions
       .filter(p => p.product.type === type)
       .map(p => p.product.id)
   )
-  
-  // 只累加该类型产品的每日收益
-  calendarDataCache.value[type] = history.map(h => {
-    const typeProfit = h.productProfits
-      .filter(pp => typeProductIds.has(pp.productId))
-      .reduce((sum, pp) => sum + pp.profit, 0)
+  return history.map(h => {
+    const filteredProfits = h.productProfits.filter(pp => typeProductIds.has(pp.productId))
+    const typeProfit = filteredProfits.reduce((sum, pp) => sum + pp.profit, 0)
     return {
       date: h.date,
-      profit: Math.round(typeProfit * 100) / 100
+      profit: Math.round(typeProfit * 100) / 100,
+      productProfits: filteredProfits
+        .filter(pp => Math.abs(pp.profit) > 0.01)
+        .map(pp => ({ productName: pp.productName, profit: Math.round(pp.profit * 100) / 100 }))
     }
   })
+}
+
+// 快速加载某类型的日历数据（仅近1年，秒级完成）
+const loadCalendarData = (type: string) => {
+  if (calendarDataLoaded.value[type]) return
+  const history = getRawHistory(365)
+  calendarDataCache.value[type] = buildCalendarData(history, type)
   calendarDataLoaded.value[type] = true
+}
+
+// 异步扩展到全量数据（后台计算，完成后替换缓存）
+const expandCalendarToFull = () => {
+  setTimeout(() => {
+    const fullHistory = getRawHistory(3650)
+    for (const group of positionsByType.value) {
+      if (calendarDataLoaded.value[group.type]) {
+        calendarDataCache.value[group.type] = buildCalendarData(fullHistory, group.type)
+      }
+    }
+  }, 100)
 }
 
 // 切换到日历视图时触发
 const switchToCalendar = (type: string) => {
   trendViewMode.value[type] = 'calendar'
   nextTick(() => loadCalendarData(type))
+}
+
+// 切换到图表视图
+const switchToChart = (type: string) => {
+  trendViewMode.value[type] = 'chart'
+  nextTick(() => {
+    const chart = trendCharts.get(type)
+    if (chart) chart.resize()
+  })
 }
 
 const initCharts = () => {
@@ -242,7 +282,7 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
   const rangeValue = trendRanges.value[type] || '1m'
   const opt = trendRangeOptions.find(o => o.value === rangeValue)
   const days = opt ? opt.days : 30
-  const history = days > 0 ? getProfitHistory(days) : getProfitHistory(3650)
+  const history = days > 0 ? getRawHistory(days) : getRawHistory(3650)
   const dates = history.map(h => {
       const parts = h.date.split('-')
       return `${parts[0].substring(2)}/${parts[1]}/${parts[2]}`
@@ -358,6 +398,12 @@ onMounted(async () => {
   await refresh()
   await nextTick()
   initCharts()
+  // 快速加载日历数据（近1年，秒级完成）
+  for (const group of positionsByType.value) {
+    loadCalendarData(group.type)
+  }
+  // 异步扩展到全量数据（后台计算，不阻塞页面）
+  expandCalendarToFull()
   window.addEventListener('resize', handleResize)
 })
 
@@ -432,7 +478,7 @@ onUnmounted(() => {
           </div>
           <div class="flex items-center space-x-2">
             <!-- 时间区间选择（仅图表模式显示） -->
-            <div v-if="(trendViewMode[group.type] || 'chart') === 'chart'" class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+            <div v-if="(trendViewMode[group.type] || 'calendar') === 'chart'" class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
               <button
                 v-for="opt in trendRangeOptions"
                 :key="opt.value"
@@ -450,10 +496,10 @@ onUnmounted(() => {
             <!-- 图表/日历切换按钮 -->
             <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
               <button
-                @click="trendViewMode[group.type] = 'chart'"
+                @click="switchToChart(group.type)"
                 :class="[
                   'p-1.5 rounded-lg transition-all duration-300',
-                  (trendViewMode[group.type] || 'chart') === 'chart'
+                  (trendViewMode[group.type] || 'calendar') === 'chart'
                     ? 'bg-white/80 text-indigo-700 shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
                 ]"
@@ -465,7 +511,7 @@ onUnmounted(() => {
                 @click="switchToCalendar(group.type)"
                 :class="[
                   'p-1.5 rounded-lg transition-all duration-300',
-                  (trendViewMode[group.type] || 'chart') === 'calendar'
+                  (trendViewMode[group.type] || 'calendar') === 'calendar'
                     ? 'bg-white/80 text-indigo-700 shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
                 ]"
@@ -477,9 +523,9 @@ onUnmounted(() => {
           </div>
         </div>
         <!-- 图表视图 -->
-        <div v-show="(trendViewMode[group.type] || 'chart') === 'chart'" :ref="setTrendChartRef(group.type)" class="h-48 sm:h-56 md:h-64"></div>
+        <div v-show="(trendViewMode[group.type] || 'calendar') === 'chart'" :ref="setTrendChartRef(group.type)" class="h-48 sm:h-56 md:h-64"></div>
         <!-- 日历视图 -->
-        <div v-if="(trendViewMode[group.type] || 'chart') === 'calendar'" class="h-48 sm:h-56 md:h-64 px-2 pb-2">
+        <div v-if="(trendViewMode[group.type] || 'calendar') === 'calendar'" class="h-48 sm:h-56 md:h-64 px-2 pb-2">
           <div v-if="!calendarDataLoaded[group.type]" class="flex items-center justify-center h-full">
             <span class="text-gray-500 text-sm">加载中...</span>
           </div>

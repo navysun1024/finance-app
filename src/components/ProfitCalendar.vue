@@ -3,9 +3,15 @@ import { ref, computed } from 'vue'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { formatCurrency } from '@/utils/format'
 
+interface ProductProfit {
+  productName: string
+  profit: number
+}
+
 interface DailyProfit {
   date: string  // YYYY-MM-DD
   profit: number
+  productProfits?: ProductProfit[]
 }
 
 const props = defineProps<{
@@ -17,6 +23,26 @@ const props = defineProps<{
 const currentYear = ref(new Date().getFullYear())
 const currentMonth = ref(new Date().getMonth() + 1)  // 1-12
 
+// Tooltip 状态
+const tooltipVisible = ref(false)
+const tooltipData = ref<{ date: string; profit: number; products: ProductProfit[] } | null>(null)
+const tooltipPos = ref({ x: 0, y: 0 })
+
+const showTooltip = (event: MouseEvent, dateStr: string, profit: number, products: ProductProfit[]) => {
+  if (products.length === 0) return
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  tooltipPos.value = {
+    x: rect.left + rect.width / 2,
+    y: rect.top - 4
+  }
+  tooltipData.value = { date: dateStr, profit, products }
+  tooltipVisible.value = true
+}
+
+const hideTooltip = () => {
+  tooltipVisible.value = false
+}
+
 // 视图模式: 'month' | 'year'
 const viewMode = ref<'month' | 'year'>('month')
 
@@ -26,11 +52,11 @@ const weekDays = ['日', '一', '二', '三', '四', '五', '六']
 // 月份标题
 const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
 
-// 将收益数据转换为 Map 方便查询
+// 将收益数据转换为 Map 方便查询（包含产品明细）
 const profitMap = computed(() => {
-  const map = new Map<string, number>()
+  const map = new Map<string, { profit: number; productProfits: ProductProfit[] }>()
   for (const item of props.profitData) {
-    map.set(item.date, item.profit)
+    map.set(item.date, { profit: item.profit, productProfits: item.productProfits || [] })
   }
   return map
 })
@@ -47,20 +73,26 @@ const getFirstDayOfMonth = (year: number, month: number) => {
 
 // 生成月历数据
 const calendarDays = computed(() => {
-  const days: { date: string; day: number; profit: number | null; isCurrentMonth: boolean }[] = []
+  const days: { date: string; day: number; profit: number | null; isCurrentMonth: boolean; productProfits: ProductProfit[] }[] = []
   const daysInMonth = getDaysInMonth(currentYear.value, currentMonth.value)
   const firstDay = getFirstDayOfMonth(currentYear.value, currentMonth.value)
   
   // 填充空白日期
   for (let i = 0; i < firstDay; i++) {
-    days.push({ date: '', day: 0, profit: null, isCurrentMonth: false })
+    days.push({ date: '', day: 0, profit: null, isCurrentMonth: false, productProfits: [] })
   }
   
   // 填充当月日期
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${currentYear.value}-${String(currentMonth.value).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    const profit = profitMap.value.get(dateStr) ?? null
-    days.push({ date: dateStr, day, profit, isCurrentMonth: true })
+    const data = profitMap.value.get(dateStr)
+    days.push({ 
+      date: dateStr, 
+      day, 
+      profit: data ? data.profit : null, 
+      isCurrentMonth: true,
+      productProfits: data ? data.productProfits : []
+    })
   }
   
   return days
@@ -75,9 +107,9 @@ const yearlySummary = computed(() => {
     const daysInMonth = getDaysInMonth(currentYear.value, month)
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${currentYear.value}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      const profit = profitMap.value.get(dateStr)
-      if (profit !== undefined) {
-        totalProfit += profit
+      const data = profitMap.value.get(dateStr)
+      if (data !== undefined) {
+        totalProfit += data.profit
         days++
       }
     }
@@ -219,10 +251,12 @@ const getProfitBg = (profit: number | null) => {
       </div>
       
       <!-- 日历网格 -->
-      <div class="grid grid-cols-7 gap-px flex-1 content-start px-4">
+      <div class="grid grid-cols-7 gap-px flex-1 content-start px-4 relative">
         <div
           v-for="(day, index) in calendarDays"
           :key="index"
+          @mouseenter="day.profit !== null && day.productProfits.length > 0 && showTooltip($event, day.date, day.profit!, day.productProfits)"
+          @mouseleave="hideTooltip"
           :class="[
             'rounded-sm flex flex-col items-center justify-center py-0.5 transition-all h-[30px]',
             day.isCurrentMonth ? getProfitBg(day.profit) : 'bg-transparent',
@@ -297,6 +331,33 @@ const getProfitBg = (profit: number | null) => {
         </span>
       </div>
     </div>
+
+    <!-- Tooltip -->
+    <Teleport to="body">
+      <div
+        v-if="tooltipVisible && tooltipData"
+        class="fixed z-50 pointer-events-none"
+        :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px', transform: 'translate(-50%, -100%)' }"
+      >
+        <div class="bg-gray-800 text-white text-[11px] rounded-lg shadow-lg px-3 py-2 min-w-[140px]">
+          <div class="font-medium mb-1 text-gray-300">{{ tooltipData.date }}</div>
+          <div class="space-y-0.5">
+            <div v-for="p in tooltipData.products" :key="p.productName" class="flex justify-between gap-3">
+              <span class="text-gray-400 truncate max-w-[100px]">{{ p.productName }}</span>
+              <span :class="p.profit >= 0 ? 'text-red-400' : 'text-green-400'">
+                {{ p.profit >= 0 ? '+' : '' }}{{ p.profit.toFixed(2) }}
+              </span>
+            </div>
+          </div>
+          <div class="border-t border-gray-600 mt-1 pt-1 flex justify-between font-medium">
+            <span>合计</span>
+            <span :class="tooltipData.profit >= 0 ? 'text-red-400' : 'text-green-400'">
+              {{ tooltipData.profit >= 0 ? '+' : '' }}{{ tooltipData.profit.toFixed(2) }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
