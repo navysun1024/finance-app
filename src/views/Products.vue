@@ -296,7 +296,7 @@ const toggleAggregatedHoldings = () => {
 // ==================== 汇总统计 ====================
 const summaryStats = computed(() => {
   const positions = filteredProducts.value
-    .map(p => calculatePosition(p))
+    .map(p => positionMap.value.get(p.id))
     .filter(Boolean)
   
   const totalMarketValue = positions.reduce((sum, p) => sum + (p!.marketValue || 0), 0)
@@ -330,8 +330,8 @@ const filteredProducts = computed(() => {
     )
   }
   result.sort((a, b) => {
-    const posA = calculatePosition(a)
-    const posB = calculatePosition(b)
+    const posA = positionMap.value.get(a.id)
+    const posB = positionMap.value.get(b.id)
     let comparison = 0
     switch (sortKey.value) {
       case 'name':
@@ -395,9 +395,18 @@ const getProductTypeColor = (type: string) => {
   return option ? option.color : '#6b7280'
 }
 
+// 预计算所有产品的 position（只计算一次，避免模板中重复调用）
+const positionMap = computed(() => {
+  const map = new Map<string, ReturnType<typeof calculatePosition>>()
+  for (const product of products.value) {
+    if (props.type && product.type !== props.type) continue
+    map.set(product.id, calculatePosition(product))
+  }
+  return map
+})
+
 const getPosition = (productId: string) => {
-  const product = products.value.find(p => p.id === productId)
-  return product ? calculatePosition(product) : null
+  return positionMap.value.get(productId) || null
 }
 
 const handleAdd = () => {

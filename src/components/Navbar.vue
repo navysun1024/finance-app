@@ -67,7 +67,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="flex items-center space-x-4 text-sm">
-          <span class="text-gray-500 font-mono text-xs">V1.1.2</span>
+          <span class="text-gray-500 font-mono text-xs">V1.1.3</span>
           <div ref="userMenuRef" class="relative">
             <button
               @click="toggleUserMenu"
