@@ -18,58 +18,63 @@ const getProductTypeLabel = (type: string) => {
 
 const getProductTypeColor = (type: string) => {
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === type)
-  return option ? option.color : '#6b7280'
+  return option ? option.color : '#86868b'
 }
 </script>
 
 <template>
   <div 
-    class="glass-card rounded-2xl p-3 sm:p-5 hover:bg-white/80 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 cursor-pointer"
+    class="glass-card p-5 cursor-pointer group"
     @click="router.push({ name: 'product-detail', params: { id: position.productId } })"
   >
-    <div class="flex items-start justify-between mb-3 sm:mb-4">
-      <div>
-        <h3 class="font-semibold text-gray-800">{{ position.product.name }}</h3>
+    <!-- Header -->
+    <div class="flex items-start justify-between mb-4">
+      <div class="min-w-0 flex-1">
+        <h3 class="text-[15px] font-semibold text-apple-text truncate group-hover:text-primary-500 transition-colors">{{ position.product.name }}</h3>
         <span 
-          class="inline-block mt-1 px-2 py-0.5 text-xs rounded-full backdrop-blur-sm"
-          :style="{ backgroundColor: getProductTypeColor(position.product.type) + '25', color: getProductTypeColor(position.product.type) }"
+          class="apple-tag mt-1.5"
+          :style="{ backgroundColor: getProductTypeColor(position.product.type) + '15', color: getProductTypeColor(position.product.type) }"
         >
           {{ getProductTypeLabel(position.product.type) }}
         </span>
       </div>
-      <component 
-        :is="position.profitRate >= 0 ? TrendingUp : TrendingDown" 
-        :class="['w-5 h-5', position.profitRate >= 0 ? 'text-profit' : 'text-loss']"
-      />
+      <div :class="['w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ml-2', position.profitRate >= 0 ? 'bg-profit/8' : 'bg-loss/8']">
+        <component 
+          :is="position.profitRate >= 0 ? TrendingUp : TrendingDown" 
+          :class="['w-4 h-4', position.profitRate >= 0 ? 'text-profit' : 'text-loss']"
+        />
+      </div>
     </div>
-    <div class="grid grid-cols-2 gap-3 sm:gap-4">
+
+    <!-- Data Grid -->
+    <div class="grid grid-cols-2 gap-x-4 gap-y-3">
       <div>
-        <p class="text-gray-500 text-xs">市值</p>
-        <p class="font-semibold text-gray-800">{{ formatCurrencyInt(position.marketValue) }}</p>
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">市值</p>
+        <p class="text-[15px] font-semibold text-apple-text mt-0.5">{{ formatCurrencyInt(position.marketValue) }}</p>
       </div>
       <div>
-        <p class="text-gray-500 text-xs">持有天数</p>
-        <p class="font-medium text-gray-700">{{ position.holdingDays }} 天</p>
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">持有天数</p>
+        <p class="text-[15px] font-medium text-apple-text mt-0.5">{{ position.holdingDays }} 天</p>
       </div>
       <div>
-        <p class="text-gray-500 text-xs">收益率</p>
-        <p :class="['font-semibold', position.profitRate >= 0 ? 'text-profit' : 'text-loss']">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">收益率</p>
+        <p :class="['text-[15px] font-semibold mt-0.5', position.profitRate >= 0 ? 'text-profit' : 'text-loss']">
           {{ formatPercent(position.profitRate) }}
         </p>
       </div>
       <div>
-        <p class="text-gray-500 text-xs">年化收益率</p>
-        <p :class="['font-semibold', position.annualRate >= 0 ? 'text-profit' : 'text-loss']">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">年化收益率</p>
+        <p :class="['text-[15px] font-semibold mt-0.5', position.annualRate >= 0 ? 'text-profit' : 'text-loss']">
           {{ formatPercent(position.annualRate) }}
         </p>
       </div>
       <div>
-        <p class="text-gray-500 text-xs">持仓</p>
-        <p class="font-medium text-gray-700">{{ position.totalShares.toFixed(4) }} 份</p>
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">持仓</p>
+        <p class="text-[15px] font-medium text-apple-text mt-0.5">{{ position.totalShares.toFixed(4) }} 份</p>
       </div>
       <div>
-        <p class="text-gray-500 text-xs">盈亏</p>
-        <p :class="['font-semibold', position.profit >= 0 ? 'text-profit' : 'text-loss']">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">盈亏</p>
+        <p :class="['text-[15px] font-semibold mt-0.5', position.profit >= 0 ? 'text-profit' : 'text-loss']">
           {{ formatCurrencyInt(position.profit) }}
         </p>
       </div>

@@ -100,25 +100,25 @@ const handleSubmit = () => {
   <Teleport to="body">
     <div 
       v-if="visible" 
-      class="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
+      class="fixed inset-0 bg-black/40 flex items-end md:items-center justify-center z-50 p-0 md:p-4"
       @mousedown.self="emit('close')"
     >
-      <div class="bg-white rounded-t-xl md:rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div class="flex items-center justify-between p-5 border-b border-gray-200">
-          <h2 class="text-lg font-semibold text-gray-800">{{ editTransaction ? '编辑交易' : '新增交易' }}</h2>
+      <div class="bg-white rounded-t-apple-lg md:rounded-apple-lg shadow-apple-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-5 border-b border-apple-border/50">
+          <h2 class="text-lg font-semibold text-apple-text">{{ editTransaction ? '编辑交易' : '新增交易' }}</h2>
           <button 
             @click="emit('close')" 
-            class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            class="p-2 hover:bg-black/5 rounded-full transition-colors"
           >
-            <X class="w-5 h-5 text-gray-500" />
+            <X class="w-5 h-5 text-apple-secondary" />
           </button>
         </div>
         <div class="p-5 space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">关联产品</label>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">关联产品</label>
             <select 
               v-model="productId"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             >
               <option value="" disabled>请选择产品</option>
               <option v-for="product in products" :key="product.id" :value="product.id">
@@ -127,10 +127,10 @@ const handleSubmit = () => {
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">交易类型</label>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">交易类型</label>
             <select 
               v-model="type"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             >
               <option v-for="option in TRANSACTION_TYPE_OPTIONS" :key="option.value" :value="option.value">
                 {{ option.label }}
@@ -138,39 +138,39 @@ const handleSubmit = () => {
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">交易日期</label>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">交易日期</label>
             <input 
               v-model="date"
               type="date" 
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
           </div>
           <div v-if="showAmount">
-            <label class="block text-sm font-medium text-gray-700 mb-2">金额 (元)</label>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">金额 (元)</label>
             <input 
               v-model="amount"
               type="number" 
               step="0.01"
               min="0"
               placeholder="请输入金额"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
           </div>
           <div v-if="showPrice">
-            <label class="block text-sm font-medium text-gray-700 mb-2">{{ type === 'nav_update' ? '最新净值' : '单价 (元)' }}</label>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">{{ type === 'nav_update' ? '最新净值' : '单价 (元)' }}</label>
             <input 
               v-model="price"
               type="number" 
               step="0.0001"
               min="0"
               placeholder="请输入单价"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
           </div>
           <div v-if="showShares">
-            <label class="block text-sm font-medium text-gray-700 mb-2">
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
               份额
-              <span v-if="calculatedShares && !isManualShares" class="text-gray-400 font-normal ml-1">(自动计算)</span>
+              <span v-if="calculatedShares && !isManualShares" class="text-apple-secondary/70 font-normal normal-case tracking-normal ml-1">(自动计算)</span>
             </label>
             <input 
               v-model="shares"
@@ -179,45 +179,45 @@ const handleSubmit = () => {
               min="0"
               :placeholder="calculatedShares ? '已自动计算' : '请输入份额'"
               @input="handleSharesInput"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
-              :class="{ 'bg-gray-50 text-gray-600': calculatedShares && !isManualShares }"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              :class="{ 'bg-black/3 text-apple-secondary': calculatedShares && !isManualShares }"
             />
-            <p v-if="calculatedShares && !isManualShares" class="text-xs text-gray-400 mt-1">
+            <p v-if="calculatedShares && !isManualShares" class="text-xs text-apple-secondary/70 mt-1">
               份额 = 金额 ÷ 单价 = {{ amount }} ÷ {{ price }} = {{ calculatedShares }}
             </p>
           </div>
           <div v-if="showFee">
-            <label class="block text-sm font-medium text-gray-700 mb-2">手续费 (元)</label>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">手续费 (元)</label>
             <input 
               v-model="fee"
               type="number" 
               step="0.01"
               min="0"
               placeholder="请输入手续费"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">备注</label>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">备注</label>
             <textarea 
               v-model="note"
               placeholder="请输入备注信息"
               rows="2"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all resize-none"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none resize-none"
             ></textarea>
           </div>
         </div>
-        <div class="flex justify-end space-x-3 p-5 border-t border-gray-200">
+        <div class="flex justify-end space-x-3 p-5 border-t border-apple-border/50">
           <button 
             @click="emit('close')" 
-            class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            class="px-4 py-2 text-apple-secondary hover:bg-black/5 rounded-full transition-colors"
           >
             取消
           </button>
           <button 
             @click="handleSubmit" 
             :disabled="!productId || !date || (showAmount && (!amount || parseFloat(amount) <= 0))"
-            class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            class="apple-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {{ editTransaction ? '保存' : '添加' }}
           </button>

@@ -9,10 +9,14 @@ const showNavbar = () => {
 </script>
 
 <template>
-  <div class="min-h-screen">
+  <div class="min-h-screen bg-apple-bg">
     <Navbar v-if="showNavbar()" />
-    <main :class="['container mx-auto px-4 py-6', showNavbar() ? 'md:pt-20 pb-24 md:pb-6' : '']">
-      <RouterView />
+    <main :class="['max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6', showNavbar() ? 'md:pt-24 pb-24 md:pb-8' : '']">
+      <RouterView v-slot="{ Component }">
+        <transition name="page" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </RouterView>
     </main>
   </div>
 </template>

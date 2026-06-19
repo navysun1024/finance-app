@@ -390,11 +390,6 @@ const getDcaLabel = (dcaAmount: number, dcaCycle: string) => {
   return cycleOption ? `${dcaAmount}元/${cycleOption.label}` : ''
 }
 
-const getProductTypeColor = (type: string) => {
-  const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === type)
-  return option ? option.color : '#6b7280'
-}
-
 // 预计算所有产品的 position（只计算一次，避免模板中重复调用）
 const positionMap = computed(() => {
   const map = new Map<string, ReturnType<typeof calculatePosition>>()
@@ -462,53 +457,53 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
   <div class="space-y-6">
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h2 class="text-xl font-bold text-white" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">
-          {{ props.type === 'fund' ? '基金列表' : props.type === 'fixed_income' ? '固收理财列表' : '产品列表' }}
+        <h2 class="apple-section-title">
+          {{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}
         </h2>
-        <p class="text-blue-100 text-sm mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="apple-section-subtitle mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
       <button 
         @click="handleAdd"
-        class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl hover:shadow-lg hover:shadow-indigo-500/30 transition-all duration-300 hover:-translate-y-0.5"
+        class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px]"
       >
-        <Plus class="w-5 h-5" />
+        <Plus class="w-4 h-4" />
         <span>新增产品</span>
       </button>
     </div>
 
 <!-- 汇总统计卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
-        <p class="text-xs text-gray-500 mb-1">总市值</p>
-        <p class="text-xl font-bold text-gray-800">{{ formatCurrency(summaryStats.totalMarketValue) }}</p>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
+        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency(summaryStats.totalMarketValue) }}</p>
       </div>
-      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
-        <p class="text-xs text-gray-500 mb-1">总成本</p>
-        <p class="text-xl font-bold text-gray-800">{{ formatCurrency(summaryStats.totalCost) }}</p>
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总成本</p>
+        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency(summaryStats.totalCost) }}</p>
       </div>
-      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
-        <p class="text-xs text-gray-500 mb-1">持仓收益</p>
-        <p class="text-xl font-bold" :class="summaryStats.totalProfit >= 0 ? 'text-red-600' : 'text-green-600'">
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
+        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss'">
           {{ summaryStats.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(summaryStats.totalProfit) }}
         </p>
       </div>
-      <div class="glass-card rounded-2xl p-4 hover:bg-white/80 transition-all duration-300">
-        <p class="text-xs text-gray-500 mb-1">持仓收益率</p>
-        <p class="text-xl font-bold" :class="summaryStats.profitRate >= 0 ? 'text-red-600' : 'text-green-600'">
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
+        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss'">
           {{ summaryStats.profitRate >= 0 ? '+' : '' }}{{ summaryStats.profitRate.toFixed(2) }}%
         </p>
       </div>
     </div>
 
     <!-- 持仓股票分布汇总（仅基金页面显示） -->
-    <div v-if="props.type === 'fund'" class="glass-card rounded-2xl overflow-hidden hover:bg-white/80 transition-all duration-300">
-      <div class="p-4 border-b border-gray-200/50 flex items-center justify-between">
+    <div v-if="props.type === 'fund'" class="glass-card overflow-hidden">
+      <div class="p-5 border-b border-black/5 flex items-center justify-between">
         <div>
-          <h3 class="text-lg font-semibold text-gray-800">持仓股票分布</h3>
-          <p class="text-xs text-gray-500 mt-1">
+          <h3 class="text-[17px] font-semibold text-apple-text">持仓股票分布</h3>
+          <p class="text-[12px] text-apple-secondary mt-1">
             汇总所有基金的持仓，按持有金额加权计算（只统计每只基金的前十大持仓）
             <span v-if="aggregatedHoldings"> · 共 {{ aggregatedHoldings.fundCount }} 只基金，{{ aggregatedHoldings.stocks.length }} 只股票</span>
-            <span v-if="aggregatedHoldingsFromCache" class="text-amber-600"> · 缓存数据</span>
+            <span v-if="aggregatedHoldingsFromCache" class="text-amber-500"> · 缓存数据</span>
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -516,14 +511,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             v-if="showAggregatedHoldings && aggregatedHoldings"
             @click="fetchAllAggregatedHoldings(true)"
             :disabled="loadingAggregatedHoldings"
-            class="text-sm text-gray-500 hover:text-primary-600 disabled:opacity-50"
+            class="text-[13px] text-apple-secondary hover:text-primary-500 disabled:opacity-50 transition-colors"
             title="刷新数据"
           >
-            <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loadingAggregatedHoldings }" />
+            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loadingAggregatedHoldings }" />
           </button>
           <button
             @click="toggleAggregatedHoldings"
-            class="text-sm text-indigo-600 hover:text-indigo-700"
+            class="text-[13px] text-primary-500 hover:text-primary-700 font-medium"
           >
             {{ showAggregatedHoldings ? '收起' : '展开' }}
           </button>
@@ -531,45 +526,45 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       
       <div v-if="loadingAggregatedHoldings" class="p-8 text-center">
-        <p class="text-gray-500">加载中...</p>
+        <p class="text-apple-secondary">加载中...</p>
       </div>
       
       <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length > 0" class="overflow-x-auto">
-        <table class="w-full">
-          <thead class="bg-gray-200">
+        <table class="w-full apple-table">
+          <thead>
             <tr>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600">股票名称</th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600">股票代码</th>
-              <th class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600">持仓金额</th>
-              <th class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600">占比</th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600">持有基金</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">股票名称</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">股票代码</th>
+              <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持仓金额</th>
+              <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">占比</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持有基金</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr v-for="(stock, idx) in aggregatedHoldings.stocks" :key="stock.code" class="hover:bg-gray-50">
-              <td class="px-4 py-2.5 whitespace-nowrap">
+          <tbody class="divide-y divide-apple-border/50">
+            <tr v-for="(stock, idx) in aggregatedHoldings.stocks" :key="stock.code">
+              <td class="px-3 py-2.5">
                 <div class="flex items-center">
-                  <span class="w-5 h-5 rounded-full bg-primary-100 text-primary-700 text-xs flex items-center justify-center mr-2">{{ idx + 1 }}</span>
-                  <span class="font-medium text-gray-800">{{ stock.name }}</span>
+                  <span class="w-5 h-5 rounded-full bg-primary-50 text-primary-500 text-xs flex items-center justify-center mr-2">{{ idx + 1 }}</span>
+                  <span class="font-medium text-apple-text">{{ stock.name }}</span>
                 </div>
               </td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-gray-600">{{ stock.code }}</td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-right font-medium text-gray-800">{{ formatCurrency(stock.totalValue) }}</td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-right">
-                <span class="inline-block px-2 py-0.5 text-xs rounded-full bg-blue-50 text-blue-700">
+              <td class="px-3 py-2.5 text-apple-secondary">{{ stock.code }}</td>
+              <td class="px-3 py-2.5 text-right font-medium text-apple-text whitespace-nowrap">{{ formatCurrency(stock.totalValue) }}</td>
+              <td class="px-3 py-2.5 text-right whitespace-nowrap">
+                <span class="apple-tag bg-primary-50 text-primary-500">
                   {{ stock.ratio.toFixed(2) }}%
                 </span>
               </td>
-              <td class="px-4 py-2.5 whitespace-nowrap">
+              <td class="px-3 py-2.5">
                 <div class="flex flex-wrap gap-1">
                   <span 
                     v-for="fund in stock.funds.slice(0, 3)" 
                     :key="fund.fundCode"
-                    class="inline-block px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-600"
+                    class="apple-tag bg-black/5 text-apple-secondary"
                   >
                     {{ fund.fundCode }} ({{ fund.ratio.toFixed(1) }}%)
                   </span>
-                  <span v-if="stock.funds.length > 3" class="text-xs text-gray-400">
+                  <span v-if="stock.funds.length > 3" class="text-xs text-apple-secondary/60">
                     +{{ stock.funds.length - 3 }}
                   </span>
                 </div>
@@ -580,41 +575,41 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       
       <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length === 0" class="p-8 text-center">
-        <p class="text-gray-500">暂无持仓数据</p>
+        <p class="text-apple-secondary">暂无持仓数据</p>
       </div>
       
-      <div v-else-if="!showAggregatedHoldings && aggregatedHoldings" class="p-4">
+      <div v-else-if="!showAggregatedHoldings && aggregatedHoldings" class="p-5">
         <div class="flex flex-wrap gap-2">
           <span 
             v-for="(stock, idx) in aggregatedHoldings.stocks.slice(0, 10)" 
             :key="stock.code"
-            class="inline-flex items-center px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200"
+            class="inline-flex items-center px-3 py-1.5 rounded-full bg-apple-bg border border-apple-border/50"
           >
-            <span class="text-xs text-gray-500 mr-1">{{ idx + 1 }}.</span>
-            <span class="text-sm font-medium text-gray-800">{{ stock.name }}</span>
-            <span class="text-xs text-gray-500 ml-2">{{ stock.ratio.toFixed(1) }}%</span>
+            <span class="text-[11px] text-apple-secondary mr-1">{{ idx + 1 }}.</span>
+            <span class="text-[13px] font-medium text-apple-text">{{ stock.name }}</span>
+            <span class="text-[11px] text-apple-secondary ml-2">{{ stock.ratio.toFixed(1) }}%</span>
           </span>
-          <span v-if="aggregatedHoldings.stocks.length > 10" class="text-sm text-gray-400 self-center">
+          <span v-if="aggregatedHoldings.stocks.length > 10" class="text-[13px] text-apple-secondary self-center">
             +{{ aggregatedHoldings.stocks.length - 10 }} 更多
           </span>
         </div>
       </div>
     </div>
 
-    <div class="flex flex-col sm:flex-row gap-4">
+    <div class="flex flex-col sm:flex-row gap-3">
       <div class="relative flex-1">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+        <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-apple-secondary" />
         <input 
           v-model="searchQuery"
           type="text" 
           placeholder="搜索产品名称或备注..."
-          class="glass-input w-full pl-10 pr-4 py-2 rounded-xl outline-none"
+          class="glass-input w-full pl-10 pr-4 py-2.5 rounded-apple outline-none text-[15px]"
         />
       </div>
       <select 
         v-if="!props.type"
         v-model="filterType"
-        class="glass-input px-4 py-2 rounded-xl outline-none"
+        class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px]"
       >
         <option value="all">全部类型</option>
         <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
@@ -623,278 +618,282 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </select>
     </div>
     
-    <div class="glass-card rounded-2xl overflow-hidden">
+    <div class="glass-card overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead class="bg-gray-200">
+        <table class="w-full apple-table">
+          <thead>
             <tr>
               <th 
-                class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('name')"
               >
                 <div class="flex items-center space-x-1">
                   <span>产品</span>
-                  <ChevronsUpDown v-if="sortKey !== 'name'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <ChevronsUpDown v-if="sortKey !== 'name'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
-              <th v-if="props.type !== 'fund'" class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">持有人</th>
+              <th v-if="props.type !== 'fund'" class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持有人</th>
               <th 
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('marketValue')"
               >
                 <div class="flex items-center justify-end space-x-1">
                   <span>市值</span>
-                  <ChevronsUpDown v-if="sortKey !== 'marketValue'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <ChevronsUpDown v-if="sortKey !== 'marketValue'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <th 
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('profitRate')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>持仓收益率</span>
-                  <ChevronsUpDown v-if="sortKey !== 'profitRate'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <span>收益率</span>
+                  <ChevronsUpDown v-if="sortKey !== 'profitRate'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <th 
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('profit')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>持仓收益</span>
-                  <ChevronsUpDown v-if="sortKey !== 'profit'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <span>收益</span>
+                  <ChevronsUpDown v-if="sortKey !== 'profit'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <th 
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('holdingDays')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>持有天数</span>
-                  <ChevronsUpDown v-if="sortKey !== 'holdingDays'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <span>天数</span>
+                  <ChevronsUpDown v-if="sortKey !== 'holdingDays'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <th 
                 v-if="props.type !== 'fund'"
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('annualRate')"
               >
                 <div class="flex items-center justify-end space-x-1">
                   <span>年化</span>
-                  <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <!-- 基金类型特有列：阶段涨幅 -->
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('stageGains1m')"
               >
                 <div class="flex items-center justify-end space-x-1">
                   <span>近1月</span>
-                  <ChevronsUpDown v-if="sortKey !== 'stageGains1m'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <ChevronsUpDown v-if="sortKey !== 'stageGains1m'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('stageGains3m')"
               >
                 <div class="flex items-center justify-end space-x-1">
                   <span>近3月</span>
-                  <ChevronsUpDown v-if="sortKey !== 'stageGains3m'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <ChevronsUpDown v-if="sortKey !== 'stageGains3m'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <th 
                 v-if="props.type === 'fund'"
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('stageGainsYtd')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>今年来</span>
-                  <ChevronsUpDown v-if="sortKey !== 'stageGainsYtd'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <span>今年</span>
+                  <ChevronsUpDown v-if="sortKey !== 'stageGainsYtd'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <th 
-                class="px-4 py-2 whitespace-nowrap text-right text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200/80 transition-colors select-none"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('dailyReturn')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>当日收益</span>
-                  <ChevronsUpDown v-if="sortKey !== 'dailyReturn'" class="w-3 h-3 text-gray-400" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-600" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-600" />
+                  <span>当日</span>
+                  <ChevronsUpDown v-if="sortKey !== 'dailyReturn'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
-              <th class="px-4 py-2 whitespace-nowrap text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+              <th class="px-2 py-2.5 text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider w-16">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100">
+          <tbody class="divide-y divide-apple-border/50">
             <tr 
               v-for="product in filteredProducts" 
               :key="product.id" 
-              class="hover:bg-gray-50 cursor-pointer"
+              class="hover:bg-primary-50/30 cursor-pointer transition-colors"
               @click="router.push({ name: 'product-detail', params: { id: product.id } })"
             >
-              <td class="px-4 py-2.5 whitespace-nowrap">
+              <td class="px-2 py-3">
                 <div>
-                  <h3 class="font-semibold text-gray-800 truncate">{{ product.name }}</h3>
-                  <div class="flex items-center space-x-2 mt-0.5">
+                  <h3 class="text-[14px] font-semibold text-apple-text truncate sm:truncate-none sm:max-w-none max-w-[140px]">{{ product.name }}</h3>
+                  <div class="flex items-center space-x-2 mt-1">
                     <span 
-                      class="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
-                      :style="{ backgroundColor: getProductTypeColor(product.type) + '20', color: getProductTypeColor(product.type) }"
+                      v-if="!props.type"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+                      :class="{
+                        'bg-primary-50 text-primary-500': product.type === 'fund',
+                        'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income'
+                      }"
                     >
                       {{ getProductTypeLabel(product.type) }}
                     </span>
-                    <span v-if="product.code" class="text-xs font-mono text-gray-500">代码: {{ product.code }}</span>
-                    <span v-if="product.note" class="text-xs text-amber-600 truncate max-w-[160px]" :title="product.note">{{ product.note }}</span>
-                    <span v-if="product.dcaAmount && product.dcaCycle" class="text-xs text-blue-600">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
+                    <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary">代码: {{ product.code }}</span>
+                    <span v-if="product.note" class="text-[11px] text-amber-500 truncate max-w-[100px]" :title="product.note">{{ product.note }}</span>
+                    <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                   </div>
                 </div>
               </td>
-              <td v-if="props.type !== 'fund'" class="px-4 py-2.5 whitespace-nowrap">
-                <p class="text-gray-600">{{ product.holder || '-' }}</p>
+              <td v-if="props.type !== 'fund'" class="px-2 py-3 whitespace-nowrap">
+                <p class="text-[14px] text-apple-secondary">{{ product.holder || '-' }}</p>
               </td>
-              <td class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
-                  <p class="font-semibold text-gray-800">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }} 元</p>
+                  <p class="text-[14px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }} 元</p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">-</p>
+                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p 
-                    class="font-semibold"
-                    :class="(getPosition(product.id) as any).profitRate >= 0 ? 'text-red-600' : 'text-green-600'"
+                    class="text-[14px] font-semibold"
+                    :class="(getPosition(product.id) as any).profitRate >= 0 ? 'text-profit' : 'text-loss'"
                   >
                     {{ (getPosition(product.id) as any).profitRate >= 0 ? '+' : '' }}{{ (getPosition(product.id) as any).profitRate.toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">-</p>
+                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p 
-                    class="font-semibold"
-                    :class="(getPosition(product.id) as any).profit >= 0 ? 'text-red-600' : 'text-green-600'"
+                    class="text-[14px] font-semibold"
+                    :class="(getPosition(product.id) as any).profit >= 0 ? 'text-profit' : 'text-loss'"
                   >
                     {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency((getPosition(product.id) as any).profit) }}
                   </p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">-</p>
+                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
-                  <p class="font-semibold text-gray-800">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
+                  <p class="text-[14px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">-</p>
+                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td v-if="props.type !== 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td v-if="props.type !== 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p 
-                    class="font-semibold"
-                    :class="(getPosition(product.id) as any).annualRate >= 0 ? 'text-red-600' : 'text-green-600'"
+                    class="text-[14px] font-semibold"
+                    :class="(getPosition(product.id) as any).annualRate >= 0 ? 'text-profit' : 'text-loss'"
                   >
                     {{ (getPosition(product.id) as any).annualRate >= 0 ? '+' : '' }}{{ (getPosition(product.id) as any).annualRate.toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">-</p>
+                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
               <!-- 基金类型特有列：阶段涨幅 -->
-              <td v-if="props.type === 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
-                    class="font-semibold"
-                    :class="(getStageGains(product.code)?.['1m'] || 0) >= 0 ? 'text-red-600' : 'text-green-600'"
+                    class="text-[14px] font-semibold"
+                    :class="(getStageGains(product.code)?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
                     {{ (getStageGains(product.code)?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getStageGains(product.code)?.['1m'] || 0).toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">{{ loadingStageGains ? '...' : '-' }}</p>
+                  <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td v-if="props.type === 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
-                    class="font-semibold"
-                    :class="(getStageGains(product.code)?.['3m'] || 0) >= 0 ? 'text-red-600' : 'text-green-600'"
+                    class="text-[14px] font-semibold"
+                    :class="(getStageGains(product.code)?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
                     {{ (getStageGains(product.code)?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getStageGains(product.code)?.['3m'] || 0).toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">{{ loadingStageGains ? '...' : '-' }}</p>
+                  <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td v-if="props.type === 'fund'" class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
-                    class="font-semibold"
-                    :class="(getStageGains(product.code)?.ytd || 0) >= 0 ? 'text-red-600' : 'text-green-600'"
+                    class="text-[14px] font-semibold"
+                    :class="(getStageGains(product.code)?.ytd || 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
                     {{ (getStageGains(product.code)?.ytd || 0) >= 0 ? '+' : '' }}{{ (getStageGains(product.code)?.ytd || 0).toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">{{ loadingStageGains ? '...' : '-' }}</p>
+                  <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td class="px-4 py-2.5 text-right whitespace-nowrap">
+              <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getDailyReturn(product.code)">
                   <p 
-                    class="font-semibold text-sm"
-                    :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) >= 0 ? 'text-red-600' : 'text-green-600'"
+                    class="text-[14px] font-semibold"
+                    :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
                     {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) >= 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
                   </p>
-                  <p class="text-xs text-gray-400 mt-0.5">{{ getDailyReturn(product.code)?.date || '' }}</p>
+                  <p class="text-[11px] text-apple-secondary mt-0.5">{{ getDailyReturn(product.code)?.date || '' }}</p>
                 </template>
                 <template v-else>
-                  <p class="text-sm text-gray-400">{{ loadingDailyReturn ? '...' : '-' }}</p>
+                  <p class="text-[13px] text-apple-secondary">{{ loadingDailyReturn ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td class="px-4 py-2.5 text-center whitespace-nowrap" @click.stop>
-                <div class="flex items-center justify-center space-x-2">
+              <td class="px-2 py-3 text-center whitespace-nowrap" @click.stop>
+                <div class="flex items-center justify-center space-x-1.5">
                   <button 
                     @click="handleEdit(product)"
-                    class="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                    class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
                   >
-                    <Edit2 class="w-4 h-4" />
+                    <Edit2 class="w-3.5 h-3.5" />
                   </button>
                   <button 
                     @click="handleDelete(product.id)"
-                    class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    class="p-1.5 text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
                   >
-                    <Trash2 class="w-4 h-4" />
+                    <Trash2 class="w-3.5 h-3.5" />
                   </button>
                 </div>
               </td>
@@ -902,9 +901,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           </tbody>
         </table>
       </div>
-      <div v-if="filteredProducts.length === 0" class="p-8 text-center">
-        <p class="text-gray-600">暂无{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
-        <p class="text-gray-500 text-sm mt-2">点击上方按钮添加{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+      <div v-if="filteredProducts.length === 0" class="p-10 text-center">
+        <p class="text-apple-text text-[17px] font-medium">暂无{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
+        <p class="text-apple-secondary text-[14px] mt-2">点击上方按钮添加{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
     </div>
     

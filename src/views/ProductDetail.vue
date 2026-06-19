@@ -619,29 +619,27 @@ onUnmounted(() => {
 
 <template>
   <div v-if="product" class="space-y-6">
+    <!-- 顶部标题栏 -->
     <div class="flex flex-col md:flex-row md:items-center space-y-3 md:space-y-0 md:space-x-4">
       <div class="flex items-center space-x-4">
         <button 
           @click="router.push({ name: 'products' })"
-          class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+          class="p-2 text-apple-secondary hover:text-apple-text hover:bg-black/5 rounded-full transition-colors flex-shrink-0"
         >
           <ArrowLeft class="w-5 h-5" />
         </button>
         <div class="flex-1 min-w-0">
           <div class="flex items-center space-x-3">
-            <h2 class="text-xl font-bold text-gray-800 truncate">{{ product.name }}</h2>
-            <span v-if="product.code" class="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded flex-shrink-0">
+            <h2 class="text-xl font-semibold text-apple-text truncate">{{ product.name }}</h2>
+            <span v-if="product.code" class="text-xs font-mono bg-black/5 text-apple-secondary px-2 py-0.5 rounded-full flex-shrink-0">
               {{ product.code }}
             </span>
           </div>
           <div class="flex items-center space-x-2 mt-1">
-            <span 
-              class="text-sm px-2 py-0.5 rounded-full"
-              :style="{ backgroundColor: getProductTypeColor(product.type) + '20', color: getProductTypeColor(product.type) }"
-            >
+            <span class="apple-tag" :style="{ color: getProductTypeColor(product.type) }">
               {{ getProductTypeLabel(product.type) }}
             </span>
-            <span v-if="product.note" class="text-sm text-gray-500 truncate">{{ product.note }}</span>
+            <span v-if="product.note" class="text-sm text-apple-secondary truncate">{{ product.note }}</span>
           </div>
         </div>
       </div>
@@ -650,7 +648,7 @@ onUnmounted(() => {
           v-if="product.code && product.type !== 'fund'"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
-          class="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          class="apple-btn-primary text-sm"
         >
           <Calendar class="w-4 h-4" :class="{ 'animate-spin': fetchingNavHistory }" />
           <span>{{ fetchingNavHistory ? '查询中...' : '查询近10天净值' }}</span>
@@ -659,7 +657,7 @@ onUnmounted(() => {
           v-if="product.code && product.type === 'fund'"
           @click="handleBackfillNav"
           :disabled="backfillingNav"
-          class="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          class="apple-btn-primary text-sm"
         >
           <History class="w-4 h-4" :class="{ 'animate-spin': backfillingNav }" />
           <span>{{ backfillingNav ? '补全中...' : '补全历史净值' }}</span>
@@ -668,22 +666,22 @@ onUnmounted(() => {
           v-if="product.code"
           @click="handleFetchNav"
           :disabled="fetchingNav"
-          class="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          class="apple-btn-primary text-sm"
         >
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': fetchingNav }" />
           <span>{{ fetchingNav ? '查询中...' : '查询净值' }}</span>
         </button>
       </div>
     </div>
-    <p v-if="navFetchError" class="text-sm text-red-600 mt-2">{{ navFetchError }}</p>
-    <p v-if="navHistorySuccess" class="text-sm text-green-600 mt-2">{{ navHistorySuccess }}</p>
+    <p v-if="navFetchError" class="text-sm text-profit mt-2">{{ navFetchError }}</p>
+    <p v-if="navHistorySuccess" class="text-sm text-loss mt-2">{{ navHistorySuccess }}</p>
 
     <!-- 持仓概览 + 阶段涨幅 并排显示 -->
     <div :class="product.type === 'fund' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''">
       <!-- 持仓概览 -->
-      <div v-if="position" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div v-if="position" class="glass-card p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-gray-800">持仓概览</h3>
+          <h3 class="text-lg font-semibold text-apple-text">持仓概览</h3>
           <component 
             :is="(position?.profitRate ?? 0) >= 0 ? TrendingUp : TrendingDown" 
             :class="['w-5 h-5', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']"
@@ -691,28 +689,28 @@ onUnmounted(() => {
         </div>
         <div :class="['grid gap-4', product.type === 'fund' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-5']">
           <div>
-            <p class="text-xs text-gray-500">持有天数</p>
-            <p class="font-semibold text-gray-800 mt-1">{{ position?.holdingDays || 0 }} 天</p>
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">持有天数</p>
+            <p class="text-[15px] font-semibold text-apple-text mt-1">{{ position?.holdingDays || 0 }} 天</p>
           </div>
           <div>
-            <p class="text-xs text-gray-500">当前市值</p>
-            <p class="font-semibold text-gray-800 mt-1">{{ formatCurrencyInt(position?.marketValue || 0) }}</p>
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">当前市值</p>
+            <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrencyInt(position?.marketValue || 0) }}</p>
           </div>
           <div>
-            <p class="text-xs text-gray-500">盈亏金额</p>
-            <p :class="['font-semibold mt-1', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">盈亏金额</p>
+            <p :class="['text-[15px] font-semibold mt-1', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatCurrency(position?.profit || 0) }}
             </p>
           </div>
           <div>
-            <p class="text-xs text-gray-500">收益率</p>
-            <p :class="['font-semibold mt-1', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">收益率</p>
+            <p :class="['text-[15px] font-semibold mt-1', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.profitRate || 0) }}
             </p>
           </div>
           <div v-if="product.type !== 'fund'">
-            <p class="text-xs text-gray-500">年化收益率</p>
-            <p :class="['font-semibold mt-1', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">年化收益率</p>
+            <p :class="['text-[15px] font-semibold mt-1', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.annualRate || 0) }}
             </p>
           </div>
@@ -720,13 +718,13 @@ onUnmounted(() => {
       </div>
 
       <!-- 阶段涨幅 (仅基金产品显示) -->
-      <div v-if="product.type === 'fund' && stageGains" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+      <div v-if="product.type === 'fund' && stageGains" class="glass-card p-5">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-gray-800">阶段涨幅</h3>
+          <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
             @click="handleFetchStageGains"
             :disabled="fetchingStageGains"
-            class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
           >
             <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingStageGains }" />
             <span>{{ fetchingStageGains ? '刷新中...' : '刷新' }}</span>
@@ -734,147 +732,147 @@ onUnmounted(() => {
         </div>
         <div class="grid grid-cols-4 md:grid-cols-4 gap-3">
           <div v-if="stageGains['1w'] !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">近1周</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['1w'] >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1周</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['1w'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['1w'] >= 0 ? '+' : '' }}{{ stageGains['1w'].toFixed(2) }}%
             </p>
           </div>
           <div v-if="stageGains['1m'] !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">近1月</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['1m'] >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1月</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['1m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['1m'] >= 0 ? '+' : '' }}{{ stageGains['1m'].toFixed(2) }}%
             </p>
           </div>
           <div v-if="stageGains['3m'] !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">近3月</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['3m'] >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近3月</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['3m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['3m'] >= 0 ? '+' : '' }}{{ stageGains['3m'].toFixed(2) }}%
             </p>
           </div>
           <div v-if="stageGains['6m'] !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">近6月</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['6m'] >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近6月</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['6m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['6m'] >= 0 ? '+' : '' }}{{ stageGains['6m'].toFixed(2) }}%
             </p>
           </div>
           <div v-if="stageGains['1y'] !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">近1年</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['1y'] >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1年</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['1y'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['1y'] >= 0 ? '+' : '' }}{{ stageGains['1y'].toFixed(2) }}%
             </p>
           </div>
           <div v-if="stageGains['2y'] !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">近2年</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['2y'] >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近2年</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['2y'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['2y'] >= 0 ? '+' : '' }}{{ stageGains['2y'].toFixed(2) }}%
             </p>
           </div>
           <div v-if="stageGains['3y'] !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">近3年</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['3y'] >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近3年</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains['3y'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['3y'] >= 0 ? '+' : '' }}{{ stageGains['3y'].toFixed(2) }}%
             </p>
           </div>
           <div v-if="stageGains.ytd !== undefined" class="text-center">
-            <p class="text-xs text-gray-500">今年来</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains.ytd >= 0 ? 'text-red-600' : 'text-green-600'">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">今年来</p>
+            <p class="text-sm font-semibold mt-1" :class="stageGains.ytd >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains.ytd >= 0 ? '+' : '' }}{{ stageGains.ytd.toFixed(2) }}%
             </p>
           </div>
         </div>
       </div>
-      <div v-else-if="product.type === 'fund' && !stageGains && !fetchingStageGains" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+      <div v-else-if="product.type === 'fund' && !stageGains && !fetchingStageGains" class="glass-card p-5">
         <div class="flex items-center justify-between">
-          <h3 class="text-lg font-semibold text-gray-800">阶段涨幅</h3>
+          <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
             @click="handleFetchStageGains"
             :disabled="fetchingStageGains"
-            class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
           >
             <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingStageGains }" />
             <span>加载</span>
           </button>
         </div>
-        <p class="text-sm text-gray-500 mt-2">点击加载查看基金阶段涨幅数据</p>
+        <p class="text-sm text-apple-secondary mt-2">点击加载查看基金阶段涨幅数据</p>
       </div>
-      <div v-else-if="product.type === 'fund' && fetchingStageGains" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">阶段涨幅</h3>
-        <p class="text-sm text-gray-500">加载中...</p>
+      <div v-else-if="product.type === 'fund' && fetchingStageGains" class="glass-card p-5">
+        <h3 class="text-lg font-semibold text-apple-text mb-2">阶段涨幅</h3>
+        <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
     </div>
     
     <!-- 持仓信息 + 净值走势 并排显示 -->
     <div :class="product.type === 'fund' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch' : ''">
       <!-- 持仓信息 (仅基金产品显示) -->
-      <div v-if="product.type === 'fund' && holdingsData" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+      <div v-if="product.type === 'fund' && holdingsData" class="glass-card p-5">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="text-lg font-semibold text-gray-800">持仓信息</h3>
+          <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <div class="flex items-center space-x-3">
-            <span v-if="holdingsData.reportDate" class="text-xs text-gray-500">截止 {{ holdingsData.reportDate }}</span>
+            <span v-if="holdingsData.reportDate" class="text-xs text-apple-secondary">截止 {{ holdingsData.reportDate }}</span>
             <button
               @click="handleFetchHoldings"
               :disabled="fetchingHoldings"
-              class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+              class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
             >
               <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingHoldings }" />
               <span>{{ fetchingHoldings ? '刷新中...' : '刷新' }}</span>
             </button>
           </div>
         </div>
-        <p v-if="holdingsData.dataSource" class="text-xs text-orange-500 mb-3">ℹ️ {{ holdingsData.dataSource }}</p>
+        <p v-if="holdingsData.dataSource" class="text-xs text-apple-secondary mb-3">ℹ️ {{ holdingsData.dataSource }}</p>
 
         <!-- 净资产规模 -->
-        <div v-if="holdingsData.assetAllocation?.netAsset" class="text-xs text-gray-500 mb-3">
-          净资产规模：<span class="font-semibold text-gray-700">{{ holdingsData.assetAllocation.netAsset.toFixed(2) }} 亿元</span>
+        <div v-if="holdingsData.assetAllocation?.netAsset" class="text-xs text-apple-secondary mb-3">
+          净资产规模：<span class="font-semibold text-apple-text">{{ holdingsData.assetAllocation.netAsset.toFixed(2) }} 亿元</span>
         </div>
 
         <!-- 两个饼图左右并排显示 -->
         <div class="flex flex-row">
           <!-- 资产配置饼图（左侧） -->
           <div class="w-1/2 min-w-0">
-            <h4 class="text-sm font-medium text-gray-600 mb-2 text-center">资产配置</h4>
+            <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">资产配置</h4>
             <div ref="allocationChartRef" class="w-full" style="height: 220px;"></div>
           </div>
           <!-- 前十大重仓股饼图（右侧） -->
           <div v-if="holdingsData.stocks && holdingsData.stocks.length > 0" class="w-1/2 min-w-0">
-            <h4 class="text-sm font-medium text-gray-600 mb-2 text-center">前十大重仓股</h4>
+            <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">前十大重仓股</h4>
             <div ref="holdingsChartRef" class="w-full" style="height: 220px;"></div>
           </div>
         </div>
       </div>
-      <div v-else-if="product.type === 'fund' && !holdingsData && !fetchingHoldings" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+      <div v-else-if="product.type === 'fund' && !holdingsData && !fetchingHoldings" class="glass-card p-5">
         <div class="flex items-center justify-between">
-          <h3 class="text-lg font-semibold text-gray-800">持仓信息</h3>
+          <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <button
             @click="handleFetchHoldings"
             :disabled="fetchingHoldings"
-            class="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 flex items-center space-x-1"
+            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
           >
             <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingHoldings }" />
             <span>加载</span>
           </button>
         </div>
-        <p class="text-sm text-gray-500 mt-2">点击加载查看基金持仓信息</p>
+        <p class="text-sm text-apple-secondary mt-2">点击加载查看基金持仓信息</p>
       </div>
-      <div v-else-if="product.type === 'fund' && fetchingHoldings && !holdingsData" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">持仓信息</h3>
-        <p class="text-sm text-gray-500">加载中...</p>
+      <div v-else-if="product.type === 'fund' && fetchingHoldings && !holdingsData" class="glass-card p-5">
+        <h3 class="text-lg font-semibold text-apple-text mb-2">持仓信息</h3>
+        <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
       
       <!-- 净值走势 -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col min-h-[300px] md:min-h-[400px]">
+      <div class="glass-card p-4 flex flex-col min-h-[300px] md:min-h-[400px]">
         <div class="flex items-center justify-between mb-2">
-          <h3 class="text-lg font-semibold text-gray-800">净值走势</h3>
-          <div class="flex items-center space-x-1 bg-gray-100 rounded-lg p-0.5">
+          <h3 class="text-lg font-semibold text-apple-text">净值走势</h3>
+          <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
             <button
               v-for="opt in navRangeOptions"
               :key="opt.value"
               @click="navRange = opt.value"
               :class="[
-                'px-2.5 py-1 text-xs rounded-md transition-colors',
+                'px-2.5 py-1 text-xs rounded-full transition-colors',
                 navRange === opt.value
-                  ? 'bg-white text-gray-800 shadow-sm font-medium'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-white text-apple-text shadow-sm font-medium'
+                  : 'text-apple-secondary hover:text-apple-text'
               ]"
             >
               {{ opt.label }}
@@ -887,10 +885,10 @@ onUnmounted(() => {
     
     <div>
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-gray-800">历史交易</h3>
+        <h3 class="text-lg font-semibold text-apple-text">历史交易</h3>
         <button 
           @click="handleAddTransaction"
-          class="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          class="apple-btn-primary text-sm"
         >
           <Plus class="w-4 h-4" />
           <span>新增交易</span>
@@ -898,17 +896,17 @@ onUnmounted(() => {
       </div>
       <!-- 日期区间选择 -->
       <div class="flex flex-wrap items-center gap-2 mb-3">
-        <Calendar class="w-4 h-4 text-gray-500 flex-shrink-0" />
-        <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+        <Calendar class="w-4 h-4 text-apple-secondary flex-shrink-0" />
+        <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
           <button
             v-for="opt in txDateRangeOptions"
             :key="opt.value"
             @click="txDateRange = opt.value"
             :class="[
-              'px-3 py-1 text-xs rounded-lg transition-all duration-300',
+              'px-3 py-1 text-xs rounded-full transition-all duration-300',
               txDateRange === opt.value
-                ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'bg-white text-apple-text shadow-sm font-medium'
+                : 'text-apple-secondary hover:text-apple-text'
             ]"
           >
             {{ opt.label }}
@@ -918,78 +916,78 @@ onUnmounted(() => {
           <input
             v-model="txCustomStartDate"
             type="date"
-            class="glass-input px-3 py-1 text-xs rounded-xl outline-none"
+            class="glass-input px-3 py-1 text-xs rounded-full outline-none"
           />
-          <span class="text-gray-500 text-xs">至</span>
+          <span class="text-apple-secondary text-xs">至</span>
           <input
             v-model="txCustomEndDate"
             type="date"
-            class="glass-input px-3 py-1 text-xs rounded-xl outline-none"
+            class="glass-input px-3 py-1 text-xs rounded-full outline-none"
           />
         </template>
-        <span class="text-xs text-gray-500 ml-auto">共 {{ sortedTransactions.length }} 条记录</span>
+        <span class="text-xs text-apple-secondary ml-auto">共 {{ sortedTransactions.length }} 条记录</span>
       </div>
-      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div class="glass-card overflow-hidden">
         <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead class="bg-gray-200">
+        <table class="w-full apple-table">
+          <thead>
             <tr>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none" @click="handleTxSort('date')">
-                <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-4 h-4" :class="txSortKey === 'date' ? 'text-primary-600' : ''" /></div>
+              <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('date')">
+                <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-4 h-4" :class="txSortKey === 'date' ? 'text-primary-500' : ''" /></div>
               </th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none" @click="handleTxSort('type')">
-                <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-4 h-4" :class="txSortKey === 'type' ? 'text-primary-600' : ''" /></div>
+              <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('type')">
+                <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-4 h-4" :class="txSortKey === 'type' ? 'text-primary-500' : ''" /></div>
               </th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none" @click="handleTxSort('amount')">
-                <div class="flex items-center space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-4 h-4" :class="txSortKey === 'amount' ? 'text-primary-600' : ''" /></div>
+              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('amount')">
+                <div class="flex items-center justify-end space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-4 h-4" :class="txSortKey === 'amount' ? 'text-primary-500' : ''" /></div>
               </th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none" @click="handleTxSort('price')">
-                <div class="flex items-center space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-4 h-4" :class="txSortKey === 'price' ? 'text-primary-600' : ''" /></div>
+              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('price')">
+                <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-4 h-4" :class="txSortKey === 'price' ? 'text-primary-500' : ''" /></div>
               </th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none" @click="handleTxSort('shares')">
-                <div class="flex items-center space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-4 h-4" :class="txSortKey === 'shares' ? 'text-primary-600' : ''" /></div>
+              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('shares')">
+                <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-4 h-4" :class="txSortKey === 'shares' ? 'text-primary-500' : ''" /></div>
               </th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-200 select-none" @click="handleTxSort('fee')">
-                <div class="flex items-center space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-4 h-4" :class="txSortKey === 'fee' ? 'text-primary-600' : ''" /></div>
+              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('fee')">
+                <div class="flex items-center justify-end space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-4 h-4" :class="txSortKey === 'fee' ? 'text-primary-500' : ''" /></div>
               </th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">备注</th>
-              <th class="px-4 py-2 whitespace-nowrap text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
+              <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">备注</th>
+              <th class="px-4 py-2.5 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr v-for="transaction in sortedTransactions" :key="transaction.id" class="hover:bg-gray-50">
-              <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-800">{{ formatDate(transaction.date) }}</td>
-              <td class="px-4 py-2.5 whitespace-nowrap">
+          <tbody class="divide-y divide-apple-border/50">
+            <tr v-for="transaction in sortedTransactions" :key="transaction.id">
+              <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-text">{{ formatDate(transaction.date) }}</td>
+              <td class="px-4 py-3 whitespace-nowrap">
                 <span 
-                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
                   :class="{
-                    'bg-green-100 text-green-600': transaction.type === 'buy',
-                    'bg-red-100 text-red-600': transaction.type === 'sell',
-                    'bg-yellow-100 text-yellow-600': transaction.type === 'dividend',
-                    'bg-blue-100 text-blue-600': transaction.type === 'nav_update'
+                    'bg-loss/10 text-loss': transaction.type === 'buy',
+                    'bg-profit/10 text-profit': transaction.type === 'sell',
+                    'bg-yellow-50 text-yellow-600': transaction.type === 'dividend',
+                    'bg-primary-50 text-primary-500': transaction.type === 'nav_update'
                   }"
                 >
                   {{ transaction.type === 'buy' ? '买入' : transaction.type === 'sell' ? '卖出' : transaction.type === 'dividend' ? '分红' : '净值更新' }}
                 </span>
               </td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-sm" :class="transaction.type === 'buy' ? 'text-gray-800' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
+              <td class="px-4 py-3 whitespace-nowrap text-sm" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
                 {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
               </td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ transaction.price.toFixed(4) }}</td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ transaction.shares.toFixed(4) }}</td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ formatCurrency(transaction.fee) }}</td>
-              <td class="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">{{ transaction.note || '-' }}</td>
-              <td class="px-4 py-2.5 whitespace-nowrap">
+              <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
+              <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
+              <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
+              <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-secondary">{{ transaction.note || '-' }}</td>
+              <td class="px-4 py-3 whitespace-nowrap text-center">
                 <div class="flex items-center space-x-2">
                   <button 
                     @click="handleEditTransaction(transaction)"
-                    class="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                    class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-full transition-colors"
                   >
                     <Edit2 class="w-4 h-4" />
                   </button>
                   <button 
                     @click="handleDeleteTransaction(transaction.id)"
-                    class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    class="p-1.5 text-apple-secondary hover:text-profit hover:bg-profit/10 rounded-full transition-colors"
                   >
                     <Trash2 class="w-4 h-4" />
                   </button>
@@ -999,12 +997,12 @@ onUnmounted(() => {
           </tbody>
         </table>
         <div v-if="transactions.length === 0" class="px-6 py-12 text-center">
-          <p class="text-gray-500">暂无交易记录</p>
-          <p class="text-gray-400 text-sm mt-2">点击上方按钮添加交易记录</p>
+          <p class="text-apple-secondary">暂无交易记录</p>
+          <p class="text-apple-secondary text-sm mt-2 opacity-70">点击上方按钮添加交易记录</p>
         </div>
         <div v-else-if="sortedTransactions.length === 0" class="px-6 py-12 text-center">
-          <p class="text-gray-500">当前日期区间内无交易记录</p>
-          <p class="text-gray-400 text-sm mt-2">试试切换为“全部”查看更多</p>
+          <p class="text-apple-secondary">当前日期区间内无交易记录</p>
+          <p class="text-apple-secondary text-sm mt-2 opacity-70">试试切换为"全部"查看更多</p>
         </div>
       </div>
       </div>

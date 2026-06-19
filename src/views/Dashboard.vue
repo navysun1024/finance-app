@@ -417,12 +417,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="space-y-8">
     <!-- 按产品类型分组的统计卡片 -->
-    <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-2">
-      <div class="flex items-center space-x-2">
-        <span class="w-3 h-3 rounded-full shadow-lg" :style="{ backgroundColor: group.color }"></span>
-        <h3 class="text-base font-semibold text-white" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">{{ group.label }}</h3>
+    <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-3">
+      <div class="flex items-center space-x-2.5">
+        <span class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: group.color }"></span>
+        <h3 class="text-[20px] font-semibold text-apple-text tracking-tight">{{ group.label }}</h3>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard 
@@ -456,11 +456,11 @@ onUnmounted(() => {
     
     <!-- 资产分布图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in positionsByType" :key="group.type + '-dist'" class="glass-card rounded-2xl pt-4 px-4 pb-2 hover:bg-white/80 transition-all duration-300">
-        <div class="flex items-center mb-3">
-          <span class="w-3 h-3 rounded-full mr-2 shadow-lg" :style="{ backgroundColor: group.color }"></span>
-          <h3 class="text-base font-semibold text-gray-800">{{ group.label }}分布</h3>
-          <span class="ml-auto text-xs text-gray-500">
+      <div v-for="group in positionsByType" :key="group.type + '-dist'" class="glass-card p-5">
+        <div class="flex items-center mb-4">
+          <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
+          <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}分布</h3>
+          <span class="ml-auto text-[12px] text-apple-secondary font-medium">
             合计 {{ formatCurrencyInt(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}元
           </span>
         </div>
@@ -470,54 +470,54 @@ onUnmounted(() => {
 
     <!-- 收益趋势图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in positionsByType" :key="group.type + '-trend'" class="glass-card rounded-2xl pt-4 px-4 pb-2 hover:bg-white/80 transition-all duration-300">
-        <div class="flex items-center justify-between mb-3">
+      <div v-for="group in positionsByType" :key="group.type + '-trend'" class="glass-card p-5">
+        <div class="flex items-center justify-between mb-4">
           <div class="flex items-center">
-            <span class="w-3 h-3 rounded-full mr-2 shadow-lg" :style="{ backgroundColor: group.color }"></span>
-            <h3 class="text-base font-semibold text-gray-800">{{ group.label }}收益趋势</h3>
+            <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
+            <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}收益趋势</h3>
           </div>
           <div class="flex items-center space-x-2">
             <!-- 时间区间选择（仅图表模式显示） -->
-            <div v-if="(trendViewMode[group.type] || 'calendar') === 'chart'" class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+            <div v-if="(trendViewMode[group.type] || 'calendar') === 'chart'" class="flex items-center space-x-0.5 bg-black/4 rounded-full p-0.5">
               <button
                 v-for="opt in trendRangeOptions"
                 :key="opt.value"
                 @click="trendRanges[group.type] = opt.value"
                 :class="[
-                  'px-2 py-0.5 text-xs rounded-lg transition-all duration-300',
+                  'px-2.5 py-1 text-[11px] rounded-full transition-all duration-200 font-medium',
                   (trendRanges[group.type] || '1m') === opt.value
-                    ? 'bg-white/80 text-indigo-700 shadow-sm font-medium'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-apple-text shadow-sm'
+                    : 'text-apple-secondary hover:text-apple-text'
                 ]"
               >
                 {{ opt.label }}
               </button>
             </div>
             <!-- 图表/日历切换按钮 -->
-            <div class="flex items-center space-x-1 glass-btn rounded-xl p-0.5">
+            <div class="flex items-center space-x-0.5 bg-black/4 rounded-full p-0.5">
               <button
                 @click="switchToChart(group.type)"
                 :class="[
-                  'p-1.5 rounded-lg transition-all duration-300',
+                  'p-1.5 rounded-full transition-all duration-200',
                   (trendViewMode[group.type] || 'calendar') === 'chart'
-                    ? 'bg-white/80 text-indigo-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-primary-500 shadow-sm'
+                    : 'text-apple-secondary hover:text-apple-text'
                 ]"
                 title="柱状图"
               >
-                <BarChart class="w-4 h-4" />
+                <BarChart class="w-3.5 h-3.5" />
               </button>
               <button
                 @click="switchToCalendar(group.type)"
                 :class="[
-                  'p-1.5 rounded-lg transition-all duration-300',
+                  'p-1.5 rounded-full transition-all duration-200',
                   (trendViewMode[group.type] || 'calendar') === 'calendar'
-                    ? 'bg-white/80 text-indigo-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-primary-500 shadow-sm'
+                    : 'text-apple-secondary hover:text-apple-text'
                 ]"
                 title="收益日历"
               >
-                <Calendar class="w-4 h-4" />
+                <Calendar class="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -527,7 +527,7 @@ onUnmounted(() => {
         <!-- 日历视图 -->
         <div v-if="(trendViewMode[group.type] || 'calendar') === 'calendar'" class="h-48 sm:h-56 md:h-64 px-2 pb-2">
           <div v-if="!calendarDataLoaded[group.type]" class="flex items-center justify-center h-full">
-            <span class="text-gray-500 text-sm">加载中...</span>
+            <span class="text-apple-secondary text-[13px]">加载中...</span>
           </div>
           <ProfitCalendar 
             v-else
@@ -538,8 +538,9 @@ onUnmounted(() => {
       </div>
     </div>
     
+    <!-- 持仓明细 -->
     <div>
-      <h3 class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4" style="text-shadow: 0 2px 4px rgba(0,0,0,0.35)">持仓明细</h3>
+      <h3 class="text-[20px] font-semibold text-apple-text tracking-tight mb-4">持仓明细</h3>
       <div v-if="portfolioSummary.positions.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <ProductCard 
           v-for="position in portfolioSummary.positions" 
@@ -547,9 +548,9 @@ onUnmounted(() => {
           :position="position" 
         />
       </div>
-      <div v-else class="glass-card rounded-2xl p-6 sm:p-8 text-center">
-        <p class="text-gray-600 text-sm sm:text-base">暂无持仓数据</p>
-        <p class="text-gray-500 text-xs sm:text-sm mt-2">请先添加理财产品和交易记录</p>
+      <div v-else class="glass-card p-10 text-center">
+        <p class="text-apple-text text-[17px] font-medium">暂无持仓数据</p>
+        <p class="text-apple-secondary text-[14px] mt-2">请先添加理财产品和交易记录</p>
       </div>
     </div>
   </div>

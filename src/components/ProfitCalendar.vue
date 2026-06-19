@@ -165,24 +165,24 @@ const nextYear = () => {
 
 // 获取收益颜色
 const getProfitColor = (profit: number | null) => {
-  if (profit === null) return 'text-gray-400'
-  if (profit > 0) return 'text-red-600'
-  if (profit < 0) return 'text-green-600'
-  return 'text-gray-600'
+  if (profit === null) return 'text-apple-secondary'
+  if (profit > 0) return 'text-profit'
+  if (profit < 0) return 'text-loss'
+  return 'text-apple-text'
 }
 
 // 获取收益背景色（热力图效果）
 const getProfitBg = (profit: number | null) => {
-  if (profit === null) return 'bg-gray-50'
+  if (profit === null) return 'bg-black/3'
   const abs = Math.abs(profit)
   if (profit > 0) {
-    if (abs > 1000) return 'bg-red-100'
-    if (abs > 500) return 'bg-red-50'
-    return 'bg-red-50/50'
+    if (abs > 1000) return 'bg-profit/15'
+    if (abs > 500) return 'bg-profit/10'
+    return 'bg-profit/5'
   } else {
-    if (abs > 1000) return 'bg-green-100'
-    if (abs > 500) return 'bg-green-50'
-    return 'bg-green-50/50'
+    if (abs > 1000) return 'bg-loss/15'
+    if (abs > 500) return 'bg-loss/10'
+    return 'bg-loss/5'
   }
 }
 </script>
@@ -194,33 +194,33 @@ const getProfitBg = (profit: number | null) => {
       <div class="flex items-center space-x-0.5">
         <button 
           @click="viewMode === 'month' ? prevMonth() : prevYear()"
-          class="p-0.5 hover:bg-gray-100 rounded transition-colors"
+          class="p-0.5 hover:bg-black/5 rounded-full transition-colors"
         >
-          <ChevronLeft class="w-3 h-3 text-gray-600" />
+          <ChevronLeft class="w-3 h-3 text-apple-secondary" />
         </button>
         
         <div class="flex items-center space-x-1 min-w-[90px] justify-center">
-          <span class="text-xs font-semibold text-gray-800">{{ currentYear }}年</span>
-          <span v-if="viewMode === 'month'" class="text-xs font-semibold text-gray-800">
+          <span class="text-xs font-semibold text-apple-text">{{ currentYear }}年</span>
+          <span v-if="viewMode === 'month'" class="text-xs font-semibold text-apple-text">
             {{ monthNames[currentMonth - 1] }}
           </span>
         </div>
         
         <button 
           @click="viewMode === 'month' ? nextMonth() : nextYear()"
-          class="p-0.5 hover:bg-gray-100 rounded transition-colors"
+          class="p-0.5 hover:bg-black/5 rounded-full transition-colors"
         >
-          <ChevronRight class="w-3 h-3 text-gray-600" />
+          <ChevronRight class="w-3 h-3 text-apple-secondary" />
         </button>
       </div>
       
       <!-- 视图切换 -->
-      <div class="flex items-center space-x-0.5 glass-btn rounded p-0.5">
+      <div class="flex items-center space-x-0.5 bg-black/5 rounded-full p-0.5">
         <button
           @click="viewMode = 'month'"
           :class="[
-            'px-1 py-0.5 text-[9px] rounded transition-all',
-            viewMode === 'month' ? 'bg-white shadow-sm text-indigo-700 font-medium' : 'text-gray-500 hover:text-gray-700'
+            'px-1.5 py-0.5 text-[9px] rounded-full transition-all',
+            viewMode === 'month' ? 'bg-white shadow-sm text-apple-text font-medium' : 'text-apple-secondary hover:text-apple-text'
           ]"
         >
           月
@@ -228,8 +228,8 @@ const getProfitBg = (profit: number | null) => {
         <button
           @click="viewMode = 'year'"
           :class="[
-            'px-1 py-0.5 text-[9px] rounded transition-all',
-            viewMode === 'year' ? 'bg-white shadow-sm text-indigo-700 font-medium' : 'text-gray-500 hover:text-gray-700'
+            'px-1.5 py-0.5 text-[9px] rounded-full transition-all',
+            viewMode === 'year' ? 'bg-white shadow-sm text-apple-text font-medium' : 'text-apple-secondary hover:text-apple-text'
           ]"
         >
           年
@@ -244,7 +244,7 @@ const getProfitBg = (profit: number | null) => {
         <div 
           v-for="day in weekDays" 
           :key="day"
-          class="text-center text-xs font-medium text-gray-400 py-px"
+          class="text-center text-[10px] font-medium text-apple-secondary py-px"
         >
           {{ day }}
         </div>
@@ -267,7 +267,7 @@ const getProfitBg = (profit: number | null) => {
             v-if="day.day > 0"
             :class="[
               'text-xs leading-none font-medium',
-              day.isCurrentMonth ? 'text-gray-700' : 'text-gray-300'
+              day.isCurrentMonth ? 'text-apple-text' : 'text-apple-secondary/50'
             ]"
           >
             {{ day.day }}
@@ -282,13 +282,13 @@ const getProfitBg = (profit: number | null) => {
       </div>
       
       <!-- 月度汇总 -->
-      <div class="mt-1 pt-1 border-t border-gray-200/50 flex justify-between text-[10px] flex-shrink-0">
+      <div class="mt-1 pt-1 border-t border-apple-border/30 flex justify-between text-[10px] flex-shrink-0">
         <div class="flex items-center space-x-2">
-          <span class="text-gray-500">
-            盈 <span class="text-red-600 font-medium">{{ monthSummary.positiveDays }}</span>
+          <span class="text-apple-secondary">
+            盈 <span class="text-profit font-medium">{{ monthSummary.positiveDays }}</span>
           </span>
-          <span class="text-gray-500">
-            亏 <span class="text-green-600 font-medium">{{ monthSummary.negativeDays }}</span>
+          <span class="text-apple-secondary">
+            亏 <span class="text-loss font-medium">{{ monthSummary.negativeDays }}</span>
           </span>
         </div>
         <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
@@ -305,27 +305,27 @@ const getProfitBg = (profit: number | null) => {
           :key="item.month"
           @click="currentMonth = item.month; viewMode = 'month'"
           :class="[
-            'px-1.5 py-1.5 rounded cursor-pointer transition-all hover:shadow-md',
-            item.days > 0 ? getProfitBg(item.totalProfit) : 'bg-gray-50'
+            'px-1.5 py-1.5 rounded-apple cursor-pointer transition-all hover:shadow-apple',
+            item.days > 0 ? getProfitBg(item.totalProfit) : 'bg-black/3'
           ]"
         >
-          <div class="text-[10px] font-medium text-gray-700">{{ monthNames[item.month - 1] }}</div>
+          <div class="text-[10px] font-medium text-apple-text">{{ monthNames[item.month - 1] }}</div>
           <div 
             v-if="item.days > 0"
             :class="['text-xs font-semibold mt-0.5', getProfitColor(item.totalProfit)]"
           >
             {{ item.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(item.totalProfit) }}
           </div>
-          <div v-else class="text-xs text-gray-400 mt-0.5">-</div>
-          <div v-if="item.days > 0" class="text-[9px] text-gray-500 mt-0.5">
+          <div v-else class="text-xs text-apple-secondary mt-0.5">-</div>
+          <div v-if="item.days > 0" class="text-[9px] text-apple-secondary mt-0.5">
             {{ item.days }} 日
           </div>
         </div>
       </div>
       
       <!-- 年度汇总 -->
-      <div class="mt-2 pt-1.5 border-t border-gray-200/50 flex justify-between items-center flex-shrink-0">
-        <span class="text-[10px] text-gray-500">{{ currentYear }} 年度汇总</span>
+      <div class="mt-2 pt-1.5 border-t border-apple-border/30 flex justify-between items-center flex-shrink-0">
+        <span class="text-[10px] text-apple-secondary">{{ currentYear }} 年度汇总</span>
         <span :class="['text-xs font-semibold', getProfitColor(yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0))]">
           {{ yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0) >= 0 ? '+' : '' }}{{ formatCurrency(yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0)) }}
         </span>
@@ -339,19 +339,19 @@ const getProfitBg = (profit: number | null) => {
         class="fixed z-50 pointer-events-none"
         :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px', transform: 'translate(-50%, -100%)' }"
       >
-        <div class="bg-gray-800 text-white text-[11px] rounded-lg shadow-lg px-3 py-2 min-w-[140px]">
-          <div class="font-medium mb-1 text-gray-300">{{ tooltipData.date }}</div>
+        <div class="bg-apple-text text-white text-[11px] rounded-apple shadow-apple-lg px-3 py-2 min-w-[140px]">
+          <div class="font-medium mb-1 text-white/60">{{ tooltipData.date }}</div>
           <div class="space-y-0.5">
             <div v-for="p in tooltipData.products" :key="p.productName" class="flex justify-between gap-3">
-              <span class="text-gray-400 truncate max-w-[100px]">{{ p.productName }}</span>
-              <span :class="p.profit >= 0 ? 'text-red-400' : 'text-green-400'">
+              <span class="text-white/50 truncate max-w-[100px]">{{ p.productName }}</span>
+              <span :class="p.profit >= 0 ? 'text-profit' : 'text-loss'">
                 {{ p.profit >= 0 ? '+' : '' }}{{ p.profit.toFixed(2) }}
               </span>
             </div>
           </div>
-          <div class="border-t border-gray-600 mt-1 pt-1 flex justify-between font-medium">
+          <div class="border-t border-white/20 mt-1 pt-1 flex justify-between font-medium">
             <span>合计</span>
-            <span :class="tooltipData.profit >= 0 ? 'text-red-400' : 'text-green-400'">
+            <span :class="tooltipData.profit >= 0 ? 'text-profit' : 'text-loss'">
               {{ tooltipData.profit >= 0 ? '+' : '' }}{{ tooltipData.profit.toFixed(2) }}
             </span>
           </div>

@@ -1,12 +1,14 @@
-import * as XLSX from 'xlsx'
 import type { Product, Transaction, Position } from '@/types'
 import { PRODUCT_TYPE_OPTIONS, TRANSACTION_TYPE_OPTIONS } from '@/composables/useFinance'
 
-export function exportToExcel(
+export async function exportToExcel(
   products: Product[],
   positions: Position[],
   transactions: Transaction[]
-): void {
+): Promise<void> {
+  // 动态导入 xlsx，仅在用户点击导出时才加载（~300KB）
+  const XLSX = await import('xlsx')
+
   const workbook = XLSX.utils.book_new()
 
   const productsData = products.map(p => {
