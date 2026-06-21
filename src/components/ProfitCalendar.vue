@@ -240,7 +240,7 @@ const getProfitBg = (profit: number | null) => {
     <!-- 月视图 -->
     <div v-if="viewMode === 'month'" class="flex flex-col flex-1 min-h-0">
       <!-- 星期标题 -->
-      <div class="grid grid-cols-7 gap-px mb-px flex-shrink-0 px-4">
+      <div class="grid grid-cols-7 gap-px mb-px flex-shrink-0 px-2 sm:px-4">
         <div 
           v-for="day in weekDays" 
           :key="day"
@@ -251,14 +251,14 @@ const getProfitBg = (profit: number | null) => {
       </div>
       
       <!-- 日历网格 -->
-      <div class="grid grid-cols-7 gap-px flex-1 content-start px-4 relative">
+      <div class="grid grid-cols-7 gap-px flex-1 content-start px-2 sm:px-4 relative">
         <div
           v-for="(day, index) in calendarDays"
           :key="index"
           @mouseenter="day.profit !== null && day.productProfits.length > 0 && showTooltip($event, day.date, day.profit!, day.productProfits)"
           @mouseleave="hideTooltip"
           :class="[
-            'rounded-sm flex flex-col items-center justify-center py-0.5 transition-all h-[30px]',
+            'rounded-sm flex flex-col items-center justify-center transition-all h-[28px] sm:h-[30px] overflow-hidden',
             day.isCurrentMonth ? getProfitBg(day.profit) : 'bg-transparent',
             day.profit !== null ? 'cursor-pointer' : ''
           ]"
@@ -266,7 +266,7 @@ const getProfitBg = (profit: number | null) => {
           <span 
             v-if="day.day > 0"
             :class="[
-              'text-xs leading-none font-medium',
+              'text-[11px] sm:text-xs leading-none font-medium',
               day.isCurrentMonth ? 'text-apple-text' : 'text-apple-secondary/50'
             ]"
           >
@@ -274,7 +274,7 @@ const getProfitBg = (profit: number | null) => {
           </span>
           <span 
             v-if="day.profit !== null && day.isCurrentMonth"
-            :class="['text-[10px] leading-none font-medium', getProfitColor(day.profit)]"
+            :class="['text-[9px] sm:text-[10px] leading-none font-medium tabular-nums', getProfitColor(day.profit)]"
           >
             {{ day.profit > 0 ? '+' : '' }}{{ day.profit.toFixed(0) }}
           </span>

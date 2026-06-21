@@ -251,8 +251,25 @@ export interface AggregatedStock {
   }[]
 }
 
+export interface AssetCategory {
+  type: 'cash' | 'bond' | 'other_stocks'
+  name: string
+  code: string
+  totalValue: number
+  ratio: number
+  funds: []
+}
+
+export interface AssetAllocation {
+  stockRatio: number
+  bondRatio: number
+  cashAndOtherRatio: number
+}
+
 export interface AggregatedHoldingsResult {
   stocks: AggregatedStock[]
+  assetCategories: AssetCategory[]
+  assetAllocation: AssetAllocation | null
   totalValue: number   // 总市值 (元)
   fundCount: number    // 基金数量
 }
@@ -265,7 +282,7 @@ export async function fetchAggregatedHoldings(
   funds: { code: string; marketValue: number }[]
 ): Promise<AggregatedHoldingsResult> {
   if (funds.length === 0) {
-    return { stocks: [], totalValue: 0, fundCount: 0 }
+    return { stocks: [], assetCategories: [], assetAllocation: null, totalValue: 0, fundCount: 0 }
   }
   
   const fundsParam = funds.map(f => `${f.code}:${f.marketValue}`).join(',')

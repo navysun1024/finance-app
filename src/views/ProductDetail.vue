@@ -114,7 +114,7 @@ const handleFetchNav = async () => {
       // 移除旧的限购标记，追加新的
       const cleaned = currentNote
         .split('\n')
-        .filter(line => !/^(限购:|不限购$|暂停申购$)/.test(line.trim()))
+        .filter(line => !/^(限购:|单日上限|不限购$|暂停申购$)/.test(line.trim()))
         .join('\n')
         .trim()
       const newNote = cleaned ? `${cleaned}\n${result.purchaseLimitLabel}` : result.purchaseLimitLabel

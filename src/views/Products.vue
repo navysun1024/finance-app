@@ -7,13 +7,13 @@ import { useRouter } from 'vue-router'
 import type { ProductType } from '@/types'
 import { DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency } from '@/utils/format'
-import { fetchFundStageGainsBatch, fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchAggregatedHoldings, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
+import { fetchFundStageGainsBatch, fetchAggregatedHoldings, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
 
 const props = defineProps<{
   type?: ProductType
 }>()
 
-const { products, addProduct, updateProduct, deleteProduct, calculatePosition, PRODUCT_TYPE_OPTIONS } = useFinance()
+const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS } = useFinance()
 const router = useRouter()
 
 const showModal = ref(false)
@@ -28,9 +28,39 @@ const sortOrder = ref<'asc' | 'desc'>('desc')
 const stageGainsMap = ref<Map<string, StageGains>>(new Map())
 const loadingStageGains = ref(false)
 
-// 当日收益率数据缓存
-const dailyReturnMap = ref<Map<string, { dailyReturn: number | null; date: string }>>(new Map())
-const loadingDailyReturn = ref(false)
+// ==================== 当日收益率（从 nav_update 交易记录计算）====================
+const dailyReturnMap = computed(() => {
+  const map = new Map<string, { dailyReturn: number | null; date: string }>()
+  
+  for (const product of products.value) {
+    if (!product.code) continue
+    
+    const navUpdates = getTransactionsByProductId(product.id)
+      .filter(t => t.type === 'nav_update')
+      .sort((a, b) => b.date - a.date) // 按日期降序
+    
+    if (navUpdates.length < 2) {
+      if (navUpdates.length === 1) {
+        const d = new Date(navUpdates[0].date)
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        map.set(product.code, { dailyReturn: null, date: dateStr })
+      }
+      continue
+    }
+    
+    const latest = navUpdates[0]
+    const prev = navUpdates[1]
+    const dailyReturn = prev.price > 0
+      ? Math.round(((latest.price - prev.price) / prev.price) * 10000) / 100
+      : null
+    
+    const d = new Date(latest.date)
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    map.set(product.code, { dailyReturn, date: dateStr })
+  }
+  
+  return map
+})
 
 // 批量获取所有基金的阶段涨幅
 const fetchAllStageGains = async () => {
@@ -63,142 +93,6 @@ const fetchAllStageGains = async () => {
 const getStageGains = (code: string | undefined): StageGains | undefined => {
   if (!code) return undefined
   return stageGainsMap.value.get(code)
-}
-
-// ==================== 当日收益率缓存（localStorage）====================
-const DAILY_RETURN_CACHE_TTL = 30 * 60 * 1000 // 30 分钟
-const DAILY_RETURN_CACHE_PREFIX = 'daily_return_'
-
-interface DailyReturnCache {
-  dailyReturn: number | null
-  date: string
-  timestamp: number
-}
-
-// 从 localStorage 获取缓存
-const getDailyReturnCache = (code: string): DailyReturnCache | null => {
-  try {
-    const key = `${DAILY_RETURN_CACHE_PREFIX}${code}`
-    const cached = localStorage.getItem(key)
-    if (!cached) return null
-    
-    const data: DailyReturnCache = JSON.parse(cached)
-    // 检查是否过期
-    if (Date.now() - data.timestamp > DAILY_RETURN_CACHE_TTL) {
-      return null
-    }
-    return data
-  } catch {
-    return null
-  }
-}
-
-// 保存到 localStorage
-const setDailyReturnCache = (code: string, data: { dailyReturn: number | null; date: string }) => {
-  try {
-    const key = `${DAILY_RETURN_CACHE_PREFIX}${code}`
-    const cacheData: DailyReturnCache = {
-      ...data,
-      timestamp: Date.now()
-    }
-    localStorage.setItem(key, JSON.stringify(cacheData))
-  } catch {
-    // localStorage 可能满了，忽略
-  }
-}
-
-// 批量获取所有产品的当日收益率
-const fetchAllDailyReturns = async () => {
-  const productList = products.value.filter(p => p.code)
-  if (productList.length === 0) return
-
-  loadingDailyReturn.value = true
-  
-  // 第一步：先加载所有缓存数据（立即显示）
-  for (const p of productList) {
-    if (!dailyReturnMap.value.has(p.code!)) {
-      const cached = getDailyReturnCache(p.code!)
-      if (cached) {
-        dailyReturnMap.value.set(p.code!, {
-          dailyReturn: cached.dailyReturn,
-          date: cached.date
-        })
-      }
-    }
-  }
-  
-  // 第二步：后台更新过期的缓存
-  const promises = productList.map(async (p) => {
-    const cached = getDailyReturnCache(p.code!)
-    // 如果有未过期的缓存，不需要重新获取
-    if (cached) return
-    
-    try {
-      let result: { dailyReturn: number | null; date: string } | null = null
-      
-      if (p.type === 'fund') {
-        // 基金：从 pingzhongdata 获取当日收益率
-        const navResult = await fetchFundNav(p.code!)
-        result = {
-          dailyReturn: navResult.dailyReturn ?? null,
-          date: navResult.date
-        }
-      } else {
-        // 固收理财：同时获取最新净值和历史净值来计算当日收益率
-        const [latest, history] = await Promise.all([
-          fetchCmbNav(p.code!).catch(() => null),
-          fetchCmbNavHistory(p.code!, 3).catch(() => [])
-        ])
-        
-        if (latest && latest.date && latest.nav) {
-          const lastNav = latest.nav
-          const lastDate = latest.date
-          
-          let prevNav: number | null = null
-          if (history && history.length > 0) {
-            const sortedHistory = [...history].sort((a, b) => 
-              b.date.localeCompare(a.date)
-            )
-            const prevEntry = sortedHistory.find(h => h.date < lastDate)
-            if (prevEntry) {
-              prevNav = prevEntry.nav
-            }
-          }
-          
-          result = {
-            dailyReturn: prevNav && prevNav > 0
-              ? Math.round(((lastNav - prevNav) / prevNav) * 10000) / 100
-              : null,
-            date: lastDate
-          }
-        } else if (history && history.length >= 2) {
-          const last = history[history.length - 1]
-          const prev = history[history.length - 2]
-          result = {
-            dailyReturn: prev.nav > 0
-              ? Math.round(((last.nav - prev.nav) / prev.nav) * 10000) / 100
-              : null,
-            date: last.date
-          }
-        } else if (history && history.length === 1) {
-          result = {
-            dailyReturn: null,
-            date: history[0].date
-          }
-        }
-      }
-      
-      if (result) {
-        dailyReturnMap.value.set(p.code!, result)
-        setDailyReturnCache(p.code!, result)
-      }
-    } catch (e) {
-      console.error(`获取 ${p.name} 当日收益率失败:`, e)
-    }
-  })
-  
-  await Promise.all(promises)
-  loadingDailyReturn.value = false
 }
 
 const getDailyReturn = (code: string | undefined): { dailyReturn: number | null; date: string } | undefined => {
@@ -292,6 +186,31 @@ const toggleAggregatedHoldings = () => {
     fetchAllAggregatedHoldings()
   }
 }
+
+// 收起状态下 Top 10 分布（股票 + 资产类别混合排序）
+const topDistributionItems = computed(() => {
+  if (!aggregatedHoldings.value) return []
+  
+  const items: { key: string; name: string; ratio: number; isAsset: boolean; bgClass: string }[] = []
+  
+  // 添加股票
+  for (const stock of aggregatedHoldings.value.stocks) {
+    items.push({ key: `stock-${stock.code}`, name: stock.name, ratio: stock.ratio, isAsset: false, bgClass: '' })
+  }
+  
+  // 添加资产类别
+  const assetBgMap: Record<string, string> = {
+    cash: 'bg-amber-50',
+    bond: 'bg-emerald-50',
+    other_stocks: 'bg-blue-50'
+  }
+  for (const cat of aggregatedHoldings.value.assetCategories) {
+    items.push({ key: `asset-${cat.type}`, name: cat.name, ratio: cat.ratio, isAsset: true, bgClass: assetBgMap[cat.type] || '' })
+  }
+  
+  // 按占比降序排列，取前 10
+  return items.sort((a, b) => b.ratio - a.ratio).slice(0, 10)
+})
 
 // ==================== 汇总统计 ====================
 const summaryStats = computed(() => {
@@ -422,17 +341,9 @@ const handleDelete = (id: string) => {
 
 onMounted(() => {
   fetchAllStageGains()
-  fetchAllDailyReturns()
-  // 持仓汇总：页面加载时尝试读取 localStorage 缓存（不发API请求）
+  // 持仓汇总：页面加载时强制从 API 获取最新数据
   if (props.type === 'fund') {
-    const cached = getAggregatedHoldingsCache()
-    if (cached) {
-      aggregatedHoldings.value = cached.data
-      aggregatedHoldingsFromCache.value = true
-    } else {
-      // 默认展开，无缓存时自动加载
-      fetchAllAggregatedHoldings()
-    }
+    fetchAllAggregatedHoldings(true)
   }
 })
 
@@ -440,7 +351,6 @@ watch(() => products.value, () => {
   if (props.type === 'fund') {
     fetchAllStageGains()
   }
-  fetchAllDailyReturns()
 })
 
 const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string }) => {
@@ -495,13 +405,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
     </div>
 
-    <!-- 持仓股票分布汇总（仅基金页面显示） -->
+    <!-- 持仓分布汇总（仅基金页面显示） -->
     <div v-if="props.type === 'fund'" class="glass-card overflow-hidden">
       <div class="p-5 border-b border-black/5 flex items-center justify-between">
         <div>
-          <h3 class="text-[17px] font-semibold text-apple-text">持仓股票分布</h3>
+          <h3 class="text-[17px] font-semibold text-apple-text">持仓分布</h3>
           <p class="text-[12px] text-apple-secondary mt-1">
-            汇总所有基金的持仓，按持有金额加权计算（只统计每只基金的前十大持仓）
+            汇总所有基金的持仓，按持有金额加权计算（股票为前十大重仓）
             <span v-if="aggregatedHoldings"> · 共 {{ aggregatedHoldings.fundCount }} 只基金，{{ aggregatedHoldings.stocks.length }} 只股票</span>
             <span v-if="aggregatedHoldingsFromCache" class="text-amber-500"> · 缓存数据</span>
           </p>
@@ -525,6 +435,33 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         </div>
       </div>
       
+      <!-- 资产配置概览条（始终显示） -->
+      <div v-if="aggregatedHoldings?.assetAllocation" class="px-5 py-3 border-b border-black/5">
+        <div class="flex items-center gap-4 text-[12px] mb-2">
+          <span class="flex items-center gap-1">
+            <span class="w-2.5 h-2.5 rounded-full bg-primary-500"></span>
+            <span class="text-apple-secondary">股票</span>
+            <span class="font-semibold text-apple-text">{{ aggregatedHoldings.assetAllocation.stockRatio.toFixed(1) }}%</span>
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <span class="text-apple-secondary">债券</span>
+            <span class="font-semibold text-apple-text">{{ aggregatedHoldings.assetAllocation.bondRatio.toFixed(1) }}%</span>
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            <span class="text-apple-secondary">现金及其他</span>
+            <span class="font-semibold text-apple-text">{{ aggregatedHoldings.assetAllocation.cashAndOtherRatio.toFixed(1) }}%</span>
+          </span>
+        </div>
+        <!-- 比例条 -->
+        <div class="flex h-1.5 rounded-full overflow-hidden bg-apple-bg">
+          <div class="bg-primary-500" :style="{ width: aggregatedHoldings.assetAllocation.stockRatio + '%' }"></div>
+          <div class="bg-emerald-500" :style="{ width: aggregatedHoldings.assetAllocation.bondRatio + '%' }"></div>
+          <div class="bg-amber-500" :style="{ width: aggregatedHoldings.assetAllocation.cashAndOtherRatio + '%' }"></div>
+        </div>
+      </div>
+      
       <div v-if="loadingAggregatedHoldings" class="p-8 text-center">
         <p class="text-apple-secondary">加载中...</p>
       </div>
@@ -533,8 +470,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <table class="w-full apple-table">
           <thead>
             <tr>
-              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">股票名称</th>
-              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">股票代码</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">名称</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">代码</th>
               <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持仓金额</th>
               <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">占比</th>
               <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持有基金</th>
@@ -570,6 +507,43 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </td>
             </tr>
+            <!-- 资产类别行（现金/债券/其他） -->
+            <tr 
+              v-for="cat in aggregatedHoldings.assetCategories" 
+              :key="cat.type"
+              class="bg-apple-bg/50"
+            >
+              <td class="px-3 py-2.5">
+                <div class="flex items-center">
+                  <span 
+                    class="w-5 h-5 rounded-full text-white text-xs flex items-center justify-center mr-2"
+                    :class="{
+                      'bg-amber-500': cat.type === 'cash',
+                      'bg-emerald-500': cat.type === 'bond',
+                      'bg-blue-400': cat.type === 'other_stocks'
+                    }"
+                  >
+                    <span class="text-[9px] font-bold">{{ cat.type === 'cash' ? '¥' : cat.type === 'bond' ? '债' : '股' }}</span>
+                  </span>
+                  <span class="font-medium text-apple-text">{{ cat.name }}</span>
+                </div>
+              </td>
+              <td class="px-3 py-2.5 text-apple-secondary/50">—</td>
+              <td class="px-3 py-2.5 text-right font-medium text-apple-text whitespace-nowrap">{{ formatCurrency(cat.totalValue) }}</td>
+              <td class="px-3 py-2.5 text-right whitespace-nowrap">
+                <span 
+                  class="apple-tag"
+                  :class="{
+                    'bg-amber-50 text-amber-600': cat.type === 'cash',
+                    'bg-emerald-50 text-emerald-600': cat.type === 'bond',
+                    'bg-blue-50 text-blue-500': cat.type === 'other_stocks'
+                  }"
+                >
+                  {{ cat.ratio.toFixed(2) }}%
+                </span>
+              </td>
+              <td class="px-3 py-2.5 text-apple-secondary/50 text-sm">—</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -578,19 +552,23 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <p class="text-apple-secondary">暂无持仓数据</p>
       </div>
       
+      <!-- 收起状态：显示 Top 10 分布（股票 + 资产类别） -->
       <div v-else-if="!showAggregatedHoldings && aggregatedHoldings" class="p-5">
         <div class="flex flex-wrap gap-2">
           <span 
-            v-for="(stock, idx) in aggregatedHoldings.stocks.slice(0, 10)" 
-            :key="stock.code"
-            class="inline-flex items-center px-3 py-1.5 rounded-full bg-apple-bg border border-apple-border/50"
+            v-for="(item, idx) in topDistributionItems" 
+            :key="item.key"
+            class="inline-flex items-center px-3 py-1.5 rounded-full border"
+            :class="item.isAsset 
+              ? 'border-transparent ' + item.bgClass 
+              : 'bg-apple-bg border-apple-border/50'"
           >
             <span class="text-[11px] text-apple-secondary mr-1">{{ idx + 1 }}.</span>
-            <span class="text-[13px] font-medium text-apple-text">{{ stock.name }}</span>
-            <span class="text-[11px] text-apple-secondary ml-2">{{ stock.ratio.toFixed(1) }}%</span>
+            <span class="text-[13px] font-medium text-apple-text">{{ item.name }}</span>
+            <span class="text-[11px] text-apple-secondary ml-2">{{ item.ratio.toFixed(1) }}%</span>
           </span>
-          <span v-if="aggregatedHoldings.stocks.length > 10" class="text-[13px] text-apple-secondary self-center">
-            +{{ aggregatedHoldings.stocks.length - 10 }} 更多
+          <span v-if="topDistributionItems.length < (aggregatedHoldings.stocks.length + aggregatedHoldings.assetCategories.length)" class="text-[13px] text-apple-secondary self-center">
+            +{{ (aggregatedHoldings.stocks.length + aggregatedHoldings.assetCategories.length) - topDistributionItems.length }} 更多
           </span>
         </div>
       </div>
@@ -878,7 +856,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[11px] text-apple-secondary mt-0.5">{{ getDailyReturn(product.code)?.date || '' }}</p>
                 </template>
                 <template v-else>
-                  <p class="text-[13px] text-apple-secondary">{{ loadingDailyReturn ? '...' : '-' }}</p>
+                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
               <td class="px-2 py-3 text-center whitespace-nowrap" @click.stop>

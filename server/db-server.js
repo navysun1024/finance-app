@@ -1142,10 +1142,10 @@ function httpRequest(url, options = {}) {
  * 将限购信息合并到产品备注中（保留用户原有备注，替换旧的限购信息）
  */
 function mergePurchaseLimitNote(existingNote, purchaseLimitLabel) {
-  // 移除旧的限购标记（以 "限购:" / "不限购" / "暂停申购" 开头的行）
+  // 移除旧的限购标记（以 "限购:" / "单日上限" / "不限购" / "暂停申购" 开头的行）
   const cleaned = existingNote
     .split('\n')
-    .filter(line => !/^(限购:|不限购$|暂停申购$)/.test(line.trim()))
+    .filter(line => !/^(限购:|单日上限|不限购$|暂停申购$)/.test(line.trim()))
     .join('\n')
     .trim()
 
@@ -1155,7 +1155,7 @@ function mergePurchaseLimitNote(existingNote, purchaseLimitLabel) {
 
 /**
  * 从东方财富获取基金限购信息
- * @returns {{ purchaseLimitLabel: string }} 如 "限购: 单日上限5万元" 或 "不限购"
+ * @returns {{ purchaseLimitLabel: string }} 如 "单日上限5万元" 或 "不限购"
  */
 async function fetchFundPurchaseLimit(fundCode) {
   try {
@@ -1189,7 +1189,7 @@ async function fetchFundPurchaseLimit(fundCode) {
       const amount = parseFloat(limitMatch[1])
       const unit = limitMatch[2]
       const amountLabel = unit === '万元' ? `${amount}万元` : `${amount}元`
-      return { purchaseLimitLabel: `限购: 单日上限${amountLabel}` }
+      return { purchaseLimitLabel: `单日上限${amountLabel}` }
     }
 
     // 开放申购且无限购说明
@@ -2073,9 +2073,17 @@ app.get('/fund/holdings/:code', async (req, res) => {
 
 /**
  * 获取基金的有效持仓（支持 ETF 联接基金回退到目标 ETF）
+ * 同时返回资产配置（股票/债券/现金占比）
  */
 async function getEffectiveHoldings(fundCode) {
-  const holdings = await fetchFundHoldings(fundCode)
+  const [holdings, allocation] = await Promise.all([
+    fetchFundHoldings(fundCode),
+    fetchFundAssetAllocation(fundCode).catch(() => ({ stockRatio: null, bondRatio: null, cashRatio: null, netAsset: null, reportDate: '' }))
+  ])
+  
+  let resultStocks = holdings.stocks
+  let resultReportDate = holdings.reportDate
+  let resultAllocation = allocation
   
   // 如果持仓数据过旧（超过6个月）或无股票数据，尝试获取目标 ETF 持仓
   const isStale = holdings.reportDate && (() => {
@@ -2090,9 +2098,14 @@ async function getEffectiveHoldings(fundCode) {
     if (targetETF) {
       log(`[汇总] ${fundCode} 数据过旧(${holdings.reportDate})，使用目标 ETF: ${targetETF.name}(${targetETF.code})`)
       try {
-        const etfHoldings = await fetchFundHoldings(targetETF.code)
+        const [etfHoldings, etfAllocation] = await Promise.all([
+          fetchFundHoldings(targetETF.code),
+          fetchFundAssetAllocation(targetETF.code).catch(() => null)
+        ])
         if (etfHoldings.stocks.length > 0) {
-          return etfHoldings
+          resultStocks = etfHoldings.stocks
+          resultReportDate = etfHoldings.reportDate
+          if (etfAllocation) resultAllocation = etfAllocation
         }
       } catch (e) {
         log(`[汇总] 获取目标 ETF ${targetETF.code} 持仓失败: ${e.message}`, 'WARN')
@@ -2100,7 +2113,7 @@ async function getEffectiveHoldings(fundCode) {
     }
   }
   
-  return holdings
+  return { stocks: resultStocks, reportDate: resultReportDate, allocation: resultAllocation }
 }
 
 /**
@@ -2124,7 +2137,7 @@ app.get('/fund/aggregated-holdings', async (req, res) => {
       return res.json({ success: true, data: { stocks: [], totalValue: 0 } })
     }
     
-    // 并发获取所有基金的持仓（支持 ETF 联接基金回退）
+    // 并发获取所有基金的持仓和资产配置（支持 ETF 联接基金回退）
     const holdingsResults = await Promise.all(
       fundList.map(async (fund) => {
         try {
@@ -2132,20 +2145,25 @@ app.get('/fund/aggregated-holdings', async (req, res) => {
           return { ...fund, holdings }
         } catch (e) {
           log(`[汇总] 获取基金 ${fund.code} 持仓失败: ${e.message}`, 'WARN')
-          return { ...fund, holdings: { stocks: [], reportDate: '' } }
+          return { ...fund, holdings: { stocks: [], reportDate: '', allocation: null } }
         }
       })
     )
     
     // 汇总所有股票持仓
     const stockMap = new Map() // code -> { name, totalValue, funds: [] }
+    let otherStocksTotalValue = 0 // 非十大持仓股票的总金额
     
     for (const result of holdingsResults) {
       if (!result.holdings.stocks) continue
       
+      // 计算该基金的十大股票占比之和
+      let topStocksRatioSum = 0
+      
       for (const stock of result.holdings.stocks) {
         // 计算这只基金持有该股票的市值（基金市值 * 占比）
         const stockValue = result.marketValue * (stock.ratio / 100)
+        topStocksRatioSum += stock.ratio
         
         if (!stockMap.has(stock.code)) {
           stockMap.set(stock.code, {
@@ -2164,6 +2182,13 @@ app.get('/fund/aggregated-holdings', async (req, res) => {
           value: stockValue
         })
       }
+      
+      // 计算该基金的非十大股票金额
+      const alloc = result.holdings?.allocation
+      if (alloc && alloc.stockRatio != null && alloc.stockRatio > topStocksRatioSum) {
+        const otherRatio = alloc.stockRatio - topStocksRatioSum
+        otherStocksTotalValue += result.marketValue * (otherRatio / 100)
+      }
     }
     
     // 转换为数组并排序
@@ -2174,19 +2199,90 @@ app.get('/fund/aggregated-holdings', async (req, res) => {
       }))
       .sort((a, b) => b.totalValue - a.totalValue)
     
-    // 计算总市值
-    const totalValue = stocks.reduce((sum, s) => sum + s.totalValue, 0)
+    // 计算总市值（所有基金市值之和，作为占比的统一分母）
+    const totalMarketValue = fundList.reduce((sum, f) => sum + f.marketValue, 0)
     
-    // 计算占比
+    // 计算加权平均资产配置（股票/债券/现金/其他）— 权威数据来源
+    let weightedStockRatio = 0, weightedBondRatio = 0, weightedCashRatio = 0
+    let allocationFundCount = 0
+    
+    for (const result of holdingsResults) {
+      const alloc = result.holdings?.allocation
+      if (!alloc || alloc.stockRatio == null) continue
+      
+      const weight = result.marketValue / totalMarketValue
+      weightedStockRatio += (alloc.stockRatio || 0) * weight
+      weightedBondRatio += (alloc.bondRatio || 0) * weight
+      weightedCashRatio += (alloc.cashRatio || 0) * weight
+      allocationFundCount++
+    }
+    
+    // 其他 = 100 - 股票 - 债券 - 现金
+    const weightedOtherRatio = Math.max(0, 100 - weightedStockRatio - weightedBondRatio - weightedCashRatio)
+    // 现金及其他 = 现金 + 其他
+    const cashAndOtherRatio = weightedCashRatio + weightedOtherRatio
+    
+    // 计算十大重仓股占比（相对总资产）
+    let topStocksRatioSum = 0
     for (const stock of stocks) {
-      stock.ratio = totalValue > 0 ? Math.round((stock.totalValue / totalValue) * 10000) / 100 : 0
+      stock.ratio = totalMarketValue > 0 ? Math.round((stock.totalValue / totalMarketValue) * 10000) / 100 : 0
+      topStocksRatioSum += stock.ratio
+    }
+    
+    // 其他股票 = 股票总占比 - 十大重仓股占比之和（残差，确保总和 = 100%）
+    const otherStocksRatio = Math.max(0, Math.round((weightedStockRatio - topStocksRatioSum) * 100) / 100)
+    
+    // 资产类别分布（按金额降序，与个股并列）
+    const assetCategories = []
+    if (allocationFundCount > 0) {
+      // 计算各类别对应的金额（基于总市值和配置比例）
+      const calcValue = (ratio) => Math.round(totalMarketValue * ratio / 100 * 100) / 100
+      
+      // 其他股票（非十大持仓，作为残差）
+      if (otherStocksRatio > 0.01) {
+        assetCategories.push({
+          type: 'other_stocks',
+          name: '其他股票',
+          code: '-',
+          totalValue: calcValue(otherStocksRatio),
+          ratio: otherStocksRatio,
+          funds: []
+        })
+      }
+      
+      if (weightedBondRatio > 0.1) {
+        assetCategories.push({
+          type: 'bond',
+          name: '债券',
+          code: '-',
+          totalValue: calcValue(weightedBondRatio),
+          ratio: Math.round(weightedBondRatio * 100) / 100,
+          funds: []
+        })
+      }
+      if (cashAndOtherRatio > 0.1) {
+        assetCategories.push({
+          type: 'cash',
+          name: '现金及其他',
+          code: '-',
+          totalValue: calcValue(cashAndOtherRatio),
+          ratio: Math.round(cashAndOtherRatio * 100) / 100,
+          funds: []
+        })
+      }
     }
     
     res.json({
       success: true,
       data: {
         stocks,
-        totalValue: Math.round(totalValue * 100) / 100,
+        assetCategories,
+        assetAllocation: allocationFundCount > 0 ? {
+          stockRatio: Math.round(weightedStockRatio * 100) / 100,
+          bondRatio: Math.round(weightedBondRatio * 100) / 100,
+          cashAndOtherRatio: Math.round(cashAndOtherRatio * 100) / 100
+        } : null,
+        totalValue: Math.round(totalMarketValue * 100) / 100,
         fundCount: fundList.length
       }
     })

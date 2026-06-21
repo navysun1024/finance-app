@@ -381,6 +381,106 @@ export function useFinance() {
 
  return history;
 };
+
+// 获取市值历史（每天每个产品的 shares * nav）
+const getMarketValueHistory = (days: number = 365): {
+ date: string;
+ marketValues: { productId: string; productName: string; marketValue: number }[];
+}[] => {
+ const today = new Date();
+ const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+ const windowStart = todayStart - (days - 1) * 24 * 60 * 60 * 1000;
+
+ // 每个产品：{ dailyValues: Map<dateStr, marketValue> }
+ const productDailyValues: Map<string, Map<string, number>> = new Map();
+
+ for (const product of products.value) {
+   const productTransactions = getTransactionsByProductId(product.id);
+   if (productTransactions.length === 0) continue;
+
+   let shares = 0;
+   let avgCost = 0;
+   let currentNav = 1;
+   let hasSeenNavUpdate = false;
+
+   // 先处理窗口前的交易，得到初始 shares/nav
+   for (const t of productTransactions) {
+     if (t.date >= windowStart) break;
+     if (t.type === 'buy') {
+       const newShares = shares + t.shares;
+       avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
+       shares = newShares;
+     } else if (t.type === 'sell') {
+       shares = Math.max(0, shares - t.shares);
+     } else if (t.type === 'nav_update') {
+       currentNav = t.price;
+       hasSeenNavUpdate = true;
+     }
+   }
+
+   if (!hasSeenNavUpdate && avgCost > 0) {
+     currentNav = avgCost;
+   }
+
+   const dailyVals: Map<string, number> = new Map();
+
+   for (let i = days - 1; i >= 0; i--) {
+     const date = new Date(today);
+     date.setDate(date.getDate() - i);
+     const dateStr = date.toISOString().split('T')[0];
+     const dayStart = new Date(date).setHours(0, 0, 0, 0);
+     const dayEnd = new Date(date).setHours(23, 59, 59, 999);
+
+     const dayTransactions = productTransactions.filter(t => t.date >= dayStart && t.date <= dayEnd);
+     for (const t of dayTransactions) {
+       if (t.type === 'buy') {
+         const newShares = shares + t.shares;
+         avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
+         shares = newShares;
+         if (currentNav === 1 && avgCost > 0) currentNav = avgCost;
+       } else if (t.type === 'sell') {
+         shares = Math.max(0, shares - t.shares);
+       } else if (t.type === 'nav_update') {
+         currentNav = t.price;
+       }
+     }
+
+     if (shares > 0 && currentNav > 0) {
+       dailyVals.set(dateStr, Math.round(shares * currentNav * 100) / 100);
+     }
+   }
+
+   if (dailyVals.size > 0) {
+     productDailyValues.set(product.id, dailyVals);
+   }
+ }
+
+ const history: {
+   date: string;
+   marketValues: { productId: string; productName: string; marketValue: number }[];
+ }[] = [];
+
+ for (let i = days - 1; i >= 0; i--) {
+   const date = new Date(today);
+   date.setDate(date.getDate() - i);
+   const dateStr = date.toISOString().split('T')[0];
+
+   const marketValues: { productId: string; productName: string; marketValue: number }[] = [];
+   for (const product of products.value) {
+     const vals = productDailyValues.get(product.id);
+     if (!vals) continue;
+     const mv = vals.get(dateStr);
+     if (mv !== undefined && mv > 0) {
+       marketValues.push({ productId: product.id, productName: product.name, marketValue: mv });
+     }
+   }
+
+   history.push({ date: dateStr, marketValues });
+ }
+
+ return history;
+};
+
  return {
  products,
  transactions,
@@ -398,6 +498,7 @@ export function useFinance() {
  portfolioSummary,
  getPositionById,
  getProfitHistory,
+ getMarketValueHistory,
  PRODUCT_TYPE_OPTIONS,
  TRANSACTION_TYPE_OPTIONS
  };

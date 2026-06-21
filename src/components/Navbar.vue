@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { LayoutDashboard, PlusCircle, TrendingUp, DollarSign, Settings, LogOut, ChevronDown } from 'lucide-vue-next'
+import { LayoutDashboard, PlusCircle, TrendingUp, DollarSign, Settings, LogOut, ChevronDown, Tag } from 'lucide-vue-next'
 import { getCurrentUser, logout } from '@/utils/storage'
 
 const router = useRouter()
@@ -76,7 +76,9 @@ onUnmounted(() => {
 
         <!-- User Menu -->
         <div class="flex items-center space-x-3">
-          <span class="text-[11px] text-apple-secondary font-mono tracking-wide">v1.1.3</span>
+          <span class="inline-flex items-center gap-1 text-[10px] text-primary-500 font-mono tracking-wide bg-primary-50 px-2 py-0.5 rounded-full font-medium">
+            <Tag class="w-2.5 h-2.5" />v1.2.0
+          </span>
           <div ref="userMenuRef" class="relative">
             <button
               @click="toggleUserMenu"
