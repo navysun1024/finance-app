@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { ArrowLeft, Plus, Edit2, Trash2, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
+import { ArrowLeft, Plus, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
 import { formatCurrency, formatCurrencyInt, formatPercent, formatDate, getDateOnly } from '@/utils/format'
@@ -8,6 +8,7 @@ import { fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchFundStageGains, fet
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
+import TransactionCard from '@/components/TransactionCard.vue'
 import * as echarts from 'echarts'
 
 const route = useRoute()
@@ -322,49 +323,170 @@ const renderHoldingsCharts = () => {
 
   // 使用 setTimeout 确保 DOM 完全渲染后再初始化图表
   setTimeout(() => {
-    // 资产配置饼图
+    // 资产配置分段条形图
     if (allocationChartRef.value && data.assetAllocation) {
       allocationChart = echarts.init(allocationChartRef.value)
       const aa = data.assetAllocation
       const allocData = [
-        { name: '股票', value: aa.stockRatio || 0 },
-        { name: '债券', value: aa.bondRatio || 0 },
-        { name: '现金', value: aa.cashRatio || 0 },
+        { name: '股票', value: aa.stockRatio || 0, color: '#3b82f6' },
+        { name: '债券', value: aa.bondRatio || 0, color: '#10b981' },
+        { name: '现金', value: aa.cashRatio || 0, color: '#f59e0b' },
       ]
       // 计算"其他"占比
       const total = allocData.reduce((s, d) => s + d.value, 0)
       const other = Math.max(0, 100 - total)
-      if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)) })
+      if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)), color: '#9ca3af' })
+      
       allocationChart.setOption({
-        tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
-        legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
-        color: ['#3b82f6', '#10b981', '#f59e0b', '#9ca3af'],
-        series: [{
-          type: 'pie', radius: ['40%', '65%'], center: ['50%', '45%'],
-          label: { show: true, formatter: '{b}\n{d}%', fontSize: 11 },
-          data: allocData
-        }]
+        tooltip: { 
+          trigger: 'axis', 
+          axisPointer: { type: 'shadow' },
+          formatter: (params: any) => {
+            let result = ''
+            params.forEach((item: any) => {
+              if (item.value > 0) {
+                result += `${item.marker}${item.seriesName}: ${item.value}%<br/>`
+              }
+            })
+            return result
+          }
+        },
+        legend: { 
+          show: true,
+          bottom: -5,
+          itemWidth: 10,
+          itemHeight: 10,
+          itemGap: 12,
+          textStyle: { 
+            fontSize: 10,
+            color: '#6b7280'
+          }
+        },
+        grid: { left: '15', right: '15', top: '5', bottom: '28', height: '75%' },
+        xAxis: {
+          type: 'value',
+          max: 100,
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { show: false },
+          splitLine: { show: false }
+        },
+        yAxis: {
+          type: 'category',
+          data: [''],
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { show: false }
+        },
+        series: allocData.map(item => ({
+          name: item.name,
+          type: 'bar',
+          stack: 'total',
+          barWidth: '75%',
+          barGap: '0%',
+          itemStyle: { 
+            color: item.color,
+            borderRadius: [4, 4, 4, 4]
+          },
+          label: {
+            show: true,
+            position: 'inside',
+            fontSize: 9,
+            color: '#fff',
+            fontWeight: 'bold',
+            formatter: (params: any) => {
+              // 只有当分段宽度足够时才显示标签（占比 >= 8%）
+              return params.value >= 8 ? `${params.value}%` : ''
+            }
+          },
+          emphasis: { 
+            focus: 'series',
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: 'rgba(0, 0, 0, 0.2)'
+            }
+          },
+          data: [item.value]
+        }))
       })
     }
-    // 前十大重仓股饼图
+    // 前十大重仓股分段条形图
     if (holdingsChartRef.value && data.stocks?.length) {
       holdingsChart = echarts.init(holdingsChartRef.value)
       const stocks = data.stocks
-      const stocksData: { name: string; value: number; itemStyle?: { color: string } }[] = stocks.map(s => ({ name: s.name, value: s.ratio }))
+      const stocksData: { name: string; value: number; color: string }[] = stocks.map((s, i) => ({ 
+        name: s.name, 
+        value: s.ratio, 
+        color: PIE_COLORS[i % PIE_COLORS.length] 
+      }))
       // 计算"其他"占比（前十大之外的部分）
       const topTotal = stocks.reduce((s, st) => s + st.ratio, 0)
       const rest = Math.max(0, 100 - topTotal)
-      // "其他"使用灰色，避免与股票颜色重复
-      if (rest > 0.01) stocksData.push({ name: '其他', value: parseFloat(rest.toFixed(2)), itemStyle: { color: '#9ca3af' } })
+      if (rest > 0.01) stocksData.push({ name: '其他', value: parseFloat(rest.toFixed(2)), color: '#9ca3af' })
+      
       holdingsChart.setOption({
-        tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
-        legend: { show: false },
-        color: PIE_COLORS,
-        series: [{
-          type: 'pie', radius: ['40%', '65%'], center: ['50%', '45%'],
-          label: { show: true, formatter: '{b}\n{d}%', fontSize: 10 },
-          data: stocksData
-        }]
+        tooltip: { 
+          trigger: 'axis', 
+          axisPointer: { type: 'shadow' },
+          formatter: (params: any) => {
+            let result = ''
+            params.forEach((item: any) => {
+              if (item.value > 0) {
+                result += `${item.marker}${item.seriesName}: ${item.value}%<br/>`
+              }
+            })
+            return result
+          }
+        },
+        legend: { 
+          show: true,
+          bottom: -5,
+          itemWidth: 10,
+          itemHeight: 10,
+          itemGap: 8,
+          textStyle: { 
+            fontSize: 9,
+            color: '#6b7280'
+          },
+          data: stocksData.slice(0, 6).map(item => item.name).concat('其他')
+        },
+        grid: { left: '15', right: '15', top: '5', bottom: '28', height: '75%' },
+        xAxis: {
+          type: 'value',
+          max: 100,
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { show: false },
+          splitLine: { show: false }
+        },
+        yAxis: {
+          type: 'category',
+          data: [''],
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { show: false }
+        },
+        series: stocksData.map(item => ({
+          name: item.name,
+          type: 'bar',
+          stack: 'total',
+          barWidth: '75%',
+          barGap: '0%',
+          itemStyle: { 
+            color: item.color,
+            borderRadius: [4, 4, 4, 4]
+          },
+          emphasis: { 
+            focus: 'series',
+            itemStyle: {
+              shadowBlur: 10,
+              shadowOffsetX: 0,
+              shadowColor: 'rgba(0, 0, 0, 0.2)'
+            }
+          },
+          data: [item.value]
+        }))
       })
     }
   }, 200)
@@ -826,17 +948,17 @@ onUnmounted(() => {
           净资产规模：<span class="font-semibold text-apple-text">{{ holdingsData.assetAllocation.netAsset.toFixed(2) }} 亿元</span>
         </div>
 
-        <!-- 两个饼图左右并排显示 -->
-        <div class="flex flex-row">
-          <!-- 资产配置饼图（左侧） -->
-          <div class="w-1/2 min-w-0">
+        <!-- 两个分段条形图上下排列显示 -->
+        <div class="flex flex-col space-y-3">
+          <!-- 资产配置分段条形图（上方） -->
+          <div class="w-full">
             <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">资产配置</h4>
-            <div ref="allocationChartRef" class="w-full" style="height: 220px;"></div>
+            <div ref="allocationChartRef" class="w-full" style="height: 60px;"></div>
           </div>
-          <!-- 前十大重仓股饼图（右侧） -->
-          <div v-if="holdingsData.stocks && holdingsData.stocks.length > 0" class="w-1/2 min-w-0">
+          <!-- 前十大重仓股分段条形图（下方） -->
+          <div v-if="holdingsData.stocks && holdingsData.stocks.length > 0" class="w-full">
             <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">前十大重仓股</h4>
-            <div ref="holdingsChartRef" class="w-full" style="height: 220px;"></div>
+            <div ref="holdingsChartRef" class="w-full" style="height: 60px;"></div>
           </div>
         </div>
       </div>
@@ -927,84 +1049,108 @@ onUnmounted(() => {
         </template>
         <span class="text-xs text-apple-secondary ml-auto">共 {{ sortedTransactions.length }} 条记录</span>
       </div>
-      <div class="glass-card overflow-hidden">
-        <div class="overflow-x-auto">
-        <table class="w-full apple-table">
-          <thead>
-            <tr>
-              <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('date')">
-                <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-4 h-4" :class="txSortKey === 'date' ? 'text-primary-500' : ''" /></div>
-              </th>
-              <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('type')">
-                <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-4 h-4" :class="txSortKey === 'type' ? 'text-primary-500' : ''" /></div>
-              </th>
-              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('amount')">
-                <div class="flex items-center justify-end space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-4 h-4" :class="txSortKey === 'amount' ? 'text-primary-500' : ''" /></div>
-              </th>
-              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('price')">
-                <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-4 h-4" :class="txSortKey === 'price' ? 'text-primary-500' : ''" /></div>
-              </th>
-              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('shares')">
-                <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-4 h-4" :class="txSortKey === 'shares' ? 'text-primary-500' : ''" /></div>
-              </th>
-              <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('fee')">
-                <div class="flex items-center justify-end space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-4 h-4" :class="txSortKey === 'fee' ? 'text-primary-500' : ''" /></div>
-              </th>
-              <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">备注</th>
-              <th class="px-4 py-2.5 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-apple-border/50">
-            <tr v-for="transaction in sortedTransactions" :key="transaction.id">
-              <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-text">{{ formatDate(transaction.date) }}</td>
-              <td class="px-4 py-3 whitespace-nowrap">
-                <span 
-                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
-                  :class="{
-                    'bg-loss/10 text-loss': transaction.type === 'buy',
-                    'bg-profit/10 text-profit': transaction.type === 'sell',
-                    'bg-yellow-50 text-yellow-600': transaction.type === 'dividend',
-                    'bg-primary-50 text-primary-500': transaction.type === 'nav_update'
-                  }"
-                >
-                  {{ transaction.type === 'buy' ? '买入' : transaction.type === 'sell' ? '卖出' : transaction.type === 'dividend' ? '分红' : '净值更新' }}
-                </span>
-              </td>
-              <td class="px-4 py-3 whitespace-nowrap text-sm" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
-                {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
-              </td>
-              <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
-              <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
-              <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
-              <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-secondary">{{ transaction.note || '-' }}</td>
-              <td class="px-4 py-3 whitespace-nowrap text-center">
-                <div class="flex items-center space-x-2">
-                  <button 
-                    @click="handleEditTransaction(transaction)"
-                    class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-full transition-colors"
-                  >
-                    <Edit2 class="w-4 h-4" />
-                  </button>
-                  <button 
-                    @click="handleDeleteTransaction(transaction.id)"
-                    class="p-1.5 text-apple-secondary hover:text-profit hover:bg-profit/10 rounded-full transition-colors"
-                  >
-                    <Trash2 class="w-4 h-4" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-if="transactions.length === 0" class="px-6 py-12 text-center">
-          <p class="text-apple-secondary">暂无交易记录</p>
-          <p class="text-apple-secondary text-sm mt-2 opacity-70">点击上方按钮添加交易记录</p>
+      <!-- 移动端卡片布局 -->
+      <div class="md:hidden space-y-2">
+        <div v-if="sortedTransactions.length > 0" class="space-y-2">
+          <TransactionCard 
+            v-for="transaction in sortedTransactions" 
+            :key="transaction.id" 
+            :transaction="transaction"
+            @edit="handleEditTransaction"
+            @delete="handleDeleteTransaction"
+          />
         </div>
-        <div v-else-if="sortedTransactions.length === 0" class="px-6 py-12 text-center">
-          <p class="text-apple-secondary">当前日期区间内无交易记录</p>
-          <p class="text-apple-secondary text-sm mt-2 opacity-70">试试切换为"全部"查看更多</p>
+        <div v-else-if="transactions.length === 0" class="glass-card p-8 text-center">
+          <p class="text-apple-text text-[16px] font-medium">暂无交易记录</p>
+          <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加交易记录</p>
+        </div>
+        <div v-else class="glass-card p-8 text-center">
+          <p class="text-apple-text text-[16px] font-medium">当前日期区间内无交易记录</p>
+          <p class="text-apple-secondary text-[13px] mt-2">试试切换为"全部"查看更多</p>
         </div>
       </div>
+      
+      <!-- 桌面端表格布局 -->
+      <div class="hidden md:block">
+        <div class="glass-card overflow-hidden">
+          <div class="overflow-x-auto">
+          <table class="w-full apple-table">
+            <thead>
+              <tr>
+                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('date')">
+                  <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-4 h-4" :class="txSortKey === 'date' ? 'text-primary-500' : ''" /></div>
+                </th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('type')">
+                  <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-4 h-4" :class="txSortKey === 'type' ? 'text-primary-500' : ''" /></div>
+                </th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('amount')">
+                  <div class="flex items-center justify-end space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-4 h-4" :class="txSortKey === 'amount' ? 'text-primary-500' : ''" /></div>
+                </th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('price')">
+                  <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-4 h-4" :class="txSortKey === 'price' ? 'text-primary-500' : ''" /></div>
+                </th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('shares')">
+                  <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-4 h-4" :class="txSortKey === 'shares' ? 'text-primary-500' : ''" /></div>
+                </th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('fee')">
+                  <div class="flex items-center justify-end space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-4 h-4" :class="txSortKey === 'fee' ? 'text-primary-500' : ''" /></div>
+                </th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">备注</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-apple-border/50">
+              <tr v-for="transaction in sortedTransactions" :key="transaction.id">
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</td>
+                <td class="px-4 py-3 whitespace-nowrap">
+                  <span 
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+                    :class="{
+                      'bg-loss/10 text-loss': transaction.type === 'buy',
+                      'bg-profit/10 text-profit': transaction.type === 'sell',
+                      'bg-yellow-50 text-yellow-600': transaction.type === 'dividend',
+                      'bg-primary-50 text-primary-500': transaction.type === 'nav_update'
+                    }"
+                  >
+                    {{ transaction.type === 'buy' ? '买入' : transaction.type === 'sell' ? '卖出' : transaction.type === 'dividend' ? '分红' : '净值更新' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
+                  {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
+                </td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-secondary">{{ transaction.note || '-' }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-center">
+                  <div class="flex items-center justify-center space-x-2">
+                    <button 
+                      @click="handleEditTransaction(transaction)"
+                      class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-full transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    </button>
+                    <button 
+                      @click="handleDeleteTransaction(transaction.id)"
+                      class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/10 rounded-full transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+          <div v-if="transactions.length === 0" class="px-6 py-12 text-center">
+            <p class="text-apple-secondary">暂无交易记录</p>
+            <p class="text-apple-secondary text-sm mt-2 opacity-70">点击上方按钮添加交易记录</p>
+          </div>
+          <div v-else-if="sortedTransactions.length === 0" class="px-6 py-12 text-center">
+            <p class="text-apple-secondary">当前日期区间内无交易记录</p>
+            <p class="text-apple-secondary text-sm mt-2 opacity-70">试试切换为"全部"查看更多</p>
+          </div>
+        </div>
       </div>
     </div>
     

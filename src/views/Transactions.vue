@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Plus, Edit2, Trash2, Search, ArrowUp, ArrowDown, ChevronsUpDown, Upload, CheckCircle, AlertTriangle, X, Calendar } from 'lucide-vue-next'
+import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, Upload, CheckCircle, AlertTriangle, X, Calendar } from 'lucide-vue-next'
 import TransactionModal from '@/components/TransactionModal.vue'
 import BatchImportModal from '@/components/BatchImportModal.vue'
+import TransactionCard from '@/components/TransactionCard.vue'
 import { useFinance } from '@/composables/useFinance'
-import { formatCurrency, formatDate } from '@/utils/format'
+import { formatCurrency } from '@/utils/format'
 import { batchImport, type BatchImportResult } from '@/utils/storage'
 import type { TransactionType, Transaction } from '@/types'
 
@@ -265,7 +266,25 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
       <span class="text-[12px] text-apple-secondary ml-auto">共 {{ filteredTransactions.length }} 条记录</span>
     </div>
     
-    <div class="glass-card overflow-hidden">
+    <!-- 移动端卡片布局 -->
+    <div class="md:hidden space-y-2">
+      <div v-if="filteredTransactions.length > 0" class="space-y-2">
+        <TransactionCard 
+          v-for="transaction in filteredTransactions" 
+          :key="transaction.id" 
+          :transaction="transaction"
+          @edit="handleEdit"
+          @delete="handleDelete"
+        />
+      </div>
+      <div v-else class="glass-card p-8 text-center">
+        <p class="text-apple-text text-[16px] font-medium">暂无交易记录</p>
+        <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加交易记录</p>
+      </div>
+    </div>
+    
+    <!-- 桌面端表格布局 -->
+    <div class="hidden md:block glass-card overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full apple-table">
           <thead>
@@ -339,7 +358,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
           </thead>
           <tbody>
           <tr v-for="transaction in filteredTransactions" :key="transaction.id" class="transition-colors">
-            <td class="px-4 py-3 whitespace-nowrap text-[14px] text-apple-text">{{ formatDate(transaction.date) }}</td>
+            <td class="px-4 py-3 whitespace-nowrap text-[14px] text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</td>
             <td class="px-4 py-3 whitespace-nowrap text-[14px] text-apple-text">{{ getProductName(transaction.productId) }}</td>
             <td class="px-4 py-3 whitespace-nowrap">
               <span 
@@ -360,15 +379,15 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
               <div class="flex items-center space-x-1.5">
                 <button 
                   @click="handleEdit(transaction)"
-                  class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
+                  class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
                 >
-                  <Edit2 class="w-3.5 h-3.5" />
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                 </button>
                 <button 
                   @click="handleDelete(transaction.id)"
-                  class="p-1.5 text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
+                  class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
                 >
-                  <Trash2 class="w-3.5 h-3.5" />
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                 </button>
               </div>
             </td>

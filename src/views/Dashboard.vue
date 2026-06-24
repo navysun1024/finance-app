@@ -4,10 +4,13 @@ import { Wallet, TrendingUp, PieChart, RefreshCw, BarChart, Calendar } from 'luc
 import StatCard from '@/components/StatCard.vue'
 import ProductCard from '@/components/ProductCard.vue'
 import ProfitCalendar from '@/components/ProfitCalendar.vue'
+import PullRefresh from '@/components/PullRefresh.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { calculateXIRR } from '@/utils/xirr'
 import { formatCurrency, formatCurrencyInt, formatPercent } from '@/utils/format'
 import * as echarts from 'echarts'
+
+const refreshRef = ref<InstanceType<typeof PullRefresh> | null>(null)
 
 const { portfolioSummary, getProfitHistory, getMarketValueHistory, transactions, refresh } = useFinance()
 
@@ -534,6 +537,21 @@ const updateAllTrendCharts = () => {
   }
 }
 
+const handleRefresh = async () => {
+  await refresh()
+  await nextTick()
+  // 重新初始化图表
+  for (const chart of typeCharts.values()) chart.dispose()
+  for (const chart of trendCharts.values()) chart.dispose()
+  for (const chart of mvCharts.values()) chart.dispose()
+  typeCharts.clear()
+  trendCharts.clear()
+  mvCharts.clear()
+  initCharts()
+  // 通知刷新完成
+  refreshRef.value?.onRefreshComplete()
+}
+
 watch(trendRanges, () => {
   updateAllTrendCharts()
 }, { deep: true })
@@ -578,8 +596,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="space-y-8">
-    <!-- 按产品类型分组的统计卡片 -->
+  <PullRefresh ref="refreshRef" @refresh="handleRefresh">
+    <div class="space-y-8">
+      <!-- 按产品类型分组的统计卡片 -->
     <div v-for="group in summaryByType" :key="group.type + '-stats'" class="space-y-3">
       <div class="flex items-center space-x-2.5">
         <span class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: group.color }"></span>
@@ -728,5 +747,6 @@ onUnmounted(() => {
         <p class="text-apple-secondary text-[14px] mt-2">请先添加理财产品和交易记录</p>
       </div>
     </div>
-  </div>
+    </div>
+  </PullRefresh>
 </template>

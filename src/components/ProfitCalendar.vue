@@ -214,6 +214,19 @@ const getProfitBg = (profit: number | null) => {
         </button>
       </div>
       
+      <!-- 月度盈亏汇总（月视图时显示） -->
+      <div v-if="viewMode === 'month'" class="flex items-center space-x-2 text-[10px]">
+        <span class="text-apple-secondary">
+          盈 <span class="text-profit font-medium">{{ monthSummary.positiveDays }}</span>
+        </span>
+        <span class="text-apple-secondary">
+          亏 <span class="text-loss font-medium">{{ monthSummary.negativeDays }}</span>
+        </span>
+        <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
+          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(monthSummary.totalProfit) }}
+        </span>
+      </div>
+
       <!-- 视图切换 -->
       <div class="flex items-center space-x-0.5 bg-black/5 rounded-full p-0.5">
         <button
@@ -258,7 +271,7 @@ const getProfitBg = (profit: number | null) => {
           @mouseenter="day.profit !== null && day.productProfits.length > 0 && showTooltip($event, day.date, day.profit!, day.productProfits)"
           @mouseleave="hideTooltip"
           :class="[
-            'rounded-sm flex flex-col items-center justify-center transition-all h-[28px] sm:h-[30px] overflow-hidden',
+            'rounded-sm flex flex-col items-center justify-center transition-all h-[25px] sm:h-[28px] overflow-hidden',
             day.isCurrentMonth ? getProfitBg(day.profit) : 'bg-transparent',
             day.profit !== null ? 'cursor-pointer' : ''
           ]"
@@ -280,46 +293,29 @@ const getProfitBg = (profit: number | null) => {
           </span>
         </div>
       </div>
-      
-      <!-- 月度汇总 -->
-      <div class="mt-1 pt-1 border-t border-apple-border/30 flex justify-between text-[10px] flex-shrink-0">
-        <div class="flex items-center space-x-2">
-          <span class="text-apple-secondary">
-            盈 <span class="text-profit font-medium">{{ monthSummary.positiveDays }}</span>
-          </span>
-          <span class="text-apple-secondary">
-            亏 <span class="text-loss font-medium">{{ monthSummary.negativeDays }}</span>
-          </span>
-        </div>
-        <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
-          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(monthSummary.totalProfit) }}
-        </span>
-      </div>
     </div>
 
     <!-- 年视图 -->
     <div v-else class="flex flex-col flex-1 min-h-0">
-      <div class="grid grid-cols-4 gap-1.5 flex-1 content-start px-4">
+      <div class="grid grid-cols-4 gap-1.5 flex-1 content-start px-2 sm:px-4">
         <div
           v-for="item in yearlySummary"
           :key="item.month"
           @click="currentMonth = item.month; viewMode = 'month'"
           :class="[
-            'px-1.5 py-1.5 rounded-apple cursor-pointer transition-all hover:shadow-apple',
+            'relative px-1.5 py-1 rounded-apple cursor-pointer transition-all hover:shadow-apple',
             item.days > 0 ? getProfitBg(item.totalProfit) : 'bg-black/3'
           ]"
         >
+          <span v-if="item.days > 0" class="absolute top-0.5 right-1 text-[8px] text-apple-secondary/60">{{ item.days }}日</span>
           <div class="text-[10px] font-medium text-apple-text">{{ monthNames[item.month - 1] }}</div>
           <div 
             v-if="item.days > 0"
-            :class="['text-xs font-semibold mt-0.5', getProfitColor(item.totalProfit)]"
+            :class="['text-[11px] font-semibold', getProfitColor(item.totalProfit)]"
           >
             {{ item.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(item.totalProfit) }}
           </div>
-          <div v-else class="text-xs text-apple-secondary mt-0.5">-</div>
-          <div v-if="item.days > 0" class="text-[9px] text-apple-secondary mt-0.5">
-            {{ item.days }} 日
-          </div>
+          <div v-else class="text-[11px] text-apple-secondary">-</div>
         </div>
       </div>
       

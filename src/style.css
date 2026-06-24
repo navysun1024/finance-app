@@ -278,3 +278,128 @@ body {
 .page-leave-to {
   opacity: 0;
 }
+
+/* ====== Mobile Touch Target Optimization ====== */
+
+/* Minimum touch target size: 44px (iOS Human Interface Guidelines) */
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.touch-target-lg {
+  min-width: 52px;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Responsive button padding */
+.btn-mobile {
+  padding: 12px 20px;
+  font-size: 15px;
+  min-height: 44px;
+}
+
+/* Responsive font sizes */
+.text-xs-mobile {
+  font-size: 11px;
+}
+
+.text-sm-mobile {
+  font-size: 13px;
+}
+
+.text-base-mobile {
+  font-size: 14px;
+}
+
+.text-lg-mobile {
+  font-size: 15px;
+}
+
+.text-xl-mobile {
+  font-size: 17px;
+}
+
+.text-2xl-mobile {
+  font-size: 20px;
+}
+
+/* Responsive spacing */
+.space-mobile-sm {
+  gap: 8px;
+}
+
+.space-mobile-md {
+  gap: 12px;
+}
+
+.space-mobile-lg {
+  gap: 16px;
+}
+
+.padding-mobile-sm {
+  padding: 8px;
+}
+
+.padding-mobile-md {
+  padding: 12px;
+}
+
+.padding-mobile-lg {
+  padding: 16px;
+}
+
+/* Mobile-specific styles */
+@media (min-width: 640px) {
+  .text-xs-mobile { font-size: 12px; }
+  .text-sm-mobile { font-size: 14px; }
+  .text-base-mobile { font-size: 15px; }
+  .text-lg-mobile { font-size: 17px; }
+  .text-xl-mobile { font-size: 18px; }
+  .text-2xl-mobile { font-size: 22px; }
+  
+  .touch-target {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  
+  .touch-target-lg {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  .btn-mobile {
+    padding: 10px 16px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+}
+
+/* Enhanced hit area for icon buttons */
+.icon-btn-hit-area {
+  position: relative;
+}
+
+.icon-btn-hit-area::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+/* Focus styles for accessibility */
+button:focus-visible {
+  outline: 2px solid var(--apple-blue);
+  outline-offset: 2px;
+  border-radius: 8px;
+}

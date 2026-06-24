@@ -127,7 +127,7 @@ async function scrapeCmbNav(productCode) {
                 const navText = cells[2]?.textContent?.trim();
                 const dateText = cells[4]?.textContent?.trim();
                 const nav = navText ? parseFloat(navText) : 0;
-                if (nav === 0 || isNaN(nav)) return null;
+                if (nav === 0 || isNaN(nav)) continue;  // 修改：跳过无效数据，继续查找
                 return {
                   nav,
                   name: cells[1]?.textContent?.trim() || '',

@@ -19,17 +19,17 @@ const iconBgColors: Record<string, string> = {
 </script>
 
 <template>
-  <div class="glass-card p-3 sm:p-4 min-h-[72px] sm:min-h-[78px] flex items-center">
-    <div class="flex items-center justify-between w-full">
+  <div class="glass-card px-5 py-3">
+    <div class="flex items-start justify-between">
       <div class="flex-1 min-w-0">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-0.5">{{ title }}</p>
-        <p class="text-[20px] sm:text-[22px] font-semibold text-apple-text tracking-tight truncate leading-tight">{{ value }}</p>
-        <p v-if="change !== undefined" :class="['text-[11px] sm:text-[12px] mt-0.5 font-semibold tracking-tight', change >= 0 ? 'text-profit' : 'text-loss']">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1">{{ title }}</p>
+        <p class="text-[22px] font-semibold text-apple-text tracking-tight truncate leading-tight">{{ value }}</p>
+        <p v-if="change !== undefined" :class="['text-[12px] mt-1 font-semibold tracking-tight', change >= 0 ? 'text-profit' : 'text-loss']">
           {{ change >= 0 ? '+' : '' }}{{ change.toFixed(2) }}%
         </p>
       </div>
-      <div :class="['w-8 h-8 sm:w-9 sm:h-9 rounded-apple flex items-center justify-center flex-shrink-0 ml-2', iconBgColors[color || 'blue']]">
-        <component :is="icon" class="w-[15px] h-[15px] sm:w-[18px] sm:h-[18px]" />
+      <div :class="['w-10 h-10 rounded-apple flex items-center justify-center flex-shrink-0 ml-3', iconBgColors[color || 'blue']]">
+        <component :is="icon" class="w-[18px] h-[18px]" />
       </div>
     </div>
   </div>

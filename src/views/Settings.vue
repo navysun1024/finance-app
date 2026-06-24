@@ -319,10 +319,10 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     <div class="glass-card p-6">
       <h3 class="text-[15px] font-semibold text-apple-text mb-3">应用信息</h3>
       <div class="text-[13px] text-apple-secondary space-y-2">
-        <p>版本号: <span class="font-mono text-primary-500">v1.2.0</span></p>
+        <p>版本号: <span class="font-mono text-primary-500">v1.2.1</span></p>
         <p>技术栈: Vue 3 + Vite + TailwindCSS + ECharts</p>
         <div class="mt-3 pt-3 border-t border-apple-border/30">
-          <p class="text-[13px] font-semibold text-apple-text mb-2">v1.2.0 版本变更 (2026-06-18)</p>
+          <p class="text-[13px] font-semibold text-apple-text mb-2">v1.2.1 版本变更 (2026-06-23)</p>
           <ul class="list-disc list-inside space-y-1 text-apple-secondary">
             <li>概览页面新增累积市值趋势柱形图，按月展示各产品市值变化</li>
             <li>持仓分布新增资产配置分布（股票、债券、现金及其他）</li>

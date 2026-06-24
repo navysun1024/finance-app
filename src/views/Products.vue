@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { Plus, Edit2, Trash2, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw } from 'lucide-vue-next'
+import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
+import ProductListItem from '@/components/ProductListItem.vue'
 import { useFinance } from '@/composables/useFinance'
 import { useRouter } from 'vue-router'
 import type { ProductType } from '@/types'
@@ -223,12 +224,24 @@ const summaryStats = computed(() => {
   const totalProfit = positions.reduce((sum, p) => sum + (p!.profit || 0), 0)
   const profitRate = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0
   
+  // 计算加权平均年化收益率（按市值加权）
+  let weightedAnnualRate = 0
+  let totalWeight = 0
+  for (const p of positions) {
+    if (p && p.marketValue && p.annualRate !== undefined) {
+      weightedAnnualRate += p.marketValue * (p.annualRate || 0)
+      totalWeight += p.marketValue
+    }
+  }
+  const annualRate = totalWeight > 0 ? (weightedAnnualRate / totalWeight) : 0
+  
   return {
     count: filteredProducts.value.length,
     totalMarketValue,
     totalCost,
     totalProfit,
-    profitRate
+    profitRate,
+    annualRate
   }
 })
 
@@ -382,7 +395,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     </div>
 
 <!-- 汇总统计卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
         <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency(summaryStats.totalMarketValue) }}</p>
@@ -401,6 +414,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
         <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss'">
           {{ summaryStats.profitRate >= 0 ? '+' : '' }}{{ summaryStats.profitRate.toFixed(2) }}%
+        </p>
+      </div>
+      <div v-if="props.type === 'fixed_income'" class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">加权年化收益率</p>
+        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.annualRate >= 0 ? 'text-profit' : 'text-loss'">
+          {{ summaryStats.annualRate >= 0 ? '+' : '' }}{{ summaryStats.annualRate.toFixed(2) }}%
         </p>
       </div>
     </div>
@@ -596,7 +615,28 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </select>
     </div>
     
-    <div class="glass-card overflow-hidden">
+    <!-- 移动端卡片布局 -->
+    <div class="md:hidden space-y-2">
+      <div v-if="filteredProducts.length > 0" class="space-y-2">
+        <ProductListItem 
+          v-for="product in filteredProducts" 
+          :key="product.id" 
+          v-show="getPosition(product.id)"
+          :position="getPosition(product.id)!"
+          :daily-return="getDailyReturn(product.code)?.dailyReturn"
+          @edit="handleEdit(product)"
+          @delete="handleDelete(product.id)"
+          @click="(id) => router.push({ name: 'product-detail', params: { id } })"
+        />
+      </div>
+      <div v-else class="glass-card p-8 text-center">
+        <p class="text-apple-text text-[16px] font-medium">暂无{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
+        <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+      </div>
+    </div>
+    
+    <!-- 桌面端表格布局 -->
+    <div class="hidden md:block glass-card overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full apple-table">
           <thead>
@@ -863,15 +903,15 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <div class="flex items-center justify-center space-x-1.5">
                   <button 
                     @click="handleEdit(product)"
-                    class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
+                    class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
                   >
-                    <Edit2 class="w-3.5 h-3.5" />
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                   </button>
                   <button 
                     @click="handleDelete(product.id)"
-                    class="p-1.5 text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
+                    class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
                   >
-                    <Trash2 class="w-3.5 h-3.5" />
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                   </button>
                 </div>
               </td>
