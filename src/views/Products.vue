@@ -8,13 +8,14 @@ import { useRouter } from 'vue-router'
 import type { ProductType } from '@/types'
 import { DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency } from '@/utils/format'
-import { fetchFundStageGainsBatch, fetchAggregatedHoldings, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
+import { calculateXIRR } from '@/utils/xirr'
+import { fetchFundStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchFundNav, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
 
 const props = defineProps<{
   type?: ProductType
 }>()
 
-const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS } = useFinance()
+const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction } = useFinance()
 const router = useRouter()
 
 const showModal = ref(false)
@@ -28,6 +29,115 @@ const sortOrder = ref<'asc' | 'desc'>('desc')
 // 阶段涨幅数据缓存
 const stageGainsMap = ref<Map<string, StageGains>>(new Map())
 const loadingStageGains = ref(false)
+
+// 批量更新净值相关
+const loadingBatchNav = ref(false)
+const batchNavResult = ref<{ success: number; total: number; skip?: number } | null>(null)
+
+// ==================== 批量更新净值（支持基金和固收理财）====================
+const handleBatchUpdateNav = async () => {
+  if (!props.type) return
+  
+  const targetProducts = products.value.filter(p => p.type === props.type && p.code)
+  if (targetProducts.length === 0) {
+    return
+  }
+  
+  loadingBatchNav.value = true
+  batchNavResult.value = null
+  
+  // 创建产品代码到产品ID的映射
+  const codeToProductMap = new Map(targetProducts.map(p => [p.code!, p]))
+  
+  try {
+    let results: any[] = []
+    
+    if (props.type === 'fund') {
+      // 基金：逐个查询
+      for (const product of targetProducts) {
+        try {
+          const navResult = await fetchFundNav(product.code!)
+          results.push({ ...navResult, code: product.code })
+        } catch (error) {
+          console.error(`基金 ${product.code} 查询失败:`, error)
+          results.push({ code: product.code, nav: null })
+        }
+      }
+    } else {
+      // 固收理财：批量查询
+      const codes = targetProducts.map(p => p.code!)
+      results = await fetchCmbNavBatch(codes)
+    }
+    
+    let successCount = 0
+    let skipCount = 0
+    
+    // 为每个成功查询到净值的产品创建 nav_update 交易
+    for (const result of results) {
+      if (result.nav !== null && result.code) {
+        const product = codeToProductMap.get(result.code)
+        if (product) {
+          // 解析日期（基金格式：2026-06-23，固收理财格式：20260623）
+          let dateTimestamp = Date.now()
+          if (result.date) {
+            if (result.date.includes('-')) {
+              // 基金日期格式：2026-06-23
+              const parts = result.date.split('-')
+              dateTimestamp = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime()
+            } else if (result.date.length === 8) {
+              // 固收理财日期格式：20260623
+              const year = parseInt(result.date.substring(0, 4))
+              const month = parseInt(result.date.substring(4, 6)) - 1
+              const day = parseInt(result.date.substring(6, 8))
+              dateTimestamp = new Date(year, month, day).getTime()
+            }
+          }
+          
+          // 检查当天是否已经存在净值更新记录
+          const dayStart = new Date(dateTimestamp)
+          dayStart.setHours(0, 0, 0, 0)
+          const dayEnd = new Date(dateTimestamp)
+          dayEnd.setHours(23, 59, 59, 999)
+          
+          const existingNavUpdates = getTransactionsByProductId(product.id)
+            .filter(t => 
+              t.type === 'nav_update' && 
+              t.date >= dayStart.getTime() && 
+              t.date <= dayEnd.getTime()
+            )
+          
+          // 如果当天已存在相同净值，跳过；如果净值不同，更新记录
+          if (existingNavUpdates.length > 0) {
+            const hasSameNav = existingNavUpdates.some(t => Math.abs(t.price - result.nav) < 0.0001)
+            if (hasSameNav) {
+              skipCount++
+              continue // 当天已存在相同净值，跳过
+            }
+            // 如果净值不同，继续创建新记录（视为净值修正）
+          }
+          
+          // 创建净值更新交易
+          // amount 和 shares 对于 nav_update 类型不重要，使用 0
+          const now = new Date()
+          const timeStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
+          await addTransaction(product.id, 'nav_update', dateTimestamp, 0, result.nav, 0, 0, `净值批量更新 - ${timeStr}`)
+          successCount++
+        }
+      }
+    }
+    
+    batchNavResult.value = { success: successCount, total: targetProducts.length, skip: skipCount }
+    
+    // 3秒后清除提示
+    setTimeout(() => {
+      batchNavResult.value = null
+    }, 3000)
+  } catch (error) {
+    console.error('批量更新净值失败:', error)
+  } finally {
+    loadingBatchNav.value = false
+  }
+}
 
 // ==================== 当日收益率（从 nav_update 交易记录计算）====================
 const dailyReturnMap = computed(() => {
@@ -235,13 +345,28 @@ const summaryStats = computed(() => {
   }
   const annualRate = totalWeight > 0 ? (weightedAnnualRate / totalWeight) : 0
   
+  // 计算整体 XIRR 年化收益率（与概览页面一致）
+  const productIds = new Set(filteredProducts.value.map(p => p.id))
+  const typeTransactions = transactions.value.filter(t => productIds.has(t.productId))
+  const buyTxs = typeTransactions.filter(t => t.type === 'buy').map(t => ({
+    date: t.date, amount: t.amount, fee: t.fee
+  }))
+  const sellTxs = typeTransactions.filter(t => t.type === 'sell').map(t => ({
+    date: t.date, amount: t.amount
+  }))
+  const dividendTxs = typeTransactions.filter(t => t.type === 'dividend').map(t => ({
+    date: t.date, amount: t.amount
+  }))
+  const portfolioAnnualRate = calculateXIRR(buyTxs, sellTxs, dividendTxs, totalMarketValue) * 100
+  
   return {
     count: filteredProducts.value.length,
     totalMarketValue,
     totalCost,
     totalProfit,
     profitRate,
-    annualRate
+    annualRate,
+    portfolioAnnualRate
   }
 })
 
@@ -385,17 +510,44 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         </h2>
         <p class="apple-section-subtitle mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
-      <button 
-        @click="handleAdd"
-        class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px]"
+      <div class="flex items-center gap-2">
+        <!-- 批量更新净值按钮（基金和固收理财页面显示） -->
+        <button 
+          v-if="props.type === 'fixed_income' || props.type === 'fund'"
+          @click="handleBatchUpdateNav"
+          :disabled="loadingBatchNav"
+          class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px] disabled:opacity-50"
+        >
+          <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loadingBatchNav }" />
+          <span>{{ loadingBatchNav ? '更新中...' : '批量更新净值' }}</span>
+        </button>
+        <button 
+          @click="handleAdd"
+          class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px]"
+        >
+          <Plus class="w-4 h-4" />
+          <span>新增产品</span>
+        </button>
+      </div>
+      <!-- 批量更新结果提示 -->
+      <div 
+        v-if="batchNavResult" 
+        class="sm:absolute sm:top-20 sm:right-4 text-sm px-3 py-1.5 rounded-full"
+        :class="{
+          'bg-green-100 text-green-700': batchNavResult.success > 0,
+          'bg-blue-100 text-blue-700': batchNavResult.success === 0 && batchNavResult.skip && batchNavResult.skip > 0,
+          'bg-red-100 text-red-700': batchNavResult.success === 0 && (!batchNavResult.skip || batchNavResult.skip === 0)
+        }"
       >
-        <Plus class="w-4 h-4" />
-        <span>新增产品</span>
-      </button>
+        {{ batchNavResult.success > 0 
+          ? `成功更新 ${batchNavResult.success}/${batchNavResult.total} 个产品${batchNavResult.skip ? `（跳过${batchNavResult.skip}条重复）` : ''}` 
+          : (batchNavResult.skip && batchNavResult.skip > 0 ? '所有净值已存在，无需更新' : '更新失败')
+        }}
+      </div>
     </div>
 
 <!-- 汇总统计卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div :class="['grid grid-cols-2 gap-3', props.type === 'fund' ? 'md:grid-cols-4' : 'md:grid-cols-6']">
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
         <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency(summaryStats.totalMarketValue) }}</p>
@@ -420,6 +572,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">加权年化收益率</p>
         <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.annualRate >= 0 ? 'text-profit' : 'text-loss'">
           {{ summaryStats.annualRate >= 0 ? '+' : '' }}{{ summaryStats.annualRate.toFixed(2) }}%
+        </p>
+      </div>
+      <div v-if="props.type === 'fixed_income'" class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">整体年化收益率</p>
+        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss'">
+          {{ summaryStats.portfolioAnnualRate >= 0 ? '+' : '' }}{{ summaryStats.portfolioAnnualRate.toFixed(2) }}%
         </p>
       </div>
     </div>

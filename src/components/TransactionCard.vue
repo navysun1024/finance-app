@@ -7,6 +7,7 @@ import { useFinance } from '@/composables/useFinance'
 
 const props = defineProps<{
   transaction: Transaction
+  changePercent?: string
 }>()
 
 const emit = defineEmits<{
@@ -120,6 +121,8 @@ const handleMouseUp = () => {
       <div class="flex items-center justify-between">
         <span class="text-[11px] text-apple-secondary">
           <span>单价 {{ transaction.price.toFixed(4) }}</span>
+          <span v-if="changePercent && transaction.type === 'nav_update'" class="mx-1.5">|</span>
+          <span v-if="changePercent && transaction.type === 'nav_update'" :class="changePercent.startsWith('+') ? 'text-profit' : 'text-loss'">{{ changePercent }}</span>
           <span class="mx-1.5">|</span>
           <span>份额 {{ transaction.shares.toFixed(3) }}</span>
           <span v-if="transaction.fee > 0" class="mx-1.5">|</span>

@@ -214,19 +214,6 @@ const getProfitBg = (profit: number | null) => {
         </button>
       </div>
       
-      <!-- 月度盈亏汇总（月视图时显示） -->
-      <div v-if="viewMode === 'month'" class="flex items-center space-x-2 text-[10px]">
-        <span class="text-apple-secondary">
-          盈 <span class="text-profit font-medium">{{ monthSummary.positiveDays }}</span>
-        </span>
-        <span class="text-apple-secondary">
-          亏 <span class="text-loss font-medium">{{ monthSummary.negativeDays }}</span>
-        </span>
-        <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
-          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(monthSummary.totalProfit) }}
-        </span>
-      </div>
-
       <!-- 视图切换 -->
       <div class="flex items-center space-x-0.5 bg-black/5 rounded-full p-0.5">
         <button
@@ -247,6 +234,19 @@ const getProfitBg = (profit: number | null) => {
         >
           年
         </button>
+      </div>
+
+      <!-- 月度盈亏汇总（月视图时显示） -->
+      <div v-if="viewMode === 'month'" class="ml-auto flex items-center space-x-2 text-[10px]">
+        <span class="text-apple-secondary">
+          盈 <span class="text-profit font-medium">{{ monthSummary.positiveDays }}</span>
+        </span>
+        <span class="text-apple-secondary">
+          亏 <span class="text-loss font-medium">{{ monthSummary.negativeDays }}</span>
+        </span>
+        <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
+          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(monthSummary.totalProfit) }}
+        </span>
       </div>
     </div>
 

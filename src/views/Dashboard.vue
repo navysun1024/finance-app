@@ -2,7 +2,6 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { Wallet, TrendingUp, PieChart, RefreshCw, BarChart, Calendar } from 'lucide-vue-next'
 import StatCard from '@/components/StatCard.vue'
-import ProductCard from '@/components/ProductCard.vue'
 import ProfitCalendar from '@/components/ProfitCalendar.vue'
 import PullRefresh from '@/components/PullRefresh.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
@@ -732,21 +731,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 持仓明细 -->
-    <div>
-      <h3 class="text-[20px] font-semibold text-apple-text tracking-tight mb-4">持仓明细</h3>
-      <div v-if="portfolioSummary.positions.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <ProductCard 
-          v-for="position in portfolioSummary.positions" 
-          :key="position.productId" 
-          :position="position" 
-        />
-      </div>
-      <div v-else class="glass-card p-10 text-center">
-        <p class="text-apple-text text-[17px] font-medium">暂无持仓数据</p>
-        <p class="text-apple-secondary text-[14px] mt-2">请先添加理财产品和交易记录</p>
-      </div>
-    </div>
+
     </div>
   </PullRefresh>
 </template>

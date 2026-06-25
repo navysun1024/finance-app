@@ -1106,9 +1106,8 @@ app.post('/batch-import', authenticate, (req, res) => {
 
 // ==================== 定时净值更新调度器 ====================
 
-// 每天3次定时更新时间（HH:mm 格式，北京时间）
-// 06:00 补充捕获前一晚延迟发布的净值（如QDII），20:00/22:30 覆盖当日新发布的净值
-const SCHEDULE_TIMES = ['06:00', '20:00', '22:30']
+// 每两小时更新一次（HH:mm 格式，北京时间）
+const SCHEDULE_TIMES = ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00']
 
 // 记录每个时间点今天是否已执行过，避免重复执行
 const scheduleRunLog = new Map() // key: 'HH:mm', value: 'YYYY-MM-DD'
@@ -1251,8 +1250,9 @@ async function fetchFundNavServer(fundCode) {
 /**
  * 从爬虫服务获取招银理财产品净值
  */
-async function fetchCmbNavServer(productCode) {
-  const url = `http://localhost:3001/api/scrape/cmb?code=${encodeURIComponent(productCode)}`
+async function fetchCmbNavServer(productCode, userId = '') {
+  const userIdParam = userId ? `&userId=${encodeURIComponent(userId)}` : ''
+  const url = `http://localhost:3001/api/scrape/cmb?code=${encodeURIComponent(productCode)}${userIdParam}`
   const { status, data: text } = await httpRequest(url)
 
   if (status !== 200) {
@@ -1381,7 +1381,10 @@ async function runNavUpdate() {
       byUser.get(p.userId).push(p)
     }
 
+    log(`[NAV调度] 共有 ${byUser.size} 个用户需要更新净值`)
+
     for (const [userId, userProducts] of byUser) {
+      log(`[NAV调度] [用户 ${userId}] 开始处理 ${userProducts.length} 个产品`)
       // 查询该用户所有 nav_update 交易（不限于今天，因为净值日期可能是昨天）
       const allNavTxRows = await new Promise((resolve, reject) => {
         db.all(
@@ -1404,7 +1407,7 @@ async function runNavUpdate() {
           if (product.type === 'fund') {
             result = await fetchFundNavServer(product.code)
           } else {
-            result = await fetchCmbNavServer(product.code)
+            result = await fetchCmbNavServer(product.code, userId)
           }
 
           const navDateTs = parseNavDate(result.date)
@@ -1415,7 +1418,7 @@ async function runNavUpdate() {
           if (existingDates && existingDates.has(navDateKey)) {
             summary.skipped++
             summary.details.push({ name: product.name, code: product.code, status: 'skipped', reason: '净值已存在' })
-            log(`[NAV调度] 跳过 ${product.name} (${product.code}) - 净值日期 ${result.date} 的记录已存在`, 'DEBUG')
+            log(`[NAV调度] [用户 ${userId}] 跳过 ${product.name} (${product.code}) - 净值日期 ${result.date} 的记录已存在`, 'DEBUG')
             continue
           }
 
@@ -1455,7 +1458,7 @@ async function runNavUpdate() {
 
           summary.success++
           summary.details.push({ name: product.name, code: product.code, status: 'success', nav: result.nav, date: result.date })
-          log(`[NAV调度] 更新成功: ${product.name} (${product.code}), nav=${result.nav}, date=${result.date}`)
+          log(`[NAV调度] [用户 ${userId}] 更新成功: ${product.name} (${product.code}), nav=${result.nav}, date=${result.date}`)
 
           // 固收理财：同步缓存历史净值，避免前端页面加载时再爬取
           if (product.type !== 'fund') {
@@ -1472,7 +1475,7 @@ async function runNavUpdate() {
         } catch (e) {
           summary.failed++
           summary.details.push({ name: product.name, code: product.code, status: 'failed', error: e.message })
-          log(`[NAV调度] 更新失败: ${product.name} (${product.code}), 错误: ${e.message}`, 'ERROR')
+          log(`[NAV调度] [用户 ${userId}] 更新失败: ${product.name} (${product.code}), 错误: ${e.message}`, 'ERROR')
         }
       }
     }

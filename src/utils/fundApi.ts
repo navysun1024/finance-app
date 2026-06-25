@@ -3,6 +3,7 @@ import { createLogger } from './logger'
 const logger = createLogger('FundApi')
 
 export interface NavResult {
+  code?: string
   nav: number
   date: string
   name: string
@@ -94,6 +95,32 @@ export async function fetchCmbNav(productCode: string): Promise<NavResult> {
     } catch (e: any) {
       logger.error(`招银理财净值请求异常, code: ${productCode}, 错误: ${e.message}`, e)
       throw new Error(`招银理财净值查询失败: ${e.message}`)
+    }
+  })
+}
+
+/**
+ * 批量查询招银理财净值
+ * @param productCodes 产品代码数组
+ */
+export async function fetchCmbNavBatch(productCodes: string[]): Promise<NavResult[]> {
+  if (productCodes.length === 0) return []
+  logger.info(`批量查询招银理财净值, 数量: ${productCodes.length}`)
+  return logger.withTiming(`fetchCmbNavBatch(${productCodes.length})`, async () => {
+    try {
+      const response = await fetch(`/api/scrape/cmb/batch?codes=${encodeURIComponent(productCodes.join(','))}`)
+      const result = await response.json()
+      if (result.success) {
+        const successCount = result.data.filter((r: any) => r.nav !== null).length
+        logger.info(`批量招银理财净值查询成功, 成功: ${successCount}/${productCodes.length}`)
+        return result.data
+      } else {
+        logger.error(`批量招银理财净值查询失败: ${result.error}`)
+        throw new Error(result.error || '查询失败')
+      }
+    } catch (e: any) {
+      logger.error(`批量招银理财净值请求异常: ${e.message}`, e)
+      throw new Error(`批量招银理财净值查询失败: ${e.message}`)
     }
   })
 }

@@ -253,6 +253,16 @@ const txDateRange = ref('3m')
 const txCustomStartDate = ref('')
 const txCustomEndDate = ref('')
 
+// 交易类型筛选
+const txTypeOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'buy', label: '买入' },
+  { value: 'sell', label: '卖出' },
+  { value: 'dividend', label: '分红' },
+  { value: 'nav_update', label: '净值更新' }
+]
+const txType = ref('nav_update')
+
 const txDateBounds = computed(() => {
   if (txDateRange.value === 'all') return null
   if (txDateRange.value === 'custom') {
@@ -272,6 +282,10 @@ const sortedTransactions = computed(() => {
   const bounds = txDateBounds.value
   if (bounds) {
     list = list.filter(t => t.date >= bounds.start && t.date <= bounds.end)
+  }
+  // 按交易类型筛选
+  if (txType.value !== 'all') {
+    list = list.filter(t => t.type === txType.value)
   }
   list.sort((a, b) => {
     const aVal = a[txSortKey.value]
@@ -308,9 +322,16 @@ const holdingsChartRef = ref<HTMLDivElement>()
 let allocationChart: echarts.ECharts | null = null
 let holdingsChart: echarts.ECharts | null = null
 
-const PIE_COLORS = [
-  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
+const ALLOC_COLORS = {
+  '股票': '#ef4444',
+  '债券': '#3b82f6', 
+  '现金': '#f59e0b',
+  '其他': '#d1d5db'
+}
+
+const STOCK_COLORS = [
+  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b8d0'
 ]
 
 const renderHoldingsCharts = () => {
@@ -328,41 +349,45 @@ const renderHoldingsCharts = () => {
       allocationChart = echarts.init(allocationChartRef.value)
       const aa = data.assetAllocation
       const allocData = [
-        { name: '股票', value: aa.stockRatio || 0, color: '#3b82f6' },
-        { name: '债券', value: aa.bondRatio || 0, color: '#10b981' },
-        { name: '现金', value: aa.cashRatio || 0, color: '#f59e0b' },
+        { name: '股票', value: aa.stockRatio || 0 },
+        { name: '债券', value: aa.bondRatio || 0 },
+        { name: '现金', value: aa.cashRatio || 0 },
       ]
       // 计算"其他"占比
       const total = allocData.reduce((s, d) => s + d.value, 0)
       const other = Math.max(0, 100 - total)
-      if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)), color: '#9ca3af' })
+      if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)) })
       
       allocationChart.setOption({
-        tooltip: { 
-          trigger: 'axis', 
+        tooltip: {
+          trigger: 'axis',
           axisPointer: { type: 'shadow' },
+          backgroundColor: 'rgba(255,255,255,0.95)',
+          borderColor: '#e5e7eb',
+          borderWidth: 1,
+          textStyle: { color: '#374151', fontSize: 12 },
           formatter: (params: any) => {
-            let result = ''
+            let result = '<div style="font-weight:600;margin-bottom:4px">资产配置</div>'
             params.forEach((item: any) => {
               if (item.value > 0) {
-                result += `${item.marker}${item.seriesName}: ${item.value}%<br/>`
+                result += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                  <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${item.color}"></span>
+                  <span>${item.seriesName}: <b>${item.value}%</b></span>
+                </div>`
               }
             })
             return result
           }
         },
-        legend: { 
+        legend: {
           show: true,
-          bottom: -5,
-          itemWidth: 10,
-          itemHeight: 10,
+          bottom: 0,
+          itemWidth: 8,
+          itemHeight: 8,
           itemGap: 12,
-          textStyle: { 
-            fontSize: 10,
-            color: '#6b7280'
-          }
+          textStyle: { fontSize: 10, color: '#6b7280' }
         },
-        grid: { left: '15', right: '15', top: '5', bottom: '28', height: '75%' },
+        grid: { left: '0', right: '0', top: '10', bottom: '40' },
         xAxis: {
           type: 'value',
           max: 100,
@@ -378,80 +403,95 @@ const renderHoldingsCharts = () => {
           axisTick: { show: false },
           axisLabel: { show: false }
         },
-        series: allocData.map(item => ({
-          name: item.name,
+        series: [{
           type: 'bar',
-          stack: 'total',
-          barWidth: '75%',
-          barGap: '0%',
-          itemStyle: { 
-            color: item.color,
-            borderRadius: [4, 4, 4, 4]
-          },
-          label: {
-            show: true,
-            position: 'inside',
-            fontSize: 9,
-            color: '#fff',
-            fontWeight: 'bold',
-            formatter: (params: any) => {
-              // 只有当分段宽度足够时才显示标签（占比 >= 8%）
-              return params.value >= 8 ? `${params.value}%` : ''
-            }
-          },
-          emphasis: { 
-            focus: 'series',
+          barWidth: '90%',
+          barGap: '-100%',
+          data: [{ value: 100, itemStyle: { color: '#f3f4f6', borderRadius: [8, 8, 8, 8] } }],
+          stack: 'bg',
+          silent: true,
+          tooltip: { show: false }
+        }, ...allocData.map((item, index, arr) => {
+          const isFirst = index === 0
+          const isLast = index === arr.length - 1
+          const color = (ALLOC_COLORS as any)[item.name] || STOCK_COLORS[index % STOCK_COLORS.length]
+          return {
+            name: item.name,
+            type: 'bar',
+            stack: 'value',
+            barWidth: '90%',
+            barGap: '-100%',
             itemStyle: {
-              shadowBlur: 10,
-              shadowOffsetX: 0,
-              shadowColor: 'rgba(0, 0, 0, 0.2)'
-            }
-          },
-          data: [item.value]
-        }))
+              color,
+              borderRadius: isFirst && isLast ? [8, 8, 8, 8]
+                : isFirst ? [8, 0, 0, 8]
+                : isLast ? [0, 8, 8, 0]
+                : [0, 0, 0, 0]
+            },
+            label: {
+              show: true,
+              position: 'inside',
+              fontSize: 11,
+              color: '#fff',
+              fontWeight: 600,
+              formatter: (params: any) => params.value >= 5 ? `${params.value}%` : ''
+            },
+            emphasis: {
+              focus: 'series',
+              itemStyle: { shadowBlur: 8, shadowOffsetY: 2, shadowColor: 'rgba(0,0,0,0.15)' }
+            },
+            data: [item.value]
+          }
+        })]
       })
     }
     // 前十大重仓股分段条形图
     if (holdingsChartRef.value && data.stocks?.length) {
       holdingsChart = echarts.init(holdingsChartRef.value)
       const stocks = data.stocks
-      const stocksData: { name: string; value: number; color: string }[] = stocks.map((s, i) => ({ 
-        name: s.name, 
-        value: s.ratio, 
-        color: PIE_COLORS[i % PIE_COLORS.length] 
+      const stocksData: { name: string; value: number }[] = stocks.map((s) => ({
+        name: s.name,
+        value: s.ratio
       }))
       // 计算"其他"占比（前十大之外的部分）
       const topTotal = stocks.reduce((s, st) => s + st.ratio, 0)
       const rest = Math.max(0, 100 - topTotal)
-      if (rest > 0.01) stocksData.push({ name: '其他', value: parseFloat(rest.toFixed(2)), color: '#9ca3af' })
+      if (rest > 0.01) stocksData.push({ name: '其他', value: parseFloat(rest.toFixed(2)) })
       
       holdingsChart.setOption({
-        tooltip: { 
-          trigger: 'axis', 
+        tooltip: {
+          trigger: 'axis',
           axisPointer: { type: 'shadow' },
+          backgroundColor: 'rgba(255,255,255,0.95)',
+          borderColor: '#e5e7eb',
+          borderWidth: 1,
+          textStyle: { color: '#374151', fontSize: 12 },
           formatter: (params: any) => {
-            let result = ''
+            let result = '<div style="font-weight:600;margin-bottom:4px">重仓股分布</div>'
             params.forEach((item: any) => {
-              if (item.value > 0) {
-                result += `${item.marker}${item.seriesName}: ${item.value}%<br/>`
+              if (item.value > 0 && item.seriesName !== 'bg') {
+                result += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                  <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${item.color}"></span>
+                  <span>${item.seriesName}: <b>${item.value}%</b></span>
+                </div>`
               }
             })
             return result
           }
         },
-        legend: { 
+        legend: {
           show: true,
-          bottom: -5,
-          itemWidth: 10,
-          itemHeight: 10,
-          itemGap: 8,
-          textStyle: { 
-            fontSize: 9,
-            color: '#6b7280'
-          },
-          data: stocksData.slice(0, 6).map(item => item.name).concat('其他')
+          bottom: 0,
+          itemWidth: 8,
+          itemHeight: 8,
+          itemGap: 10,
+          textStyle: { fontSize: 10, color: '#6b7280' },
+          data: stocksData.slice(0, 8).map((s, i) => ({
+            name: s.name === '其他' ? '其他' : (s.name.length > 4 ? s.name.slice(0, 4) + '…' : s.name),
+            itemStyle: { color: s.name === '其他' ? '#d1d5db' : STOCK_COLORS[i % STOCK_COLORS.length] }
+          }))
         },
-        grid: { left: '15', right: '15', top: '5', bottom: '28', height: '75%' },
+        grid: { left: '0', right: '0', top: '10', bottom: '40' },
         xAxis: {
           type: 'value',
           max: 100,
@@ -467,26 +507,47 @@ const renderHoldingsCharts = () => {
           axisTick: { show: false },
           axisLabel: { show: false }
         },
-        series: stocksData.map(item => ({
-          name: item.name,
+        series: [{
           type: 'bar',
-          stack: 'total',
-          barWidth: '75%',
-          barGap: '0%',
-          itemStyle: { 
-            color: item.color,
-            borderRadius: [4, 4, 4, 4]
-          },
-          emphasis: { 
-            focus: 'series',
+          barWidth: '95%',
+          barGap: '-100%',
+          data: [{ value: 100, itemStyle: { color: '#f3f4f6', borderRadius: [8, 8, 8, 8] } }],
+          stack: 'bg',
+          silent: true,
+          tooltip: { show: false }
+        }, ...stocksData.map((item, index, arr) => {
+          const isFirst = index === 0
+          const isLast = index === arr.length - 1
+          const label = item.name === '其他' ? '其他' : item.name
+          const color = item.name === '其他' ? '#d1d5db' : STOCK_COLORS[index % STOCK_COLORS.length]
+          return {
+            name: label,
+            type: 'bar',
+            stack: 'value',
+            barWidth: '95%',
+            barGap: '-100%',
             itemStyle: {
-              shadowBlur: 10,
-              shadowOffsetX: 0,
-              shadowColor: 'rgba(0, 0, 0, 0.2)'
-            }
-          },
-          data: [item.value]
-        }))
+              color,
+              borderRadius: isFirst && isLast ? [8, 8, 8, 8]
+                : isFirst ? [8, 0, 0, 8]
+                : isLast ? [0, 8, 8, 0]
+                : [0, 0, 0, 0]
+            },
+            label: {
+              show: true,
+              position: 'inside',
+              fontSize: 11,
+              color: '#fff',
+              fontWeight: 600,
+              formatter: (params: any) => params.value >= 5 ? `${params.value}%` : ''
+            },
+            emphasis: {
+              focus: 'series',
+              itemStyle: { shadowBlur: 8, shadowOffsetY: 2, shadowColor: 'rgba(0,0,0,0.15)' }
+            },
+            data: [item.value]
+          }
+        })]
       })
     }
   }, 200)
@@ -573,6 +634,35 @@ const filteredNavTransactions = computed(() => {
   return allNavTransactions.value.filter(t => t.date >= cutoffStr)
 })
 
+// 计算每个净值的日涨跌幅
+const navChangeMap = computed(() => {
+  const map = new Map<string, number>()
+  const items = allNavTransactions.value
+  for (let i = 1; i < items.length; i++) {
+    const prev = items[i - 1].nav
+    const curr = items[i].nav
+    const change = ((curr - prev) / prev) * 100
+    map.set(items[i].date, change)
+  }
+  return map
+})
+
+const getNavChange = (tx: Transaction) => {
+  if (tx.type !== 'nav_update') return '-'
+  const dateStr = formatDate(tx.date)
+  const change = navChangeMap.value.get(dateStr)
+  if (change === undefined) return '-'
+  return `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`
+}
+
+const getNavChangeClass = (tx: Transaction) => {
+  if (tx.type !== 'nav_update') return ''
+  const dateStr = formatDate(tx.date)
+  const change = navChangeMap.value.get(dateStr)
+  if (change === undefined) return ''
+  return change >= 0 ? 'text-profit' : 'text-loss'
+}
+
 const updateChart = () => {
   if (!chart) return
   
@@ -626,7 +716,7 @@ const updateChart = () => {
     grid: {
       left: 10,
       right: 10,
-      bottom: 40,
+      bottom: 10,
       top: 10,
       containLabel: true
     },
@@ -641,9 +731,10 @@ const updateChart = () => {
         return dateStr
       }),
       axisLabel: {
-        rotate: 45,
-        fontSize: 10,
-        interval: 'auto'
+        rotate: 30,
+        fontSize: 12,
+        interval: 'auto',
+        margin: 12
       },
       axisTick: {
         alignWithLabel: true
@@ -657,9 +748,10 @@ const updateChart = () => {
       min: Math.max(0, minNav - padding),
       max: maxNav + padding,
       axisLabel: {
-        fontSize: 9,
+        fontSize: 11,
         interval: 'auto',
-        formatter: (value: number) => value.toFixed(4)
+        formatter: (value: number) => value.toFixed(4),
+        margin: 4
       },
       splitNumber: 5,
       axisLine: {
@@ -953,12 +1045,12 @@ onUnmounted(() => {
           <!-- 资产配置分段条形图（上方） -->
           <div class="w-full">
             <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">资产配置</h4>
-            <div ref="allocationChartRef" class="w-full" style="height: 60px;"></div>
+            <div ref="allocationChartRef" class="w-full" style="height: 70px;"></div>
           </div>
           <!-- 前十大重仓股分段条形图（下方） -->
           <div v-if="holdingsData.stocks && holdingsData.stocks.length > 0" class="w-full">
             <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">前十大重仓股</h4>
-            <div ref="holdingsChartRef" class="w-full" style="height: 60px;"></div>
+            <div ref="holdingsChartRef" class="w-full" style="height: 70px;"></div>
           </div>
         </div>
       </div>
@@ -982,7 +1074,7 @@ onUnmounted(() => {
       </div>
       
       <!-- 净值走势 -->
-      <div class="glass-card p-4 flex flex-col min-h-[300px] md:min-h-[400px]">
+      <div class="glass-card p-4 flex flex-col min-h-[260px] md:min-h-[340px]">
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-semibold text-apple-text">净值走势</h3>
           <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
@@ -1016,24 +1108,48 @@ onUnmounted(() => {
           <span>新增交易</span>
         </button>
       </div>
-      <!-- 日期区间选择 -->
-      <div class="flex flex-wrap items-center gap-2 mb-3">
-        <Calendar class="w-4 h-4 text-apple-secondary flex-shrink-0" />
-        <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
-          <button
-            v-for="opt in txDateRangeOptions"
-            :key="opt.value"
-            @click="txDateRange = opt.value"
-            :class="[
-              'px-3 py-1 text-xs rounded-full transition-all duration-300',
-              txDateRange === opt.value
-                ? 'bg-white text-apple-text shadow-sm font-medium'
-                : 'text-apple-secondary hover:text-apple-text'
-            ]"
-          >
-            {{ opt.label }}
-          </button>
+      <!-- 日期区间选择 + 交易类型筛选 -->
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <!-- 交易类型筛选 -->
+        <div class="flex items-center space-x-1">
+          <span class="text-xs text-apple-secondary">类型:</span>
+          <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
+            <button
+              v-for="opt in txTypeOptions"
+              :key="opt.value"
+              @click="txType = opt.value"
+              :class="[
+                'px-2.5 py-1 text-xs rounded-full transition-all duration-300',
+                txType === opt.value
+                  ? 'bg-white text-apple-text shadow-sm font-medium'
+                  : 'text-apple-secondary hover:text-apple-text'
+              ]"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
         </div>
+        
+        <!-- 日期区间选择 -->
+        <div class="flex items-center space-x-1">
+          <Calendar class="w-4 h-4 text-apple-secondary" />
+          <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
+            <button
+              v-for="opt in txDateRangeOptions"
+              :key="opt.value"
+              @click="txDateRange = opt.value"
+              :class="[
+                'px-2.5 py-1 text-xs rounded-full transition-all duration-300',
+                txDateRange === opt.value
+                  ? 'bg-white text-apple-text shadow-sm font-medium'
+                  : 'text-apple-secondary hover:text-apple-text'
+              ]"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+        
         <template v-if="txDateRange === 'custom'">
           <input
             v-model="txCustomStartDate"
@@ -1056,6 +1172,7 @@ onUnmounted(() => {
             v-for="transaction in sortedTransactions" 
             :key="transaction.id" 
             :transaction="transaction"
+            :change-percent="transaction.type === 'nav_update' ? getNavChange(transaction) : undefined"
             @edit="handleEditTransaction"
             @delete="handleDeleteTransaction"
           />
@@ -1089,6 +1206,7 @@ onUnmounted(() => {
                 <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('price')">
                   <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-4 h-4" :class="txSortKey === 'price' ? 'text-primary-500' : ''" /></div>
                 </th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">涨跌幅</th>
                 <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('shares')">
                   <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-4 h-4" :class="txSortKey === 'shares' ? 'text-primary-500' : ''" /></div>
                 </th>
@@ -1119,6 +1237,7 @@ onUnmounted(() => {
                   {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
                 </td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavChangeClass(transaction)">{{ getNavChange(transaction) }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-secondary">{{ transaction.note || '-' }}</td>

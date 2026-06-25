@@ -319,51 +319,11 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     <div class="glass-card p-6">
       <h3 class="text-[15px] font-semibold text-apple-text mb-3">应用信息</h3>
       <div class="text-[13px] text-apple-secondary space-y-2">
-        <p>版本号: <span class="font-mono text-primary-500">v1.2.1</span></p>
+        <p>版本号: <span class="font-mono text-primary-500">v1.2.2</span></p>
         <p>技术栈: Vue 3 + Vite + TailwindCSS + ECharts</p>
         <div class="mt-3 pt-3 border-t border-apple-border/30">
-          <p class="text-[13px] font-semibold text-apple-text mb-2">v1.2.1 版本变更 (2026-06-23)</p>
+          <p class="text-[13px] font-semibold text-apple-text mb-2">v1.2.2 版本变更 (2026-06-25)</p>
           <ul class="list-disc list-inside space-y-1 text-apple-secondary">
-            <li>概览页面新增累积市值趋势柱形图，按月展示各产品市值变化</li>
-            <li>持仓分布新增资产配置分布（股票、债券、现金及其他）</li>
-            <li>非十大重仓股部分显示为"其他股票"类别</li>
-            <li>StatCard 卡片紧凑化，图标垂直居中对齐</li>
-            <li>收益日历手机端溢出修复与视觉优化</li>
-            <li>概览页面异步加载优化，避免页面阻塞</li>
-          </ul>
-          <p class="text-[13px] font-semibold text-apple-text mb-2 mt-4">v1.1.3 版本变更 (2026-06-15)</p>
-          <ul class="list-disc list-inside space-y-1 text-apple-secondary">
-            <li>新增产品定投属性：支持设置定投金额和定投周期（每日/每周/每两周/每月）</li>
-            <li>产品备注显示限购信息，支持暂停申购状态识别</li>
-            <li>JSON 导入导出支持定投字段，兼容旧版本数据</li>
-            <li>弹窗交互优化：修复文本选择时弹窗意外关闭的问题</li>
-            <li>产品列表移除首字母图标，界面更简洁</li>
-          </ul>
-          <p class="text-[13px] font-semibold text-apple-text mb-2 mt-4">v1.0.2 版本变更 (2026-06-12)</p>
-          <ul class="list-disc list-inside space-y-1 text-apple-secondary">
-            <li>表格视觉优化：表头加深、行高紧凑、内容强制不换行</li>
-            <li>移动端导航栏移至底部，修复顶部空白问题</li>
-            <li>Docker 部署支持飞牛NAS，含完整构建与数据持久化方案</li>
-            <li>修复 Alpine Nginx SVG favicon 不显示问题</li>
-          </ul>
-          <p class="text-[13px] font-semibold text-apple-text mb-2 mt-4">v1.0 版本变更 (2026-06-02)</p>
-          <ul class="list-disc list-inside space-y-1 text-apple-secondary">
-            <li>全新毛玻璃质感 UI 主题，冷色调渐变背景</li>
-            <li>历史交易列表新增日期区间筛选，默认显示近三个月</li>
-            <li>产品详情页历史交易同步支持日期区间筛选</li>
-            <li>修复跨用户数据隔离 Bug，导入数据不再影响其他用户</li>
-            <li>新增基金历史净值补全功能，支持东方财富数据源</li>
-            <li>基金页面持仓汇总缓存优化，页面刷新后自动恢复</li>
-            <li>导航栏、卡片、按钮、输入框全面升级为玻璃质感</li>
-            <li>登录/注册页面视觉重构，添加动态装饰元素</li>
-          </ul>
-          <p class="text-[13px] font-semibold text-apple-text mb-2 mt-4">v0.90 版本变更 (2026-06-01)</p>
-          <ul class="list-disc list-inside space-y-1 text-apple-secondary">
-            <li>新增净值定时更新调度器，支持配置执行时间与间隔</li>
-            <li>固收理财历史净值缓存优化，页面加载速度显著提升</li>
-            <li>产品列表搜索支持按产品代码搜索</li>
-            <li>基金页面持仓汇总默认隐藏，点击展开查看</li>
-            <li>JSON 导入文件大小限制提升至 10MB</li>
           </ul>
         </div>
       </div>

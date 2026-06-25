@@ -196,7 +196,7 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
       <div class="flex items-center space-x-3">
         <button 
           @click="showBatchImport = true"
-          class="flex items-center space-x-2 px-4 py-2.5 glass-btn text-apple-text rounded-full text-[14px] font-medium"
+          class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px]"
         >
           <Upload class="w-4 h-4" />
           <span>批量导入</span>
