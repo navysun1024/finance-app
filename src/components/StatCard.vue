@@ -23,7 +23,7 @@ const iconBgColors: Record<string, string> = {
     <div class="flex items-start justify-between">
       <div class="flex-1 min-w-0">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1">{{ title }}</p>
-        <p class="text-[22px] font-semibold text-apple-text tracking-tight truncate leading-tight">{{ value }}</p>
+        <p class="text-[18px] sm:text-[22px] font-semibold text-apple-text tracking-tight truncate leading-tight">{{ value }}</p>
         <p v-if="change !== undefined" :class="['text-[12px] mt-1 font-semibold tracking-tight', change >= 0 ? 'text-profit' : 'text-loss']">
           {{ change >= 0 ? '+' : '' }}{{ change.toFixed(2) }}%
         </p>

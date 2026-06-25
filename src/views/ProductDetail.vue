@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { ArrowLeft, Plus, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
-import { formatCurrency, formatCurrencyInt, formatPercent, formatDate, getDateOnly } from '@/utils/format'
+import { formatCurrency, formatCurrencyInt, formatCurrency1, formatPercent, formatDate, getDateOnly } from '@/utils/format'
 import { fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchFundStageGains, fetchFundHoldings, type NavResult, type StageGains, type FundHoldingsResult } from '@/utils/fundApi'
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
@@ -908,12 +908,12 @@ onUnmounted(() => {
           </div>
           <div>
             <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">当前市值</p>
-            <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrencyInt(position?.marketValue || 0) }}</p>
+            <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(position?.marketValue || 0) }}</p>
           </div>
           <div>
             <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">盈亏金额</p>
             <p :class="['text-[15px] font-semibold mt-1', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
-              {{ formatCurrency(position?.profit || 0) }}
+              {{ formatCurrency1(position?.profit || 0) }}
             </p>
           </div>
           <div>

@@ -16,6 +16,15 @@ export function formatCurrencyInt(value: number): string {
   }).format(Math.round(value))
 }
 
+export function formatCurrency1(value: number): string {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1
+  }).format(value)
+}
+
 export function formatNumber(value: number, decimals: number = 2): string {
   return value.toFixed(decimals)
 }

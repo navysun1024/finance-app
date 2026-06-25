@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Edit2, Trash2, ArrowRight } from 'lucide-vue-next'
 import type { Position } from '@/types'
-import { formatCurrency, formatPercent } from '@/utils/format'
+import { formatCurrency1, formatPercent } from '@/utils/format'
 
 defineProps<{
   position: Position
@@ -54,7 +54,7 @@ const emit = defineEmits<{
     <div class="mt-2 flex items-center justify-between text-[11px]">
       <div class="flex-1 min-w-0">
         <p class="text-apple-secondary/70">市值</p>
-        <p class="text-sm font-semibold text-apple-text truncate">{{ formatCurrency(position.marketValue) }}</p>
+        <p class="text-sm font-semibold text-apple-text truncate">{{ formatCurrency1(position.marketValue) }}</p>
       </div>
       <div class="flex-1 min-w-0 text-center">
         <p class="text-apple-secondary/70">收益率</p>
@@ -71,7 +71,7 @@ const emit = defineEmits<{
           class="text-sm font-semibold"
           :class="position.profit >= 0 ? 'text-profit' : 'text-loss'"
         >
-          {{ position.profit >= 0 ? '+' : '' }}{{ formatCurrency(position.profit) }}
+          {{ position.profit >= 0 ? '+' : '' }}{{ formatCurrency1(position.profit) }}
         </p>
       </div>
       <div class="flex-1 min-w-0 text-right">

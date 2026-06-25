@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { formatCurrency } from '@/utils/format'
+import { formatCurrency, formatCurrency1 } from '@/utils/format'
 
 interface ProductProfit {
   productName: string
@@ -245,7 +245,7 @@ const getProfitBg = (profit: number | null) => {
           亏 <span class="text-loss font-medium">{{ monthSummary.negativeDays }}</span>
         </span>
         <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
-          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(monthSummary.totalProfit) }}
+          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(monthSummary.totalProfit) }}
         </span>
       </div>
     </div>
@@ -313,7 +313,7 @@ const getProfitBg = (profit: number | null) => {
             v-if="item.days > 0"
             :class="['text-[11px] font-semibold', getProfitColor(item.totalProfit)]"
           >
-            {{ item.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(item.totalProfit) }}
+            {{ item.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(item.totalProfit) }}
           </div>
           <div v-else class="text-[11px] text-apple-secondary">-</div>
         </div>
@@ -323,7 +323,7 @@ const getProfitBg = (profit: number | null) => {
       <div class="mt-2 pt-1.5 border-t border-apple-border/30 flex justify-between items-center flex-shrink-0">
         <span class="text-[10px] text-apple-secondary">{{ currentYear }} 年度汇总</span>
         <span :class="['text-xs font-semibold', getProfitColor(yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0))]">
-          {{ yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0) >= 0 ? '+' : '' }}{{ formatCurrency(yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0)) }}
+          {{ yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0) >= 0 ? '+' : '' }}{{ formatCurrency1(yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0)) }}
         </span>
       </div>
     </div>

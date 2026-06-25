@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { Edit2, Trash2 } from 'lucide-vue-next'
 import type { Transaction } from '@/types'
-import { formatCurrency, formatDate } from '@/utils/format'
+import { formatCurrency1, formatDate } from '@/utils/format'
 import { useFinance } from '@/composables/useFinance'
 
 const props = defineProps<{
@@ -126,10 +126,10 @@ const handleMouseUp = () => {
           <span class="mx-1.5">|</span>
           <span>份额 {{ transaction.shares.toFixed(3) }}</span>
           <span v-if="transaction.fee > 0" class="mx-1.5">|</span>
-          <span v-if="transaction.fee > 0">手续费 {{ formatCurrency(transaction.fee) }}</span>
+          <span v-if="transaction.fee > 0">手续费 {{ formatCurrency1(transaction.fee) }}</span>
         </span>
         <span :class="['text-base font-semibold', transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-amber-500']">
-          {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
+          {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency1(transaction.amount) }}
         </span>
       </div>
       

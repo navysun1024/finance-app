@@ -7,7 +7,7 @@ import { useFinance } from '@/composables/useFinance'
 import { useRouter } from 'vue-router'
 import type { ProductType } from '@/types'
 import { DCA_CYCLE_OPTIONS } from '@/types'
-import { formatCurrency } from '@/utils/format'
+import { formatCurrency, formatCurrency1 } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
 import { fetchFundStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchFundNav, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
 
@@ -550,16 +550,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <div :class="['grid grid-cols-2 gap-3', props.type === 'fund' ? 'md:grid-cols-4' : 'md:grid-cols-6']">
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
-        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency(summaryStats.totalMarketValue) }}</p>
+        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency1(summaryStats.totalMarketValue) }}</p>
       </div>
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总成本</p>
-        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency(summaryStats.totalCost) }}</p>
+        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency1(summaryStats.totalCost) }}</p>
       </div>
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
         <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss'">
-          {{ summaryStats.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(summaryStats.totalProfit) }}
+          {{ summaryStats.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalProfit) }}
         </p>
       </div>
       <div class="glass-card p-4">
@@ -975,7 +975,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     class="text-[14px] font-semibold"
                     :class="(getPosition(product.id) as any).profit >= 0 ? 'text-profit' : 'text-loss'"
                   >
-                    {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency((getPosition(product.id) as any).profit) }}
+                    {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency1((getPosition(product.id) as any).profit) }}
                   </p>
                 </template>
                 <template v-else>

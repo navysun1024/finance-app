@@ -6,7 +6,7 @@ import ProfitCalendar from '@/components/ProfitCalendar.vue'
 import PullRefresh from '@/components/PullRefresh.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { calculateXIRR } from '@/utils/xirr'
-import { formatCurrency, formatCurrencyInt, formatPercent } from '@/utils/format'
+import { formatCurrency, formatCurrencyInt, formatCurrency1, formatPercent } from '@/utils/format'
 import * as echarts from 'echarts'
 
 const refreshRef = ref<InstanceType<typeof PullRefresh> | null>(null)
@@ -606,19 +606,19 @@ onUnmounted(() => {
       <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard 
           title="总资产" 
-          :value="formatCurrencyInt(group.totalAssets)" 
+          :value="formatCurrency1(group.totalAssets)" 
           :icon="Wallet" 
           color="blue"
         />
         <StatCard 
           title="累计投入" 
-          :value="formatCurrency(group.totalInvestment)" 
+          :value="formatCurrency1(group.totalInvestment)" 
           :icon="RefreshCw" 
           color="yellow"
         />
         <StatCard 
           title="总盈亏" 
-          :value="formatCurrency(group.totalProfit)" 
+          :value="formatCurrency1(group.totalProfit)" 
           :change="group.totalProfitRate"
           :icon="TrendingUp" 
           :color="group.totalProfit >= 0 ? 'green' : 'red'"
@@ -640,7 +640,7 @@ onUnmounted(() => {
           <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
           <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}分布</h3>
           <span class="ml-auto text-[12px] text-apple-secondary font-medium">
-            合计 {{ formatCurrencyInt(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}元
+            合计 {{ formatCurrency1(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}
           </span>
         </div>
         <div :ref="setChartRef(group.type)" class="h-52 sm:h-48 md:h-56"></div>
