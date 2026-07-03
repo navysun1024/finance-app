@@ -65,7 +65,7 @@ const goToRegister = () => {
         <div class="w-16 h-16 rounded-2xl bg-apple-text flex items-center justify-center mx-auto mb-5">
           <TrendingUp class="w-8 h-8 text-white" />
         </div>
-        <h1 class="text-[34px] font-bold text-apple-text tracking-tight leading-none">AssetPulse</h1>
+        <h1 class="text-[34px] font-bold text-apple-text tracking-tight leading-none">AssetTrack</h1>
         <p class="text-[17px] text-apple-secondary mt-2">智能理财，从容掌控</p>
       </div>
 

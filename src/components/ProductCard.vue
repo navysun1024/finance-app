@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { TrendingUp, TrendingDown } from 'lucide-vue-next'
 import type { Position } from '@/types'
-import { formatCurrencyInt, formatCurrency1, formatPercent } from '@/utils/format'
+import { formatCurrency1, formatPercent } from '@/utils/format'
 import { useRouter } from 'vue-router'
 import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 
-defineProps<{
+withDefaults(defineProps<{
   position: Position
-}>()
+  showProfitAmount?: boolean
+  showProfitRate?: boolean
+}>(), {
+  showProfitAmount: true,
+  showProfitRate: true
+})
 
 const router = useRouter()
 
@@ -38,11 +43,13 @@ const getProductTypeColor = (type: string) => {
           {{ getProductTypeLabel(position.product.type) }}
         </span>
       </div>
-      <div :class="['w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ml-2', position.profitRate >= 0 ? 'bg-profit/8' : 'bg-loss/8']">
+      <div :class="['w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ml-2', showProfitRate ? (position.profitRate >= 0 ? 'bg-profit/8' : 'bg-loss/8') : 'bg-black/4']">
         <component 
+          v-if="showProfitRate"
           :is="position.profitRate >= 0 ? TrendingUp : TrendingDown" 
           :class="['w-4 h-4', position.profitRate >= 0 ? 'text-profit' : 'text-loss']"
         />
+        <span v-else class="text-[12px] text-apple-secondary font-mono">**</span>
       </div>
     </div>
 
@@ -59,13 +66,13 @@ const getProductTypeColor = (type: string) => {
       <div>
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">收益率</p>
         <p :class="['text-[15px] font-semibold mt-0.5', position.profitRate >= 0 ? 'text-profit' : 'text-loss']">
-          {{ formatPercent(position.profitRate) }}
+          {{ showProfitRate ? formatPercent(position.profitRate) : '****' }}
         </p>
       </div>
       <div>
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">年化收益率</p>
         <p :class="['text-[15px] font-semibold mt-0.5', position.annualRate >= 0 ? 'text-profit' : 'text-loss']">
-          {{ formatPercent(position.annualRate) }}
+          {{ showProfitRate ? formatPercent(position.annualRate) : '****' }}
         </p>
       </div>
       <div>
@@ -75,7 +82,7 @@ const getProductTypeColor = (type: string) => {
       <div>
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">盈亏</p>
         <p :class="['text-[15px] font-semibold mt-0.5', position.profit >= 0 ? 'text-profit' : 'text-loss']">
-          {{ formatCurrency1(position.profit) }}
+          {{ showProfitAmount ? formatCurrency1(position.profit) : '****' }}
         </p>
       </div>
     </div>

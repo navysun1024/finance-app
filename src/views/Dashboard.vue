@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { Wallet, TrendingUp, PieChart, RefreshCw, BarChart, Calendar } from 'lucide-vue-next'
+import { Wallet, TrendingUp, PieChart, RefreshCw, BarChart, Calendar, Eye, EyeOff } from 'lucide-vue-next'
 import StatCard from '@/components/StatCard.vue'
 import ProfitCalendar from '@/components/ProfitCalendar.vue'
 import PullRefresh from '@/components/PullRefresh.vue'
@@ -11,7 +11,7 @@ import * as echarts from 'echarts'
 
 const refreshRef = ref<InstanceType<typeof PullRefresh> | null>(null)
 
-const { portfolioSummary, getProfitHistory, getMarketValueHistory, transactions, refresh } = useFinance()
+const { portfolioSummary, getProfitHistory, getMarketValueHistory, transactions, refresh, dashboardSettings, fundSettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
 
 const typeChartRefs = ref<Record<string, HTMLDivElement>>({})
 const trendChartRefs = ref<Record<string, HTMLDivElement>>({})
@@ -536,6 +536,30 @@ const updateAllTrendCharts = () => {
   }
 }
 
+// 根据产品类型获取对应的显示设置
+const getSettingsByType = (type: string) => {
+  if (type === 'fund') return fundSettings
+  if (type === 'fixed_income') return fixedIncomeSettings
+  return dashboardSettings
+}
+
+// 判断指定类型的收益是否显示
+const getShowProfitStatus = (type: string) => {
+  const settings = getSettingsByType(type)
+  return settings.value.showProfitAmount && settings.value.showProfitRate && settings.value.showMarketValue && settings.value.showCost
+}
+
+// 切换指定类型的收益显示/隐藏
+const toggleShowProfit = (type: string) => {
+  const settings = getSettingsByType(type)
+  const current = settings.value.showProfitAmount && settings.value.showProfitRate && settings.value.showMarketValue && settings.value.showCost
+  settings.value.showProfitAmount = !current
+  settings.value.showProfitRate = !current
+  settings.value.showMarketValue = !current
+  settings.value.showCost = !current
+  saveDisplaySettings()
+}
+
 const handleRefresh = async () => {
   await refresh()
   await nextTick()
@@ -602,31 +626,39 @@ onUnmounted(() => {
       <div class="flex items-center space-x-2.5">
         <span class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: group.color }"></span>
         <h3 class="text-[20px] font-semibold text-apple-text tracking-tight">{{ group.label }}</h3>
+        <button
+          @click="toggleShowProfit(group.type)"
+          class="ml-2 p-1.5 rounded-lg hover:bg-black/5 transition-colors"
+          :title="getShowProfitStatus(group.type) ? '点击隐藏收益' : '点击显示收益'"
+        >
+          <Eye v-if="getShowProfitStatus(group.type)" class="w-4 h-4 text-apple-secondary" />
+          <EyeOff v-else class="w-4 h-4 text-apple-secondary" />
+        </button>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard 
           title="总资产" 
-          :value="formatCurrency1(group.totalAssets)" 
+          :value="getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****'" 
           :icon="Wallet" 
           color="blue"
         />
         <StatCard 
           title="累计投入" 
-          :value="formatCurrency1(group.totalInvestment)" 
+          :value="getSettingsByType(group.type).value.showCost ? formatCurrency1(group.totalInvestment) : '****'" 
           :icon="RefreshCw" 
           color="yellow"
         />
         <StatCard 
           title="总盈亏" 
-          :value="formatCurrency1(group.totalProfit)" 
-          :change="group.totalProfitRate"
+          :value="getSettingsByType(group.type).value.showProfitAmount ? formatCurrency1(group.totalProfit) : '****'"
+          :change="getSettingsByType(group.type).value.showProfitRate ? group.totalProfitRate : undefined"
           :icon="TrendingUp" 
           :color="group.totalProfit >= 0 ? 'green' : 'red'"
         />
         <StatCard 
           title="年化收益率" 
-          :value="formatPercent(group.annualRate)" 
-          :change="group.annualRate"
+          :value="getSettingsByType(group.type).value.showProfitRate ? formatPercent(group.annualRate) : '****'"
+          :change="undefined"
           :icon="PieChart" 
           :color="group.annualRate >= 0 ? 'green' : 'red'"
         />

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Download, Upload, Trash2, FileText, AlertCircle, Table, Clock, Play } from 'lucide-vue-next'
+import { Download, Upload, Trash2, FileText, AlertCircle, Clock, Play, Table } from 'lucide-vue-next'
 import { exportData, importData, clearAllData, logout, getCurrentUser } from '@/utils/storage'
 import { useFinance } from '@/composables/useFinance'
 import { exportToExcel } from '@/utils/excel'
@@ -255,28 +255,6 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
           />
         </button>
       </div>
-      <div v-if="schedulerStatus" class="mt-4 text-[13px] text-apple-secondary space-y-2 bg-apple-bg rounded-apple p-4">
-        <div class="flex justify-between">
-          <span>调度状态</span>
-          <span :class="schedulerStatus.enabled ? 'text-loss font-medium' : 'text-apple-secondary'">{{ schedulerStatus.enabled ? '已启用' : '已暂停' }}</span>
-        </div>
-        <div class="flex justify-between">
-          <span>下次执行</span>
-          <span class="font-mono text-apple-text">{{ schedulerStatus.nextRunTime }}</span>
-        </div>
-        <div v-if="schedulerStatus.lastRunTime" class="flex justify-between">
-          <span>上次执行</span>
-          <span class="font-mono text-apple-text">{{ new Date(schedulerStatus.lastRunTime).toLocaleString('zh-CN') }}</span>
-        </div>
-        <div v-if="schedulerStatus.lastRunSummary" class="flex justify-between">
-          <span>上次结果</span>
-          <span class="text-apple-text">成功 {{ schedulerStatus.lastRunSummary.success }} / 跳过 {{ schedulerStatus.lastRunSummary.skipped }} / 失败 {{ schedulerStatus.lastRunSummary.failed }}</span>
-        </div>
-        <div class="flex justify-between">
-          <span>累计执行</span>
-          <span class="text-apple-text">{{ schedulerStatus.totalRuns }} 次</span>
-        </div>
-      </div>
       <div class="mt-4">
         <button
           @click="handleManualRun"
@@ -306,6 +284,8 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </button>
       </div>
     </div>
+    
+    
     
     <div class="glass-card p-6">
       <div class="flex items-start space-x-4">

@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { Edit2, Trash2, ArrowRight } from 'lucide-vue-next'
 import type { Position } from '@/types'
+import { DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency1, formatPercent, formatDate } from '@/utils/format'
 
-defineProps<{
+withDefaults(defineProps<{
   position: Position
   dailyReturn?: number | null
-}>()
+  showProfitAmount?: boolean
+  showProfitRate?: boolean
+}>(), {
+  showProfitAmount: true,
+  showProfitRate: true
+})
 
 const emit = defineEmits<{
   edit: [productId: string]
@@ -36,6 +42,10 @@ const emit = defineEmits<{
           {{ position.product.code || '暂无代码' }}
           <span v-if="position.product.holder" class="mx-1">·</span>
           <span v-if="position.product.holder">{{ position.product.holder }}</span>
+          <template v-if="position.product.type === 'fund' && position.product.note">
+            <span class="mx-1">·</span>
+            <span class="text-primary-500 truncate max-w-[120px] inline-block align-bottom">{{ position.product.note }}</span>
+          </template>
         </p>
       </div>
       <div class="flex items-center space-x-1 ml-2">
@@ -63,18 +73,18 @@ const emit = defineEmits<{
         <p class="text-apple-secondary/70">{{ position.product.type === 'fixed_income' ? '年化收益率' : '收益率' }}</p>
         <p 
           class="text-sm font-semibold"
-          :class="(position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) >= 0 ? 'text-profit' : 'text-loss'"
+          :class="showProfitRate ? ((position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
         >
-          {{ formatPercent(position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) }}
+          {{ showProfitRate ? formatPercent(position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) : '****' }}
         </p>
       </div>
       <div class="flex-1 min-w-0 text-center">
         <p class="text-apple-secondary/70">收益</p>
         <p 
           class="text-sm font-semibold"
-          :class="position.profit >= 0 ? 'text-profit' : 'text-loss'"
+          :class="showProfitAmount ? (position.profit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
         >
-          {{ position.profit >= 0 ? '+' : '' }}{{ formatCurrency1(position.profit) }}
+          {{ showProfitAmount ? (position.profit >= 0 ? '+' : '') + formatCurrency1(position.profit) : '****' }}
         </p>
       </div>
       <div class="flex-1 min-w-0 text-right">
@@ -91,8 +101,11 @@ const emit = defineEmits<{
     <div class="flex items-center justify-between mt-2 pt-2 border-t border-apple-border/20">
       <span class="text-[10px] text-apple-secondary">
         持有 {{ position.totalShares.toFixed(2) }} 份
-        <span v-if="position.lastNavUpdateDate > 0" class="ml-1 text-apple-secondary/70">
+        <span v-if="position.lastNavUpdateDate > 0" class="ml-1 text-apple-secondary">
           · {{ formatDate(position.lastNavUpdateDate) }}
+        </span>
+        <span v-if="position.product.dcaAmount && position.product.dcaCycle" class="ml-1 text-primary-500/70">
+          · 定投 {{ position.product.dcaAmount }}元/{{ DCA_CYCLE_OPTIONS.find(o => o.value === position.product.dcaCycle)?.label || position.product.dcaCycle }}
         </span>
       </span>
       <span class="text-[10px] text-apple-secondary flex items-center">

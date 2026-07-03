@@ -53,7 +53,7 @@ onUnmounted(() => {
           <div class="w-8 h-8 rounded-lg bg-apple-text flex items-center justify-center">
             <TrendingUp class="w-4.5 h-4.5 text-white" />
           </div>
-          <span class="text-[17px] font-semibold text-apple-text tracking-tight group-hover:text-primary-500 transition-colors">AssetPulse</span>
+          <span class="text-[17px] font-semibold text-apple-text tracking-tight group-hover:text-primary-500 transition-colors">AssetTrack</span>
         </router-link>
 
         <!-- Nav Links -->
@@ -77,7 +77,7 @@ onUnmounted(() => {
         <!-- User Menu -->
         <div class="flex items-center space-x-3">
           <span class="inline-flex items-center gap-1 text-[10px] text-primary-500 font-mono tracking-wide bg-primary-50 px-2 py-0.5 rounded-full font-medium">
-            <Tag class="w-2.5 h-2.5" />v1.2.3
+            <Tag class="w-2.5 h-2.5" />v1.2.4
           </span>
           <div ref="userMenuRef" class="relative">
             <button

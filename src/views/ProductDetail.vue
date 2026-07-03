@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { ArrowLeft, Plus, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
-import { formatCurrency, formatCurrencyInt, formatCurrency1, formatPercent, formatDate, getDateOnly } from '@/utils/format'
+import { formatCurrency, formatCurrency1, formatPercent, formatDate, getDateOnly } from '@/utils/format'
 import { fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchFundStageGains, fetchFundHoldings, type NavResult, type StageGains, type FundHoldingsResult } from '@/utils/fundApi'
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
@@ -700,8 +700,8 @@ const updateChart = () => {
         name: isBuy ? '买入' : '卖出',
         xAxis: idx,
         yAxis: navValues[idx],
-        symbol: isBuy ? 'triangle' : 'pin',
-        symbolSize: isBuy ? 10 : 12,
+        symbol: isBuy ? 'circle' : 'pin',
+        symbolSize: isBuy ? 8 : 12,
         symbolRotate: isBuy ? 0 : 180,
         itemStyle: { color: isBuy ? '#ef4444' : '#3b82f6' },
         label: {

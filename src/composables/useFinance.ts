@@ -20,10 +20,41 @@ export const TRANSACTION_TYPE_OPTIONS: {
  { value: 'dividend', label: '分红', color: '#f59e0b' },
  { value: 'nav_update', label: '净值更新', color: '#3b82f6' }
 ];
-const products = ref<Product[]>([]);
-const transactions = ref<Transaction[]>([]);
-const isLoading = ref(false);
-let initPromise: Promise<void> | null = null;
+const products = ref<Product[]>([])
+const transactions = ref<Transaction[]>([])
+const isLoading = ref(false)
+let initPromise: Promise<void> | null = null
+
+type DisplaySettings = { showProfitAmount: boolean; showProfitRate: boolean; showMarketValue: boolean; showCost: boolean }
+
+// 每个页面的独立显示控制
+const dashboardSettings = ref<DisplaySettings>({ showProfitAmount: true, showProfitRate: true, showMarketValue: true, showCost: true })
+const fundSettings = ref<DisplaySettings>({ showProfitAmount: true, showProfitRate: true, showMarketValue: true, showCost: true })
+const fixedIncomeSettings = ref<DisplaySettings>({ showProfitAmount: true, showProfitRate: true, showMarketValue: true, showCost: true })
+
+const loadDisplaySettings = () => {
+  try {
+    const saved = localStorage.getItem('displaySettings')
+    if (saved) {
+      const settings = JSON.parse(saved)
+      if (settings.dashboard) dashboardSettings.value = { ...dashboardSettings.value, ...settings.dashboard }
+      if (settings.fund) fundSettings.value = { ...fundSettings.value, ...settings.fund }
+      if (settings.fixedIncome) fixedIncomeSettings.value = { ...fixedIncomeSettings.value, ...settings.fixedIncome }
+    }
+  } catch {
+    // 保持默认值
+  }
+}
+
+const saveDisplaySettings = () => {
+  localStorage.setItem('displaySettings', JSON.stringify({
+    dashboard: dashboardSettings.value,
+    fund: fundSettings.value,
+    fixedIncome: fixedIncomeSettings.value
+  }))
+}
+
+loadDisplaySettings();
 
 async function ensureDataLoaded() {
  if (products.value.length === 0 && transactions.value.length === 0 && !initPromise) {
@@ -500,6 +531,10 @@ const getMarketValueHistory = (days: number = 365): {
  getProfitHistory,
  getMarketValueHistory,
  PRODUCT_TYPE_OPTIONS,
- TRANSACTION_TYPE_OPTIONS
+ TRANSACTION_TYPE_OPTIONS,
+ dashboardSettings,
+ fundSettings,
+ fixedIncomeSettings,
+ saveDisplaySettings
  };
 }
