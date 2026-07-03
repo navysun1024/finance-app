@@ -54,12 +54,6 @@ const handleFetchHoldings = async () => {
 const handleFetchNav = async () => {
   if (!product.value?.code) return
 
-  const todayTimestamp = getDateOnly(Date.now())
-  const existingTransactions = getTransactionsByProductId(productId.value)
-  if (existingTransactions.some(
-    t => t.type === 'nav_update' && getDateOnly(t.date) === todayTimestamp
-  )) return
-
   fetchingNav.value = true
   navFetchError.value = ''
   try {
@@ -92,22 +86,30 @@ const handleFetchNav = async () => {
         }
       }
     }
+
+    // 统一使用当天零点作为日期，确保唯一性
+    const navDateMidnight = getDateOnly(dateTimestamp)
+
+    const existingTransactions = getTransactionsByProductId(productId.value)
+    if (existingTransactions.some(
+      t => t.type === 'nav_update' && getDateOnly(t.date) === navDateMidnight
+    )) {
+      fetchingNav.value = false
+      return
+    }
+
     const updateTime = new Date().toLocaleString('zh-CN')
     const navNote = `${sourceLabel}自动查询 - ${updateTime}`
-    if (!existingTransactions.some(
-      t => t.type === 'nav_update' && getDateOnly(t.date) === dateTimestamp
-    )) {
-      addTransaction(
-        productId.value,
-        'nav_update',
-        dateTimestamp,
-        0,
-        result.nav,
-        0,
-        0,
-        navNote
-      )
-    }
+    addTransaction(
+      productId.value,
+      'nav_update',
+      navDateMidnight,
+      0,
+      result.nav,
+      0,
+      0,
+      navNote
+    )
 
     // 将限购信息写入产品备注
     if (result.purchaseLimitLabel) {
@@ -334,6 +336,8 @@ const STOCK_COLORS = [
   '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b8d0'
 ]
 
+const isMobile = () => window.innerWidth < 640
+
 const renderHoldingsCharts = () => {
   const data = holdingsData.value
   if (!data) return
@@ -341,6 +345,8 @@ const renderHoldingsCharts = () => {
   // 释放旧实例，避免绑定到已销毁的 DOM
   if (allocationChart) { allocationChart.dispose(); allocationChart = null }
   if (holdingsChart) { holdingsChart.dispose(); holdingsChart = null }
+
+  const mobile = isMobile()
 
   // 使用 setTimeout 确保 DOM 完全渲染后再初始化图表
   setTimeout(() => {
@@ -382,12 +388,12 @@ const renderHoldingsCharts = () => {
         legend: {
           show: true,
           bottom: 0,
-          itemWidth: 8,
-          itemHeight: 8,
-          itemGap: 12,
-          textStyle: { fontSize: 10, color: '#6b7280' }
+          itemWidth: mobile ? 6 : 8,
+          itemHeight: mobile ? 6 : 8,
+          itemGap: mobile ? 4 : 12,
+          textStyle: { fontSize: mobile ? 8 : 10, color: '#6b7280' }
         },
-        grid: { left: '0', right: '0', top: '10', bottom: '40' },
+        grid: { left: '0', right: '0', top: '10', bottom: mobile ? '30' : '40' },
         xAxis: {
           type: 'value',
           max: 100,
@@ -482,16 +488,13 @@ const renderHoldingsCharts = () => {
         legend: {
           show: true,
           bottom: 0,
-          itemWidth: 8,
-          itemHeight: 8,
-          itemGap: 10,
-          textStyle: { fontSize: 10, color: '#6b7280' },
-          data: stocksData.slice(0, 8).map((s, i) => ({
-            name: s.name === '其他' ? '其他' : (s.name.length > 4 ? s.name.slice(0, 4) + '…' : s.name),
-            itemStyle: { color: s.name === '其他' ? '#d1d5db' : STOCK_COLORS[i % STOCK_COLORS.length] }
-          }))
+          itemWidth: mobile ? 6 : 8,
+          itemHeight: mobile ? 6 : 8,
+          itemGap: mobile ? 4 : 10,
+          textStyle: { fontSize: mobile ? 8 : 10, color: '#6b7280' },
+          data: mobile ? stocksData.filter(s => s.value >= 3).map(s => s.name) : undefined
         },
-        grid: { left: '0', right: '0', top: '10', bottom: '40' },
+        grid: { left: '0', right: '0', top: '10', bottom: mobile ? '30' : '40' },
         xAxis: {
           type: 'value',
           max: 100,
@@ -1045,12 +1048,12 @@ onUnmounted(() => {
           <!-- 资产配置分段条形图（上方） -->
           <div class="w-full">
             <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">资产配置</h4>
-            <div ref="allocationChartRef" class="w-full" style="height: 70px;"></div>
+            <div ref="allocationChartRef" class="w-full holdings-chart-h"></div>
           </div>
           <!-- 前十大重仓股分段条形图（下方） -->
           <div v-if="holdingsData.stocks && holdingsData.stocks.length > 0" class="w-full">
             <h4 class="text-sm font-medium text-apple-secondary mb-2 text-center">前十大重仓股</h4>
-            <div ref="holdingsChartRef" class="w-full" style="height: 70px;"></div>
+            <div ref="holdingsChartRef" class="w-full holdings-chart-h"></div>
           </div>
         </div>
       </div>

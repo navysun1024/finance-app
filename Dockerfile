@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ── 阶段 1: 前端构建层（提前换Alpine国内源，解决apk安装编译工具巨慢） ──
 FROM node:22-alpine AS builder
 WORKDIR /build
@@ -11,11 +12,15 @@ ENV npm_config_registry=https://registry.npmmirror.com
 
 # 【缓存优化】先拷贝依赖文件，代码变更不会触发npm ci重跑
 COPY package.json package-lock.json ./
-RUN npm ci
+# 使用 BuildKit 缓存 npm 缓存目录，避免每次重新下载
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 # 再拷贝业务源码编译
 COPY . .
 RUN npm run build
+
+# 【关键优化】清理开发依赖，只保留生产依赖，大幅减少镜像体积和复制时间
+RUN npm prune --production
 
 # 多阶段构建，builder层工具不会流入生产镜像，apk del 纯浪费构建时间，直接删除此行
 # RUN apk del python3 make g++

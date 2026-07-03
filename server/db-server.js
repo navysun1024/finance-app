@@ -99,6 +99,8 @@ db.run(`
   )
 `)
 
+
+
 // 为缓存表创建过期时间索引
 db.run(`CREATE INDEX IF NOT EXISTS idx_data_cache_expires ON data_cache(expires_at)`)
 
@@ -723,18 +725,43 @@ app.post('/transactions/add', authenticate, (req, res) => {
   if (!id || !productId || !type || date === undefined || date === null) {
     return res.status(400).json({ error: '缺少必填字段' })
   }
-  db.run(
-    'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, req.userId, productId, type, date, amount || 0, price || 0, shares || 0, fee || 0, note || ''],
-    (err) => {
-      if (err) {
-        log(`添加事务失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-        return res.status(500).json({ error: err.message })
+
+  // 对于 nav_update 类型，检查是否已有相同日期的记录（防止重复）
+  if (type === 'nav_update') {
+    const dateKey = getDateOnlyTimestamp(date)
+    db.get(
+      'SELECT id FROM transactions WHERE userId = ? AND productId = ? AND type = "nav_update" AND date = ?',
+      [req.userId, productId, dateKey],
+      (err, row) => {
+        if (err) {
+          log(`检查重复记录失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+          return res.status(500).json({ error: err.message })
+        }
+        if (row) {
+          log(`跳过重复 nav_update - 用户: ${req.userId}, productId: ${productId}, date: ${dateKey}`)
+          return res.json({ success: true, id: row.id, skipped: true, message: '已存在相同日期的净值记录' })
+        }
+        insertTransaction()
       }
-      log(`添加事务成功 - 用户: ${req.userId}, id: ${id}`)
-      res.json({ success: true, id })
-    }
-  )
+    )
+  } else {
+    insertTransaction()
+  }
+
+  function insertTransaction() {
+    db.run(
+      'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, req.userId, productId, type, date, amount || 0, price || 0, shares || 0, fee || 0, note || ''],
+      (err) => {
+        if (err) {
+          log(`添加事务失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+          return res.status(500).json({ error: err.message })
+        }
+        log(`添加事务成功 - 用户: ${req.userId}, id: ${id}`)
+        res.json({ success: true, id })
+      }
+    )
+  }
 })
 
 app.put('/transactions/:id', authenticate, (req, res) => {
@@ -1106,8 +1133,9 @@ app.post('/batch-import', authenticate, (req, res) => {
 
 // ==================== 定时净值更新调度器 ====================
 
-// 每两小时更新一次（HH:mm 格式，北京时间）
-const SCHEDULE_TIMES = ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00']
+// 定时净值更新时间（HH:mm 格式，北京时间）
+// 10点～13点之间每小时更新一次，16:00～23:00之间每小时更新一次
+const SCHEDULE_TIMES = ['10:00', '11:00', '12:00', '13:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00']
 
 // 记录每个时间点今天是否已执行过，避免重复执行
 const scheduleRunLog = new Map() // key: 'HH:mm', value: 'YYYY-MM-DD'
@@ -1353,10 +1381,17 @@ function getDateOnlyTimestamp(ts) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 
+let isNavUpdating = false
+
 /**
  * 执行一次净值更新
  */
 async function runNavUpdate() {
+  if (isNavUpdating) {
+    log('[NAV调度] 净值更新正在进行中，跳过本次执行')
+    return { total: 0, success: 0, skipped: 0, failed: 0, details: [], skippedReason: '正在更新中' }
+  }
+  isNavUpdating = true
   const startTime = Date.now()
   log('[NAV调度] 开始执行定时净值更新...')
 
@@ -1422,6 +1457,32 @@ async function runNavUpdate() {
             continue
           }
 
+          // 使用当天零点作为日期，确保唯一性
+          const navDateMidnight = navDateKey
+
+          // 插入前再次检查（防止竞态条件）
+          const existsInDb = await new Promise((resolve) => {
+            db.get(
+              'SELECT id FROM transactions WHERE productId = ? AND type = "nav_update" AND date = ?',
+              [product.id, navDateMidnight],
+              (err, row) => {
+                if (err) {
+                  log(`[NAV调度] 检查重复记录失败: ${err.message}`, 'WARN')
+                  resolve(false)
+                } else {
+                  resolve(!!row)
+                }
+              }
+            )
+          })
+
+          if (existsInDb) {
+            summary.skipped++
+            summary.details.push({ name: product.name, code: product.code, status: 'skipped', reason: '数据库已存在' })
+            log(`[NAV调度] [用户 ${userId}] 跳过 ${product.name} (${product.code}) - 数据库已存在`, 'DEBUG')
+            continue
+          }
+
           // 插入 nav_update 交易
           const sourceLabel = product.type === 'fund' ? '天天基金' : '招银理财'
           const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
@@ -1431,8 +1492,19 @@ async function runNavUpdate() {
           await new Promise((resolve, reject) => {
             db.run(
               'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-              [txId, userId, product.id, 'nav_update', navDateTs, 0, result.nav, 0, 0, note],
-              (err) => { if (err) reject(err); else resolve() }
+              [txId, userId, product.id, 'nav_update', navDateMidnight, 0, result.nav, 0, 0, note],
+              (err) => { 
+                if (err) {
+                  if (err.message.includes('UNIQUE constraint failed')) {
+                    log(`[NAV调度] [用户 ${userId}] 跳过 ${product.name} (${product.code}) - 唯一约束冲突`, 'DEBUG')
+                    resolve()
+                  } else {
+                    reject(err)
+                  }
+                } else {
+                  resolve()
+                }
+              }
             )
           })
 
@@ -1492,6 +1564,7 @@ async function runNavUpdate() {
 
   log(`[NAV调度] 执行完成, 耗时 ${elapsed}ms, 总计: ${summary.total}, 成功: ${summary.success}, 跳过: ${summary.skipped}, 失败: ${summary.failed}`)
 
+  isNavUpdating = false
   return summary
 }
 

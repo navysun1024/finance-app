@@ -10,3 +10,12 @@ logs
 .trae
 CODE_WIKI.md
 test_full_import.mjs
+README.md
+start.sh
+tailwind.config.js
+vite.config.ts
+tsconfig*.json
+.env*
+.eslintrc*
+.prettierrc*
+.gitattributes

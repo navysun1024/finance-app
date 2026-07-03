@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Edit2, Trash2, ArrowRight } from 'lucide-vue-next'
 import type { Position } from '@/types'
-import { formatCurrency1, formatPercent } from '@/utils/format'
+import { formatCurrency1, formatPercent, formatDate } from '@/utils/format'
 
 defineProps<{
   position: Position
@@ -32,8 +32,11 @@ const emit = defineEmits<{
           />
           <h3 class="text-sm font-semibold text-apple-text truncate">{{ position.product.name }}</h3>
         </div>
-        <p class="text-[11px] text-apple-secondary">{{ position.product.code || '暂无代码' }}</p>
-        <p v-if="position.product.holder" class="text-[10px] text-apple-secondary mt-0.5">{{ position.product.holder }}</p>
+        <p class="text-[11px] text-apple-secondary">
+          {{ position.product.code || '暂无代码' }}
+          <span v-if="position.product.holder" class="mx-1">·</span>
+          <span v-if="position.product.holder">{{ position.product.holder }}</span>
+        </p>
       </div>
       <div class="flex items-center space-x-1 ml-2">
         <button 
@@ -57,12 +60,12 @@ const emit = defineEmits<{
         <p class="text-sm font-semibold text-apple-text truncate">{{ formatCurrency1(position.marketValue) }}</p>
       </div>
       <div class="flex-1 min-w-0 text-center">
-        <p class="text-apple-secondary/70">收益率</p>
+        <p class="text-apple-secondary/70">{{ position.product.type === 'fixed_income' ? '年化收益率' : '收益率' }}</p>
         <p 
           class="text-sm font-semibold"
-          :class="position.profitRate >= 0 ? 'text-profit' : 'text-loss'"
+          :class="(position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) >= 0 ? 'text-profit' : 'text-loss'"
         >
-          {{ formatPercent(position.profitRate) }}
+          {{ formatPercent(position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) }}
         </p>
       </div>
       <div class="flex-1 min-w-0 text-center">
@@ -86,7 +89,12 @@ const emit = defineEmits<{
     </div>
     
     <div class="flex items-center justify-between mt-2 pt-2 border-t border-apple-border/20">
-      <span class="text-[10px] text-apple-secondary">持有 {{ position.totalShares.toFixed(2) }} 份</span>
+      <span class="text-[10px] text-apple-secondary">
+        持有 {{ position.totalShares.toFixed(2) }} 份
+        <span v-if="position.lastNavUpdateDate > 0" class="ml-1 text-apple-secondary/70">
+          · {{ formatDate(position.lastNavUpdateDate) }}
+        </span>
+      </span>
       <span class="text-[10px] text-apple-secondary flex items-center">
         详情 <ArrowRight class="w-2.5 h-2.5 ml-0.5" />
       </span>

@@ -27,6 +27,27 @@ const fetchSchedulerStatus = async () => {
   }
 }
 
+// 格式化调度时间显示（合并连续的时间区间）
+const formatScheduleTimes = (times: string[]) => {
+  if (!times || times.length === 0) return ''
+  const sorted = [...times].sort()
+  const intervals: string[] = []
+  let start = sorted[0]
+  let prevHour = parseInt(start.split(':')[0])
+  
+  for (let i = 1; i < sorted.length; i++) {
+    const currentHour = parseInt(sorted[i].split(':')[0])
+    if (currentHour !== prevHour + 1) {
+      intervals.push(start === sorted[i-1] ? start : `${start}-${sorted[i-1]}`)
+      start = sorted[i]
+    }
+    prevHour = currentHour
+  }
+  intervals.push(start === sorted[sorted.length-1] ? start : `${start}-${sorted[sorted.length-1]}`)
+  
+  return intervals.join(' / ')
+}
+
 // 手动触发净值更新
 const handleManualRun = async () => {
   manualRunning.value = true
@@ -215,7 +236,7 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
           <h3 class="text-[15px] font-semibold text-apple-text">定时净值更新</h3>
           <p class="text-[13px] text-apple-secondary mt-1">
             每天自动更新基金与理财产品净值
-            <span v-if="schedulerStatus?.scheduleTimes">（{{ schedulerStatus.scheduleTimes.join(' / ') }}）</span>
+            <span v-if="schedulerStatus?.scheduleTimes">（{{ formatScheduleTimes(schedulerStatus.scheduleTimes) }}）</span>
           </p>
         </div>
         <button
@@ -314,19 +335,6 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         <li>• 建议定期导出数据进行备份</li>
         <li>• 不同用户的数据相互隔离</li>
       </ul>
-    </div>
-    
-    <div class="glass-card p-6">
-      <h3 class="text-[15px] font-semibold text-apple-text mb-3">应用信息</h3>
-      <div class="text-[13px] text-apple-secondary space-y-2">
-        <p>版本号: <span class="font-mono text-primary-500">v1.2.2</span></p>
-        <p>技术栈: Vue 3 + Vite + TailwindCSS + ECharts</p>
-        <div class="mt-3 pt-3 border-t border-apple-border/30">
-          <p class="text-[13px] font-semibold text-apple-text mb-2">v1.2.2 版本变更 (2026-06-25)</p>
-          <ul class="list-disc list-inside space-y-1 text-apple-secondary">
-          </ul>
-        </div>
-      </div>
     </div>
     
     <Teleport to="body">

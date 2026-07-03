@@ -20,6 +20,7 @@ const { products, TRANSACTION_TYPE_OPTIONS } = useFinance()
 const slideOffset = ref(0)
 const isDragging = ref(false)
 const startX = ref(0)
+const startY = ref(0)
 
 const getProductName = computed(() => {
   const product = products.value.find(p => p.id === props.transaction.productId)
@@ -39,12 +40,18 @@ const getTransactionTypeColor = (type: string) => {
 const handleTouchStart = (e: TouchEvent) => {
   isDragging.value = true
   startX.value = e.touches[0].clientX
+  startY.value = e.touches[0].clientY
 }
 
 const handleTouchMove = (e: TouchEvent) => {
   if (!isDragging.value) return
-  const delta = e.touches[0].clientX - startX.value
-  slideOffset.value = Math.max(-100, Math.min(0, delta))
+  const deltaX = e.touches[0].clientX - startX.value
+  const deltaY = e.touches[0].clientY - startY.value
+  
+  if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    e.preventDefault()
+    slideOffset.value = Math.max(-100, Math.min(0, deltaX))
+  }
 }
 
 const handleTouchEnd = () => {
@@ -142,6 +149,6 @@ const handleMouseUp = () => {
 
 <style scoped>
 .touch-none {
-  touch-action: none;
+  touch-action: pan-y;
 }
 </style>

@@ -519,7 +519,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px] disabled:opacity-50"
         >
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loadingBatchNav }" />
-          <span>{{ loadingBatchNav ? '更新中...' : '批量更新净值' }}</span>
+          <span>{{ loadingBatchNav ? '更新中...' : '净值更新' }}</span>
         </button>
         <button 
           @click="handleAdd"
@@ -547,7 +547,32 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     </div>
 
 <!-- 汇总统计卡片 -->
-    <div :class="['grid grid-cols-2 gap-3', props.type === 'fund' ? 'md:grid-cols-4' : 'md:grid-cols-6']">
+    <div v-if="props.type === 'fixed_income'" class="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
+        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency1(summaryStats.totalMarketValue) }}</p>
+      </div>
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
+        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss'">
+          {{ summaryStats.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalProfit) }}
+        </p>
+      </div>
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
+        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss'">
+          {{ summaryStats.profitRate >= 0 ? '+' : '' }}{{ summaryStats.profitRate.toFixed(2) }}%
+        </p>
+      </div>
+      <div class="glass-card p-4">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>
+        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss'">
+          {{ summaryStats.portfolioAnnualRate >= 0 ? '+' : '' }}{{ summaryStats.portfolioAnnualRate.toFixed(2) }}%
+        </p>
+      </div>
+    </div>
+    
+    <div v-else :class="['grid grid-cols-2 gap-3 md:grid-cols-4']">
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
         <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ formatCurrency1(summaryStats.totalMarketValue) }}</p>
@@ -568,25 +593,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           {{ summaryStats.profitRate >= 0 ? '+' : '' }}{{ summaryStats.profitRate.toFixed(2) }}%
         </p>
       </div>
-      <div v-if="props.type === 'fixed_income'" class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">加权年化收益率</p>
-        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.annualRate >= 0 ? 'text-profit' : 'text-loss'">
-          {{ summaryStats.annualRate >= 0 ? '+' : '' }}{{ summaryStats.annualRate.toFixed(2) }}%
-        </p>
-      </div>
-      <div v-if="props.type === 'fixed_income'" class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">整体年化收益率</p>
-        <p class="text-[20px] font-semibold tracking-tight" :class="summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss'">
-          {{ summaryStats.portfolioAnnualRate >= 0 ? '+' : '' }}{{ summaryStats.portfolioAnnualRate.toFixed(2) }}%
-        </p>
-      </div>
     </div>
 
-    <!-- 持仓分布汇总（仅基金页面显示） -->
+    <!-- 持仓穿透汇总（仅基金页面显示） -->
     <div v-if="props.type === 'fund'" class="glass-card overflow-hidden">
       <div class="p-5 border-b border-black/5 flex items-center justify-between">
         <div>
-          <h3 class="text-[17px] font-semibold text-apple-text">持仓分布</h3>
+          <h3 class="text-[17px] font-semibold text-apple-text">持仓穿透</h3>
           <p class="text-[12px] text-apple-secondary mt-1">
             汇总所有基金的持仓，按持有金额加权计算（股票为前十大重仓）
             <span v-if="aggregatedHoldings"> · 共 {{ aggregatedHoldings.fundCount }} 只基金，{{ aggregatedHoldings.stocks.length }} 只股票</span>

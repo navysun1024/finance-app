@@ -7,3 +7,6 @@ logs
 .qoder
 .trae
 .pids
+.db-server.pid
+.scraper.pid
+.vite.pid
