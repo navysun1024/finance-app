@@ -38,7 +38,7 @@ const editingProduct = ref<typeof products.value[0] | null>(null)
 const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 
-const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y'>('marketValue')
+const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y' | 'holder'>('marketValue')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
 // 阶段涨幅数据缓存
@@ -456,7 +456,7 @@ const filteredProducts = computed(() => {
     result = result.filter(p => 
       p.name.toLowerCase().includes(query) || 
       p.note.toLowerCase().includes(query) ||
-      (p.code && p.code.includes(query))
+      (p.code && p.code.toLowerCase().includes(query))
     )
   }
   result.sort((a, b) => {
@@ -481,6 +481,9 @@ const filteredProducts = computed(() => {
         break
       case 'holdingDays':
         comparison = (posA?.holdingDays || 0) - (posB?.holdingDays || 0)
+        break
+      case 'holder':
+        comparison = (a.holder || '').localeCompare(b.holder || '', 'zh-CN')
         break
       case 'dailyReturn':
         comparison = (getDailyReturn(a.code)?.dailyReturn ?? -999) - (getDailyReturn(b.code)?.dailyReturn ?? -999)
@@ -862,7 +865,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <input 
           v-model="searchQuery"
           type="text" 
-          placeholder="搜索产品名称或备注..."
+          placeholder="搜索产品名称、代码或备注..."
           class="glass-input w-full pl-10 pr-4 py-2.5 rounded-apple outline-none text-[15px]"
         />
       </div>
@@ -917,7 +920,18 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
-              <th v-if="props.type !== 'fund'" class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持有人</th>
+              <th 
+                v-if="props.type !== 'fund'"
+                class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('holder')"
+              >
+                <div class="flex items-center space-x-1">
+                  <span>持有人</span>
+                  <ChevronsUpDown v-if="sortKey !== 'holder'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
               <th 
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('marketValue')"
