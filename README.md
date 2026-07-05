@@ -30,20 +30,27 @@
 | **SQLite3** | 6.0.1 | 后端数据库 |
 | **sql.js** | 1.14.1 | 浏览器端 SQLite |
 | **Puppeteer** | 25.1.0 | 招银理财网页爬虫 |
-| **bcryptjs** | 3.0.3 | 密码加密 |
+ | **bcryptjs** | 3.0.3 | 密码加密 |
+ | **Axios** | 1.16.1 | HTTP 请求 |
+ | **Node** | >= 22 | 运行环境（Puppeteer 25 要求） |
 
 ## 项目结构
 
 ```
-project2/
+./
 ├── src/                          # 前端源码
 │   ├── components/               # 通用组件
-│   │   ├── BatchImportModal.vue  # 批量导入弹窗
-│   │   ├── Navbar.vue            # 导航栏
-│   │   ├── ProductCard.vue       # 产品卡片
-│   │   ├── ProductModal.vue      # 产品编辑弹窗
-│   │   ├── StatCard.vue          # 统计卡片
-│   │   └── TransactionModal.vue  # 交易记录弹窗
+│   │   ├── BatchImportModal.vue       # 批量导入弹窗
+│   │   ├── BottomSheet.vue            # 底部弹出面板（移动端友好）
+│   │   ├── Navbar.vue                 # 导航栏
+│   │   ├── ProductCard.vue            # 产品卡片（图表视图）
+│   │   ├── ProductListItem.vue        # 产品列表项（列表视图，含盈亏/编辑按钮）
+│   │   ├── ProductModal.vue           # 产品编辑弹窗（含定投设置）
+│   │   ├── ProfitCalendar.vue         # 收益日历（按日查看盈亏）
+│   │   ├── PullRefresh.vue            # 下拉刷新组件
+│   │   ├── StatCard.vue               # 统计卡片（资产/收益概览）
+│   │   ├── TransactionCard.vue        # 交易记录卡片（含编辑/删除操作）
+│   │   └── TransactionModal.vue       # 交易记录编辑弹窗
 │   ├── composables/
 │   │   └── useFinance.ts         # 核心业务逻辑（持仓计算、收益统计）
 │   ├── router/
@@ -102,6 +109,15 @@ project2/
 
 整个应用的核心模块，基于 Vue 3 Composition API 管理所有金融业务逻辑和全局状态。**未使用 Vuex/Pinia**，所有状态通过 `ref` / `computed` 管理。
 
+**显示设置：** 每个页面（仪表盘、基金列表、固收列表）拥有独立的显示控制，通过 `dashboardSettings` / `fundSettings` / `fixedIncomeSettings` 管理，自动持久化到 `localStorage`。
+
+| 设置项 | 类型 | 说明 |
+|--------|------|------|
+| `showProfitAmount` | boolean | 显示盈亏金额 |
+| `showProfitRate` | boolean | 显示收益率 |
+| `showMarketValue` | boolean | 显示当前市值 |
+| `showCost` | boolean | 显示成本 |
+
 **状态属性：**
 - `products`: `Ref<Product[]>` — 产品列表
 - `transactions`: `Ref<Transaction[]>` — 交易记录列表
@@ -118,23 +134,41 @@ project2/
 | `addTransaction(productId, type, date, amount, price, shares, fee, note)` | 添加交易记录 |
 | `getTransactionsByProductId(productId)` | 获取产品的交易记录 |
 | `calculatePosition(product)` | 计算产品的持仓信息（含 XIRR） |
-| `getProfitHistory(days)` | 计算指定天数的每日收益趋势 |
-| `refresh()` | 从服务器重新加载数据 |
+| `getProfitHistory(days)` | 计算指定天数的每日收益趋势（含单个产品细分） |
+| `getMarketValueHistory(days)` | 计算指定天数的每日市值变化（基于每日份额 x 净值） |
+| `getPositionById(productId)` | 根据产品 ID 获取单个持仓信息 |
+| `updateTransaction(id, ...)` | 更新单条交易记录 |
+| `deleteTransaction(id)` | 删除单条交易记录 |
+| `refresh()` | 从服务器重新加载所有数据 |
 
 ### storage.ts — 后端 API 封装
 
-通过 HTTP `fetch` 调用后端 Express 服务（端口 3002），所有请求自动携带 `Authorization: Bearer <token>` 头。
+通过 HTTP `fetch` 调用后端 Express 服务（端口 3002），所有请求自动携带 `Authorization: Bearer <token>` 头。支持**全量覆盖**（批量保存）和**单条 CRUD**（增量操作）两种模式。
+
+**通用辅助函数：**
+
+| 函数 | 说明 |
+|------|------|
+| `generateId()` | 生成唯一 ID（时间戳 + 随机数 Base36） |
+| `getAuthHeaders()` | 获取认证请求头（自动携带 Token） |
+| `getCurrentUser()` | 获取当前登录用户名和 Token |
+| `logout()` | 登出（清除 Token 并跳转登录页） |
+
+**数据操作 API：**
 
 | 函数 | HTTP 方法 | 路径 | 说明 |
 |------|-----------|------|------|
 | `getProducts()` | GET | `/api/db/products` | 获取产品列表 |
-| `saveProducts(products)` | POST | `/api/db/products` | 保存产品列表 |
+| `saveProducts(products)` | POST | `/api/db/products` | 全量保存产品列表（支持 ID 映射返回） |
 | `getTransactions()` | GET | `/api/db/transactions` | 获取交易记录 |
-| `saveTransactions(transactions)` | POST | `/api/db/transactions` | 保存交易记录 |
-| `batchImport(transactions)` | POST | `/api/db/batch-import` | 批量导入交易 |
+| `saveTransactions(transactions)` | POST | `/api/db/transactions` | 全量保存交易记录 |
+| `addTransactionToServer(tx)` | POST | `/api/db/transactions/add` | 新增单条交易记录 |
+| `updateTransactionOnServer(tx)` | PUT | `/api/db/transactions/:id` | 更新单条交易记录 |
+| `deleteTransactionFromServer(id)` | DELETE | `/api/db/transactions/:id` | 删除单条交易记录 |
+| `batchImport(data)` | POST | `/api/db/batch-import` | 批量导入（产品排重 + 交易合并） |
 | `clearAllData()` | POST | `/api/db/products` + `/api/db/transactions` | 保存空数组清空数据 |
-| `exportData()` | GET | `/api/db/export` | 导出数据为 JSON |
-| `importData(jsonString)` | POST | `/api/db/import` | 导入 JSON 数据 |
+| `exportData()` | GET | `/api/db/export` | 导出数据为 JSON（自动排除基金净值更新记录） |
+| `importData(jsonString)` | POST | `/api/db/import` | 导入 JSON 数据（含 ID 冲突自动映射） |
 | `register(username, password)` | POST | `/api/db/register` | 用户注册 |
 | `login(username, password)` | POST | `/api/db/login` | 用户登录 |
 
@@ -151,7 +185,8 @@ project2/
 | 函数 | 输出示例 |
 |------|---------|
 | `formatCurrency(1234.5)` | `¥1,234.50` |
-| `formatCurrencyInt(1234.5)` | `¥1,235` |
+| `formatCurrency1(1234.5)` | `¥1,234.50`（保留一位小数） |
+| `formatCurrencyInt(1234.5)` | `¥1,235`（取整） |
 | `formatPercent(12.34)` | `12.34%` |
 | `formatDate(timestamp)` | `2024-11-15` |
 
@@ -164,12 +199,23 @@ interface Product {
   id: string;
   name: string;        // 产品名称
   type: ProductType;   // 'fund' | 'fixed_income'
-  code: string;        // 产品代码
+  code: string;       // 产品代码
   note: string;        // 备注
-  holder: string;      // 持有人类别
+  holder: string;     // 持有人类别
+  dcaAmount: number;   // 定投金额（元），0 表示不定投
+  dcaCycle: string;    // 定投周期：'' | 'daily' | 'weekly' | 'biweekly' | 'monthly'
   createdAt: number;   // 创建时间戳
 }
 ```
+
+**定投周期选项：**
+| 值 | 说明 |
+|----|------|
+| `''` | 不定投 |
+| `'daily'` | 每日 |
+| `'weekly'` | 每周 |
+| `'biweekly'` | 每两周 |
+| `'monthly'` | 每月 |
 
 ### Transaction（交易记录）
 
@@ -236,7 +282,7 @@ interface Position {
 | note | TEXT | DEFAULT '' | 备注（含限购信息等自动追加内容） |
 | holder | TEXT | DEFAULT '' | 持有人姓名 |
 | dcaAmount | REAL | DEFAULT 0 | 定投金额（元） |
-| dcaCycle | TEXT | DEFAULT '' | 定投周期：`daily` / `weekly` / `biweekly` / `monthly` |
+| dcaCycle | TEXT | DEFAULT '' | 定投周期：`''` / `daily` / `weekly` / `biweekly` / `monthly` |
 | createdAt | INTEGER | NOT NULL | 创建时间戳 |
 
 ### 3. transactions — 交易记录表
@@ -302,9 +348,9 @@ data_cache（独立表，无外键关联）
 
 | 页面 | 功能 |
 |------|------|
-| **Dashboard** | 资产分布图、收益趋势图、统计卡片、产品列表 |
-| **Products** | 产品列表（基金/固收分类），支持新增/编辑/删除 |
-| **ProductDetail** | 产品详情、净值走势图、持仓信息、阶段涨幅、交易列表 |
+| **Dashboard** | 资产分布图（饼图）、收益趋势图（折线）、市值走势图、统计卡片、按产品类型分组的持仓列表 |
+| **Products** | 产品列表（基金/固收分类），支持新增/编辑/删除/搜索/排序 |
+| **ProductDetail** | 产品详情、净值走势图、市值走势图、持仓信息、阶段涨幅、交易列表 |
 | **Transactions** | 交易记录列表，支持新增/编辑/删除/批量导入 |
 | **Settings** | 数据导出（Excel/JSON）、数据导入、清空数据、调度控制 |
 
@@ -512,23 +558,20 @@ Puppeteer 25 要求 Node >= 22，Dockerfile 使用 `node:22-alpine` 并配置系
 | `/api/fund/*` | `fundgz.1234567.com.cn/*` | 天天基金实时估值 |
 | `/api/eastmoney/*` | `fund.eastmoney.com/*` | 东方财富基金数据 |
 | `/api/pingzhongdata/*` | `fund.eastmoney.com/*` | 品种数据（历史净值） |
+| `/api/fundf10/*` | `fundf10.eastmoney.com/*` | 基金基本信息（含限购信息） |
 | `/api/nav-scheduler/*` | `localhost:3002/*` | 净值调度器 API |
 
 ## 认证系统
 
-### 认证流程
+### Token 认证
 
-```
-1. 用户访问应用 → 检查 localStorage 是否有 token
-   ├─ 有 token → 验证 token 有效性 → 正常访问
-   └─ 无 token → 重定向到登录页
+登录 / 注册成功后服务器返回 `{ token, userId, username }`，前端存储在 `localStorage`：
 
-2. 用户登录/注册 → 后端验证 → 返回 token → 存储到 localStorage
-
-3. 后续请求 → 请求头携带 Authorization: Bearer <token>
-
-4. 用户退出 → 清除 token → 重定向到登录页
-```
+- **登录流程：** 用户提交凭证 → 后端 bcrypt 验证密码 → 返回加密 Token → 存储到 `localStorage`
+- **路由守卫：** Vue Router 导航守卫检查 `localStorage` 是否有 Token，无则重定向到 `/login`
+- **API 请求：** 每次 HTTP 请求自动携带 `Authorization: Bearer <token>` 头
+- **过期处理：** 后端 `authenticate` 中间件验证 Token 有效期（24 小时）和签名，异常时返回 401；前端收到 401 后自动清除 Token 并跳转 `/login`
+- **登出：** 清除 `localStorage` 中的 Token 和用户名，重定向到登录页
 
 ### 数据隔离
 
@@ -537,10 +580,14 @@ Puppeteer 25 要求 Node >= 22，Dockerfile 使用 `node:22-alpine` 并配置系
 ### 安全特性
 
 - **密码加密**：bcrypt 哈希（成本因子 10）
-- **会话管理**：24 小时过期，定期清理
-- **速率限制**：每 IP 每 15 分钟最多 10 次登录/注册
-- **输入验证**：用户名格式、密码强度检查
+- **会话管理**：24 小时过期，定期清理过期 Token
+- **速率限制**：每 IP 每 15 分钟最多 10 次登录/注册请求
+- **输入验证**：用户名 3-20 字符（字母/数字/下划线），密码至少 6 位
 - **请求体限制**：Express JSON body 最大 10MB
+
+### Token 结构
+
+Token 使用 `crypto.createHmac('sha256')` 签名，载荷包含 `userId`、`username` 和过期时间戳，Base64 URL 编码后发送给客户端。
 
 ## 使用流程
 

@@ -4,7 +4,7 @@ import { ArrowLeft, Plus, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
 import { formatCurrency, formatCurrency1, formatPercent, formatDate, getDateOnly } from '@/utils/format'
-import { fetchFundNav, fetchCmbNav, fetchCmbNavHistory, fetchFundStageGains, fetchFundHoldings, type NavResult, type StageGains, type FundHoldingsResult } from '@/utils/fundApi'
+import { fetchFundNav, fetchCmbNav, fetchIcbcNav, fetchCmbNavHistory, fetchIcbcNavHistory, fetchFundStageGains, fetchFundHoldings, type NavResult, type StageGains, type FundHoldingsResult } from '@/utils/fundApi'
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
@@ -59,9 +59,20 @@ const handleFetchNav = async () => {
   try {
     let result: NavResult
     let sourceLabel: string
-    if (product.value.type === 'fund') {
+    
+    const allowedSources = product.value.type === 'fund' 
+      ? ['tiantian'] 
+      : ['cmb', 'icbc']
+    const navSrc = allowedSources.includes(product.value.navSource || '') 
+      ? product.value.navSource 
+      : (product.value.type === 'fund' ? 'tiantian' : 'cmb')
+    
+    if (navSrc === 'tiantian') {
       result = await fetchFundNav(product.value.code)
       sourceLabel = '天天基金'
+    } else if (navSrc === 'icbc') {
+      result = await fetchIcbcNav(product.value.code)
+      sourceLabel = '工银理财'
     } else {
       result = await fetchCmbNav(product.value.code)
       sourceLabel = '招银理财'
@@ -129,7 +140,8 @@ const handleFetchNav = async () => {
         product.value.code,
         product.value.holder,
         product.value.dcaAmount,
-        product.value.dcaCycle
+        product.value.dcaCycle,
+        product.value.navSource
       )
     }
   } catch (e: any) {
@@ -140,7 +152,16 @@ const handleFetchNav = async () => {
 }
 
 const handleFetchNavHistory = async () => {
-  if (!product.value?.code || product.value.type === 'fund') return
+  if (!product.value?.code) return
+  
+  const allowedSources = product.value.type === 'fund' 
+    ? ['tiantian'] 
+    : ['cmb', 'icbc']
+  const navSrc = allowedSources.includes(product.value.navSource || '') 
+    ? product.value.navSource 
+    : (product.value.type === 'fund' ? 'tiantian' : 'cmb')
+  
+  if (navSrc === 'tiantian') return
 
   fetchingNavHistory.value = true
   navFetchError.value = ''
@@ -154,7 +175,15 @@ const handleFetchNavHistory = async () => {
         .map(t => getDateOnly(t.date))
     )
 
-    const results = await fetchCmbNavHistory(product.value.code, 10)
+    let results: NavResult[]
+    let sourceLabel: string
+    if (navSrc === 'icbc') {
+      results = await fetchIcbcNavHistory(product.value.code, 50)
+      sourceLabel = '工银理财'
+    } else {
+      results = await fetchCmbNavHistory(product.value.code, 50)
+      sourceLabel = '招银理财'
+    }
     let addedCount = 0
 
     for (const result of results) {
@@ -189,7 +218,7 @@ const handleFetchNavHistory = async () => {
           result.nav,
           0,
           0,
-          `招银理财批量查询 - 净值日期 ${result.date}`
+          `${sourceLabel}批量查询 - 净值日期 ${result.date}`
         )
         existingDates.add(dateKey)
         addedCount++
@@ -624,6 +653,7 @@ const allNavTransactions = computed(() =>
     .filter(t => t.type === 'nav_update')
     .map(t => ({
       date: formatDate(t.date),
+      timestamp: t.date,
       nav: t.price
     }))
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -635,6 +665,54 @@ const filteredNavTransactions = computed(() => {
   const cutoff = Date.now() - opt.days * 24 * 60 * 60 * 1000
   const cutoffStr = formatDate(cutoff)
   return allNavTransactions.value.filter(t => t.date >= cutoffStr)
+})
+
+const fixedIncomeStageGains = computed(() => {
+  if (product.value?.type !== 'fixed_income') return null
+  
+  const navList = allNavTransactions.value
+  if (navList.length < 2) return null
+  
+  const latest = navList[navList.length - 1]
+  const result: Record<string, number | undefined> = {}
+  
+  const timeRanges: Record<string, number> = {
+    '1m': 30,
+    '3m': 90,
+    '6m': 180,
+    '1y': 365
+  }
+  
+  for (const [key, days] of Object.entries(timeRanges)) {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+    const cutoffStr = formatDate(cutoff)
+    
+    let navBefore = null
+    for (let i = navList.length - 1; i >= 0; i--) {
+      if (navList[i].date <= cutoffStr) {
+        navBefore = navList[i]
+        break
+      }
+    }
+    if (navBefore) {
+      const actualDays = (latest.timestamp - navBefore.timestamp) / (24 * 60 * 60 * 1000)
+      if (actualDays >= 7) {
+        const simpleReturn = latest.nav / navBefore.nav
+        result[key] = (Math.pow(simpleReturn, 365 / actualDays) - 1) * 100
+      }
+    }
+  }
+  
+  const first = navList[0]
+  if (first) {
+    const actualDays = (latest.timestamp - first.timestamp) / (24 * 60 * 60 * 1000)
+    if (actualDays >= 7) {
+      const simpleReturn = latest.nav / first.nav
+      result.sinceInception = (Math.pow(simpleReturn, 365 / actualDays) - 1) * 100
+    }
+  }
+  
+  return result
 })
 
 // 计算每个净值的日涨跌幅
@@ -862,13 +940,13 @@ onUnmounted(() => {
       </div>
       <div class="flex items-center space-x-2 flex-wrap gap-2">
         <button
-          v-if="product.code && product.type !== 'fund'"
+          v-if="product.code && product.type !== 'fund' && product.navSource !== ''"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
           class="apple-btn-primary text-sm"
         >
           <Calendar class="w-4 h-4" :class="{ 'animate-spin': fetchingNavHistory }" />
-          <span>{{ fetchingNavHistory ? '查询中...' : '查询近10天净值' }}</span>
+          <span>{{ fetchingNavHistory ? '查询中...' : '查询历史净值' }}</span>
         </button>
         <button
           v-if="product.code && product.type === 'fund'"
@@ -893,8 +971,8 @@ onUnmounted(() => {
     <p v-if="navFetchError" class="text-sm text-profit mt-2">{{ navFetchError }}</p>
     <p v-if="navHistorySuccess" class="text-sm text-loss mt-2">{{ navHistorySuccess }}</p>
 
-    <!-- 持仓概览 + 阶段涨幅 并排显示 -->
-    <div :class="product.type === 'fund' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''">
+    <!-- 持仓概览 + 阶段涨幅/收益率 并排显示 -->
+    <div :class="(product.type === 'fund' || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''">
       <!-- 持仓概览 -->
       <div v-if="position" class="glass-card p-6">
         <div class="flex items-center justify-between mb-4">
@@ -1015,6 +1093,46 @@ onUnmounted(() => {
       <div v-else-if="product.type === 'fund' && fetchingStageGains" class="glass-card p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">阶段涨幅</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
+      </div>
+
+      <!-- 年化收益率统计 (仅固收产品显示) -->
+      <div v-if="product.type === 'fixed_income' && fixedIncomeStageGains" class="glass-card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-apple-text">年化收益率统计</h3>
+          <span class="text-xs text-apple-secondary">基于历史净值计算</span>
+        </div>
+        <div class="grid grid-cols-5 md:grid-cols-5 gap-3">
+          <div v-if="fixedIncomeStageGains['1m'] !== undefined" class="text-center">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1月</p>
+            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['1m'] >= 0 ? 'text-profit' : 'text-loss'">
+              {{ fixedIncomeStageGains['1m'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['1m'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="fixedIncomeStageGains['3m'] !== undefined" class="text-center">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近3月</p>
+            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['3m'] >= 0 ? 'text-profit' : 'text-loss'">
+              {{ fixedIncomeStageGains['3m'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['3m'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="fixedIncomeStageGains['6m'] !== undefined" class="text-center">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近6月</p>
+            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['6m'] >= 0 ? 'text-profit' : 'text-loss'">
+              {{ fixedIncomeStageGains['6m'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['6m'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="fixedIncomeStageGains['1y'] !== undefined" class="text-center">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1年</p>
+            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['1y'] >= 0 ? 'text-profit' : 'text-loss'">
+              {{ fixedIncomeStageGains['1y'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['1y'].toFixed(2) }}%
+            </p>
+          </div>
+          <div v-if="fixedIncomeStageGains.sinceInception !== undefined" class="text-center">
+            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">成立以来</p>
+            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains.sinceInception >= 0 ? 'text-profit' : 'text-loss'">
+              {{ fixedIncomeStageGains.sinceInception >= 0 ? '+' : '' }}{{ fixedIncomeStageGains.sinceInception.toFixed(2) }}%
+            </p>
+          </div>
+        </div>
       </div>
     </div>
     

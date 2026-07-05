@@ -50,16 +50,19 @@ export default defineConfig({
       },
       '/api/scrape': {
         target: 'http://localhost:3001',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 600000
       },
       '/api/db': {
         target: 'http://localhost:3002',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/db/, '')
+        rewrite: (path) => path.replace(/^\/api\/db/, ''),
+        timeout: 600000
       },
       '/api/nav-scheduler': {
         target: 'http://localhost:3002',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 600000
       }
     }
   }

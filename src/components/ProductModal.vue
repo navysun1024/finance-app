@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { X } from 'lucide-vue-next'
-import type { Product, ProductType } from '@/types'
+import type { Product, ProductType, NavSource } from '@/types'
 import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
-import { DCA_CYCLE_OPTIONS } from '@/types'
+import { DCA_CYCLE_OPTIONS, NAV_SOURCE_OPTIONS } from '@/types'
 
 const props = defineProps<{
   visible: boolean
@@ -13,7 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string }): void
+  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource }): void
 }>()
 
 const name = ref('')
@@ -23,6 +23,11 @@ const note = ref('')
 const holder = ref('')
 const dcaAmount = ref(0)
 const dcaCycle = ref('')
+const navSource = ref<NavSource>('')
+
+const availableNavSources = computed(() => {
+  return NAV_SOURCE_OPTIONS.filter(opt => opt.applicableTypes.includes(type.value))
+})
 
 watch(() => props.visible, (val) => {
   if (val && props.editProduct) {
@@ -33,6 +38,7 @@ watch(() => props.visible, (val) => {
     holder.value = props.editProduct.holder || ''
     dcaAmount.value = props.editProduct.dcaAmount || 0
     dcaCycle.value = props.editProduct.dcaCycle || ''
+    navSource.value = props.editProduct.navSource || (props.editProduct.type === 'fund' ? 'tiantian' : '')
   } else if (val) {
     name.value = ''
     type.value = props.defaultType || 'fund'
@@ -41,6 +47,14 @@ watch(() => props.visible, (val) => {
     holder.value = ''
     dcaAmount.value = 0
     dcaCycle.value = ''
+    navSource.value = (props.defaultType || 'fund') === 'fund' ? 'tiantian' : ''
+  }
+})
+
+watch(type, (newType) => {
+  const available = NAV_SOURCE_OPTIONS.filter(opt => opt.applicableTypes.includes(newType))
+  if (!available.some(opt => opt.value === navSource.value)) {
+    navSource.value = available[0]?.value || ''
   }
 })
 
@@ -53,7 +67,8 @@ const handleSubmit = () => {
     code: code.value.trim(),
     holder: holder.value.trim(),
     dcaAmount: dcaAmount.value,
-    dcaCycle: dcaCycle.value
+    dcaCycle: dcaCycle.value,
+    navSource: navSource.value
   })
 }
 </script>
@@ -107,6 +122,17 @@ const handleSubmit = () => {
               placeholder="请输入产品代码"
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
+          </div>
+          <div>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">净值查询源</label>
+            <select 
+              v-model="navSource"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+            >
+              <option v-for="option in availableNavSources" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
           </div>
           <div>
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">持有人</label>

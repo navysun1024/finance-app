@@ -74,6 +74,12 @@ db.run(`ALTER TABLE products ADD COLUMN dcaCycle TEXT DEFAULT ''`, (err) => {
   }
 })
 
+db.run(`ALTER TABLE products ADD COLUMN navSource TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
 db.run(`
   CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
@@ -552,7 +558,7 @@ app.post('/api/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -560,7 +566,7 @@ app.post('/api/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -861,7 +867,7 @@ app.post('/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -869,7 +875,7 @@ app.post('/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -1019,7 +1025,7 @@ app.post('/batch-import', authenticate, (req, res) => {
         return
       }
 
-      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, dcaAmount, dcaCycle, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, dcaAmount, dcaCycle, navSource, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       let productDone = 0
 
       products.forEach((product) => {
@@ -1035,7 +1041,7 @@ app.post('/batch-import', authenticate, (req, res) => {
           return
         }
 
-        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.dcaAmount || 0, product.dcaCycle || '', product.createdAt, (err) => {
+        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.dcaAmount || 0, product.dcaCycle || '', product.navSource || '', product.createdAt, (err) => {
           if (err) {
             log(`批量导入 - 产品插入失败: ${product.name}, 错误: ${err.message}`, 'ERROR')
             db.run('ROLLBACK')
@@ -1281,7 +1287,7 @@ async function fetchFundNavServer(fundCode) {
 async function fetchCmbNavServer(productCode, userId = '') {
   const userIdParam = userId ? `&userId=${encodeURIComponent(userId)}` : ''
   const url = `http://localhost:3001/api/scrape/cmb?code=${encodeURIComponent(productCode)}${userIdParam}`
-  const { status, data: text } = await httpRequest(url)
+  const { status, data: text } = await httpRequest(url, { timeout: 180000 })
 
   if (status !== 200) {
     throw new Error(`招银理财 ${productCode} 请求失败 (HTTP ${status})`)
@@ -1298,9 +1304,9 @@ async function fetchCmbNavServer(productCode, userId = '') {
 /**
  * 从爬虫服务获取招银理财产品历史净值
  */
-async function fetchCmbNavHistoryServer(productCode, days = 10) {
-  const url = `http://localhost:3001/api/scrape/cmb/history?code=${encodeURIComponent(productCode)}&days=${days}`
-  const { status, data: text } = await httpRequest(url)
+async function fetchCmbNavHistoryServer(productCode, maxPages = 50) {
+  const url = `http://localhost:3001/api/scrape/cmb/history?code=${encodeURIComponent(productCode)}&maxPages=${maxPages}`
+  const { status, data: text } = await httpRequest(url, { timeout: 600000 })
 
   if (status !== 200) {
     throw new Error(`招银理财历史 ${productCode} 请求失败 (HTTP ${status})`)
@@ -1309,6 +1315,45 @@ async function fetchCmbNavHistoryServer(productCode, days = 10) {
   const result = JSON.parse(text)
   if (!result.success || !result.data) {
     throw new Error(result.error || '招银理财历史净值查询失败')
+  }
+
+  return result.data // [{ nav, date, name }]
+}
+
+/**
+ * 从爬虫服务获取工银理财产品净值
+ */
+async function fetchIcbcNavServer(productCode, userId = '') {
+  const userIdParam = userId ? `&userId=${encodeURIComponent(userId)}` : ''
+  const url = `http://localhost:3001/api/scrape/icbc?code=${encodeURIComponent(productCode)}${userIdParam}`
+  const { status, data: text } = await httpRequest(url, { timeout: 180000 })
+
+  if (status !== 200) {
+    throw new Error(`工银理财 ${productCode} 请求失败 (HTTP ${status})`)
+  }
+
+  const result = JSON.parse(text)
+  if (!result.success || !result.data) {
+    throw new Error(result.error || '工银理财净值查询失败')
+  }
+
+  return result.data // { nav, date, name }
+}
+
+/**
+ * 从爬虫服务获取工银理财产品历史净值
+ */
+async function fetchIcbcNavHistoryServer(productCode, maxPages = 50) {
+  const url = `http://localhost:3001/api/scrape/icbc/history?code=${encodeURIComponent(productCode)}&maxPages=${maxPages}`
+  const { status, data: text } = await httpRequest(url, { timeout: 600000 })
+
+  if (status !== 200) {
+    throw new Error(`工银理财历史 ${productCode} 请求失败 (HTTP ${status})`)
+  }
+
+  const result = JSON.parse(text)
+  if (!result.success || !result.data) {
+    throw new Error(result.error || '工银理财历史净值查询失败')
   }
 
   return result.data // [{ nav, date, name }]
@@ -1400,7 +1445,7 @@ async function runNavUpdate() {
   try {
     // 查询所有有代码的产品
     const products = await new Promise((resolve, reject) => {
-      db.all('SELECT id, userId, name, type, code FROM products WHERE code IS NOT NULL AND code != ""', [], (err, rows) => {
+      db.all('SELECT id, userId, name, type, code, navSource FROM products WHERE code IS NOT NULL AND code != ""', [], (err, rows) => {
         if (err) reject(err)
         else resolve(rows || [])
       })
@@ -1439,10 +1484,22 @@ async function runNavUpdate() {
       for (const product of userProducts) {
         try {
           let result
-          if (product.type === 'fund') {
+          let sourceLabel
+          
+          const allowedSources = product.type === 'fund' ? ['tiantian'] : ['cmb', 'icbc']
+          const navSrc = allowedSources.includes(product.navSource || '') 
+            ? product.navSource 
+            : (product.type === 'fund' ? 'tiantian' : 'cmb')
+          
+          if (navSrc === 'tiantian') {
             result = await fetchFundNavServer(product.code)
+            sourceLabel = '天天基金'
+          } else if (navSrc === 'icbc') {
+            result = await fetchIcbcNavServer(product.code, userId)
+            sourceLabel = '工银理财'
           } else {
             result = await fetchCmbNavServer(product.code, userId)
+            sourceLabel = '招银理财'
           }
 
           const navDateTs = parseNavDate(result.date)
@@ -1484,7 +1541,6 @@ async function runNavUpdate() {
           }
 
           // 插入 nav_update 交易
-          const sourceLabel = product.type === 'fund' ? '天天基金' : '招银理财'
           const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
           const note = `${sourceLabel}定时更新 - ${updateTime}`
 
@@ -1531,18 +1587,6 @@ async function runNavUpdate() {
           summary.success++
           summary.details.push({ name: product.name, code: product.code, status: 'success', nav: result.nav, date: result.date })
           log(`[NAV调度] [用户 ${userId}] 更新成功: ${product.name} (${product.code}), nav=${result.nav}, date=${result.date}`)
-
-          // 固收理财：同步缓存历史净值，避免前端页面加载时再爬取
-          if (product.type !== 'fund') {
-            try {
-              const history = await fetchCmbNavHistoryServer(product.code, 10)
-              const cacheKey = `cmb_history_${product.code}_10`
-              await setCache(cacheKey, history, CMB_HISTORY_CACHE_TTL)
-              log(`[NAV调度] 已缓存历史净值: ${product.name} (${product.code}), 条数: ${history.length}`)
-            } catch (histErr) {
-              log(`[NAV调度] 缓存历史净值失败: ${product.name} (${product.code}), 错误: ${histErr.message}`, 'WARN')
-            }
-          }
 
         } catch (e) {
           summary.failed++
@@ -2415,8 +2459,8 @@ const CMB_HISTORY_CACHE_TTL = 12 * 60 * 60 * 1000 // 12 小时
 app.get('/cmb/nav-history/:code', async (req, res) => {
   try {
     const { code } = req.params
-    const days = parseInt(req.query.days) || 10
-    const cacheKey = `cmb_history_${code}_${days}`
+    const maxPages = parseInt(req.query.maxPages) || 50
+    const cacheKey = `cmb_history_${code}_${maxPages}`
 
     // 检查缓存
     const cached = await getCache(cacheKey)
@@ -2427,7 +2471,7 @@ app.get('/cmb/nav-history/:code', async (req, res) => {
 
     // 缓存过期或不存在，从爬虫获取
     log(`[CMB历史] 缓存未命中，开始爬取: ${code}`)
-    const history = await fetchCmbNavHistoryServer(code, days)
+    const history = await fetchCmbNavHistoryServer(code, maxPages)
 
     // 写入缓存
     await setCache(cacheKey, history, CMB_HISTORY_CACHE_TTL)

@@ -38,7 +38,7 @@ const editingProduct = ref<typeof products.value[0] | null>(null)
 const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 
-const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd'>('marketValue')
+const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y'>('marketValue')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
 // 阶段涨幅数据缓存
@@ -224,6 +224,64 @@ const getStageGains = (code: string | undefined): StageGains | undefined => {
 const getDailyReturn = (code: string | undefined): { dailyReturn: number | null; date: string } | undefined => {
   if (!code) return undefined
   return dailyReturnMap.value.get(code)
+}
+
+interface FixedIncomeAnnualRate {
+  '1m'?: number
+  '3m'?: number
+  '1y'?: number
+}
+
+const fixedIncomeAnnualRateMap = computed(() => {
+  const map = new Map<string, FixedIncomeAnnualRate>()
+  
+  for (const product of products.value) {
+    if (product.type !== 'fixed_income' || !product.code) continue
+    
+    const navUpdates = getTransactionsByProductId(product.id)
+      .filter(t => t.type === 'nav_update')
+      .sort((a, b) => a.date - b.date)
+    
+    if (navUpdates.length < 2) continue
+    
+    const latest = navUpdates[navUpdates.length - 1]
+    const result: FixedIncomeAnnualRate = {}
+    
+    const timeRanges: Record<string, number> = {
+      '1m': 30,
+      '3m': 90,
+      '1y': 365
+    }
+    
+    for (const [key, days] of Object.entries(timeRanges)) {
+      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+      
+      let navBefore = null
+      for (let i = navUpdates.length - 1; i >= 0; i--) {
+        if (navUpdates[i].date <= cutoff) {
+          navBefore = navUpdates[i]
+          break
+        }
+      }
+      
+      if (navBefore) {
+        const actualDays = (latest.date - navBefore.date) / (24 * 60 * 60 * 1000)
+        if (actualDays >= 7) {
+          const simpleReturn = latest.price / navBefore.price
+          result[key as keyof FixedIncomeAnnualRate] = (Math.pow(simpleReturn, 365 / actualDays) - 1) * 100
+        }
+      }
+    }
+    
+    map.set(product.code, result)
+  }
+  
+  return map
+})
+
+const getFixedIncomeAnnualRate = (code: string | undefined): FixedIncomeAnnualRate | undefined => {
+  if (!code) return undefined
+  return fixedIncomeAnnualRateMap.value.get(code)
 }
 
 // ==================== 持仓汇总（懒加载 + 缓存）====================
@@ -436,6 +494,15 @@ const filteredProducts = computed(() => {
       case 'stageGainsYtd':
         comparison = (getStageGains(a.code)?.ytd || 0) - (getStageGains(b.code)?.ytd || 0)
         break
+      case 'fiAnnual1m':
+        comparison = (getFixedIncomeAnnualRate(a.code)?.['1m'] || 0) - (getFixedIncomeAnnualRate(b.code)?.['1m'] || 0)
+        break
+      case 'fiAnnual3m':
+        comparison = (getFixedIncomeAnnualRate(a.code)?.['3m'] || 0) - (getFixedIncomeAnnualRate(b.code)?.['3m'] || 0)
+        break
+      case 'fiAnnual1y':
+        comparison = (getFixedIncomeAnnualRate(a.code)?.['1y'] || 0) - (getFixedIncomeAnnualRate(b.code)?.['1y'] || 0)
+        break
     }
     return sortOrder.value === 'asc' ? comparison : -comparison
   })
@@ -506,11 +573,11 @@ watch(() => products.value, () => {
   }
 })
 
-const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string }) => {
+const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle)
+    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource)
   } else {
-    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle)
+    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource)
   }
   showModal.value = false
 }
@@ -863,6 +930,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
+                v-if="props.type === 'fund'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('profitRate')"
               >
@@ -895,14 +963,52 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
+              <!-- 固收产品特有列：持有年化收益率 -->
               <th 
-                v-if="props.type !== 'fund'"
+                v-if="props.type === 'fixed_income'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('annualRate')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>年化</span>
+                  <span>持有年化</span>
                   <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <!-- 固收产品特有列：年化收益率统计 -->
+              <th 
+                v-if="props.type === 'fixed_income'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('fiAnnual1m')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>近1月</span>
+                  <ChevronsUpDown v-if="sortKey !== 'fiAnnual1m'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <th 
+                v-if="props.type === 'fixed_income'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('fiAnnual3m')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>近3月</span>
+                  <ChevronsUpDown v-if="sortKey !== 'fiAnnual3m'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <th 
+                v-if="props.type === 'fixed_income'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('fiAnnual1y')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>近1年</span>
+                  <ChevronsUpDown v-if="sortKey !== 'fiAnnual1y'" class="w-3 h-3 text-apple-secondary/40" />
                   <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
@@ -999,7 +1105,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td class="px-2 py-3 text-right whitespace-nowrap">
+              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
                   <p 
                     class="text-[14px] font-semibold"
@@ -1039,7 +1145,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td v-if="props.type !== 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
+              <!-- 固收产品特有列：持有年化收益率 -->
+              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
                   <p 
                     class="text-[14px] font-semibold"
@@ -1050,6 +1157,46 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
                 <template v-else-if="getPosition(product.id) && !pageSettings.showProfitRate">
                   <p class="text-[14px] font-semibold text-apple-secondary">****</p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
+              </td>
+              <!-- 固收产品特有列：年化收益率统计 -->
+              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getFixedIncomeAnnualRate(product.code)?.['1m'] !== undefined">
+                  <p 
+                    class="text-[14px] font-semibold"
+                    :class="(getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                  >
+                    {{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0).toFixed(2) }}%
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
+              </td>
+              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getFixedIncomeAnnualRate(product.code)?.['3m'] !== undefined">
+                  <p 
+                    class="text-[14px] font-semibold"
+                    :class="(getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                  >
+                    {{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0).toFixed(2) }}%
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
+              </td>
+              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getFixedIncomeAnnualRate(product.code)?.['1y'] !== undefined">
+                  <p 
+                    class="text-[14px] font-semibold"
+                    :class="(getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                  >
+                    {{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0).toFixed(2) }}%
+                  </p>
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>

@@ -99,6 +99,26 @@ export async function fetchCmbNav(productCode: string): Promise<NavResult> {
   })
 }
 
+export async function fetchIcbcNav(productCode: string): Promise<NavResult> {
+  logger.info(`查询工银理财净值, code: ${productCode}`)
+  return logger.withTiming(`fetchIcbcNav(${productCode})`, async () => {
+    try {
+      const response = await fetch(`/api/scrape/icbc?code=${encodeURIComponent(productCode)}`)
+      const result = await response.json()
+      if (result.success) {
+        logger.info(`工银理财净值查询成功, code: ${productCode}, nav: ${result.data?.nav}`)
+        return result.data
+      } else {
+        logger.error(`工银理财净值查询失败, code: ${productCode}, 错误: ${result.error}`)
+        throw new Error(result.error || '查询失败')
+      }
+    } catch (e: any) {
+      logger.error(`工银理财净值请求异常, code: ${productCode}, 错误: ${e.message}`, e)
+      throw new Error(`工银理财净值查询失败: ${e.message}`)
+    }
+  })
+}
+
 /**
  * 批量查询招银理财净值
  * @param productCodes 产品代码数组
@@ -125,12 +145,12 @@ export async function fetchCmbNavBatch(productCodes: string[]): Promise<NavResul
   })
 }
 
-export async function fetchCmbNavHistory(productCode: string, days: number = 10): Promise<NavResult[]> {
-  logger.info(`查询招银理财历史净值, code: ${productCode}, days: ${days}`)
-  return logger.withTiming(`fetchCmbNavHistory(${productCode}, ${days})`, async () => {
+export async function fetchCmbNavHistory(productCode: string, maxPages: number = 50): Promise<NavResult[]> {
+  logger.info(`查询招银理财历史净值, code: ${productCode}, maxPages: ${maxPages}`)
+  return logger.withTiming(`fetchCmbNavHistory(${productCode}, ${maxPages})`, async () => {
     try {
       // 优先从后端缓存 API 获取（有缓存时不会触发爬虫）
-      const response = await fetch(`/api/db/cmb/nav-history/${encodeURIComponent(productCode)}?days=${days}`)
+      const response = await fetch(`/api/db/cmb/nav-history/${encodeURIComponent(productCode)}?maxPages=${maxPages}`)
       const result = await response.json()
       if (result.success) {
         const from = result.fromCache ? '缓存' : '爬取'
@@ -143,6 +163,24 @@ export async function fetchCmbNavHistory(productCode: string, days: number = 10)
     } catch (e: any) {
       logger.error(`招银理财历史净值请求异常, code: ${productCode}, 错误: ${e.message}`, e)
       throw new Error(`招银理财净值历史查询失败: ${e.message}`)
+    }
+  })
+}
+
+export async function fetchIcbcNavHistory(productCode: string, maxPages: number = 50): Promise<NavResult[]> {
+  logger.info(`查询工银理财历史净值, code: ${productCode}, maxPages: ${maxPages}`)
+  return logger.withTiming(`fetchIcbcNavHistory(${productCode}, ${maxPages})`, async () => {
+    try {
+      const response = await fetch(`/api/scrape/icbc/history?code=${encodeURIComponent(productCode)}&maxPages=${maxPages}`)
+      const result = await response.json()
+      if (result.success) {
+        logger.info(`工银理财历史净值查询成功, code: ${productCode}, 条数: ${result.data?.length || 0}`)
+        return result.data
+      } else {
+        throw new Error(result.error || '查询失败')
+      }
+    } catch (e: any) {
+      throw new Error(`工银理财净值历史查询失败: ${e.message}`)
     }
   })
 }

@@ -7,10 +7,20 @@ export interface Product {
   holder: string
   dcaAmount: number
   dcaCycle: string
+  navSource: NavSource
   createdAt: number
 }
 
 export type ProductType = 'fund' | 'fixed_income'
+
+export type NavSource = 'tiantian' | 'cmb' | 'icbc' | ''
+
+export const NAV_SOURCE_OPTIONS: { value: NavSource; label: string; applicableTypes: ProductType[] }[] = [
+  { value: '', label: '不查询', applicableTypes: ['fund', 'fixed_income'] },
+  { value: 'tiantian', label: '天天基金网', applicableTypes: ['fund'] },
+  { value: 'cmb', label: '招银理财', applicableTypes: ['fixed_income'] },
+  { value: 'icbc', label: '工银理财', applicableTypes: ['fixed_income'] }
+]
 
 export type DcaCycle = '' | 'daily' | 'weekly' | 'biweekly' | 'monthly'
 
