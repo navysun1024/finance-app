@@ -23,7 +23,8 @@ function log(message, level = 'INFO') {
 
 const app = express();
 const PORT = 3001;
-const CRAWL_TIMEOUT = 20000;
+const CRAWL_TIMEOUT = 45000;
+const ICBC_CRAWL_TIMEOUT = 90000;
 const CMB_HISTORY_TIMEOUT = 5 * 60 * 1000; // 5分钟，用于翻页获取所有历史净值
 
 // 请求日志中间件
@@ -46,10 +47,11 @@ app.use((req, res, next) => {
   next();
 });
 
-async function scrapeCmbNav(productCode) {
+async function scrapeCmbNav(productCode, options = {}) {
+  const { retryCount = 2, retryDelay = 5000 } = options
   let browser;
   const startTime = Date.now();
-  log(`[scrapeCmbNav] 开始抓取产品净值, code: ${productCode}`);
+  log(`[scrapeCmbNav] 开始抓取产品净值, code: ${productCode}, retry=${retryCount}`);
 
   try {
     log(`[scrapeCmbNav] 启动浏览器...`);
@@ -93,41 +95,71 @@ async function scrapeCmbNav(productCode) {
       });
       log(`[scrapeCmbNav] 页面加载完成, 耗时: ${Date.now() - startTime}ms`);
 
+      // 调试：输出页面URL和所有可见input
+      const allInputs = await page.$$eval('input', (els) => els.map(e => ({ 
+        type: e.type, 
+        placeholder: e.placeholder,
+        className: e.className,
+        visible: e.offsetParent !== null,
+        disabled: e.disabled,
+        value: e.value ? e.value.substring(0, 20) : ''
+      })));
+      log(`[scrapeCmbNav] 页面URL: ${page.url()}`, 'DEBUG');
+      log(`[scrapeCmbNav] 页面input数量: ${allInputs.length}`, 'DEBUG');
+      allInputs.forEach((inp, i) => {
+        log(`[scrapeCmbNav] input[${i}]: type=${inp.type}, ph="${inp.placeholder}", visible=${inp.visible}, disabled=${inp.disabled}`, 'DEBUG');
+      });
+
       log(`[scrapeCmbNav] 等待搜索框...`);
-      // 先尝试等待更长时间，同时添加调试日志
-      try {
-        await page.waitForSelector('input[placeholder*="产品代码"]', { timeout: 10000 });
-      } catch (e) {
-        // 如果第一个选择器失败，尝试其他可能的选择器
-        log(`[scrapeCmbNav] 第一个选择器失败，尝试备用选择器...`, 'WARN');
-        // 获取页面HTML调试信息
-        const html = await page.content();
-        const inputs = await page.$$eval('input', (els) => els.map(e => ({ 
-          type: e.type, 
-          placeholder: e.placeholder,
-          className: e.className 
-        })));
-        log(`[scrapeCmbNav] 页面中找到 ${inputs.length} 个input元素`, 'DEBUG');
-        log(`[scrapeCmbNav] input元素详情: ${JSON.stringify(inputs)}`, 'DEBUG');
-        
-        // 尝试其他选择器
-        await page.waitForSelector('input[type="text"]', { timeout: 5000 });
-      }
       
-      // 尝试多个选择器获取搜索输入框
+      // 直接查找搜索框，找到立即继续
       let searchInput = await page.$('input[placeholder*="产品代码"]');
       if (!searchInput) {
-        log(`[scrapeCmbNav] 尝试备用选择器获取搜索框...`, 'DEBUG');
-        searchInput = await page.$('input[type="text"]');
+        log(`[scrapeCmbNav] 主选择器未找到，等待页面渲染...`, 'DEBUG');
+        try {
+          await page.waitForSelector('input[placeholder*="产品代码"]', { timeout: 8000 });
+          searchInput = await page.$('input[placeholder*="产品代码"]');
+        } catch (e) {
+          log(`[scrapeCmbNav] 主选择器等待失败，尝试备用选择器...`, 'WARN');
+          try {
+            await page.waitForSelector('input[type="text"]', { timeout: 5000 });
+            searchInput = await page.$('input[type="text"]');
+          } catch (e2) {
+            log(`[scrapeCmbNav] 所有选择器等待失败: ${e2.message}`, 'WARN');
+          }
+        }
+      } else {
+        log(`[scrapeCmbNav] 立即找到搜索框`, 'DEBUG');
       }
       
       if (searchInput) {
-        await searchInput.click();
+        log(`[scrapeCmbNav] 找到搜索框，准备点击...`, 'DEBUG');
+        try {
+          // 先用 JS 直接点击（避免元素遮挡问题）
+          const clickResult = await searchInput.evaluate(el => {
+            el.scrollIntoView({ block: 'center' });
+            el.focus();
+            el.click();
+            return { clicked: true, value: el.value, visible: el.offsetParent !== null };
+          });
+          log(`[scrapeCmbNav] JS点击结果: ${JSON.stringify(clickResult)}`, 'DEBUG');
+          log(`[scrapeCmbNav] 搜索框已点击，开始输入...`, 'DEBUG');
+        } catch (clickErr) {
+          log(`[scrapeCmbNav] JS点击失败: ${clickErr.message}，尝试普通点击...`, 'WARN');
+          try {
+            await searchInput.click();
+            log(`[scrapeCmbNav] 普通点击成功`, 'DEBUG');
+          } catch (clickErr2) {
+            log(`[scrapeCmbNav] 普通点击也失败: ${clickErr2.message}`, 'WARN');
+          }
+        }
         await searchInput.type(productCode, { delay: 20 });
+        log(`[scrapeCmbNav] 输入完成: ${productCode}`, 'DEBUG');
         
         await new Promise(resolve => setTimeout(resolve, 300));
         
         // 尝试多个选择器获取搜索按钮
+        log(`[scrapeCmbNav] 查找搜索按钮...`, 'DEBUG');
         let searchBtn = await page.$('input[type="button"]');
         if (!searchBtn) {
           searchBtn = await page.$('button');
@@ -137,11 +169,19 @@ async function scrapeCmbNav(productCode) {
         }
         
         if (searchBtn) {
-          await searchBtn.click();
+          log(`[scrapeCmbNav] 找到搜索按钮，准备JS点击...`, 'DEBUG');
+          const btnResult = await searchBtn.evaluate(el => {
+            el.scrollIntoView({ block: 'center' });
+            el.click();
+            return { clicked: true, text: el.value || el.textContent || '' };
+          });
+          log(`[scrapeCmbNav] 搜索按钮JS点击结果: ${JSON.stringify(btnResult)}`, 'DEBUG');
           log(`[scrapeCmbNav] 已点击搜索按钮, 等待结果...`);
           await new Promise(resolve => setTimeout(resolve, 2000));
         } else {
-          log(`[scrapeCmbNav] 未找到搜索按钮`, 'WARN');
+          log(`[scrapeCmbNav] 未找到搜索按钮，尝试按回车...`, 'WARN');
+          await searchInput.press('Enter');
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       } else {
         log(`[scrapeCmbNav] 未找到搜索输入框`, 'WARN');
@@ -649,7 +689,7 @@ async function scrapeIcbcNav(productCode) {
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    const ICBC_TIMEOUT = 60000;
+    const ICBC_TIMEOUT = ICBC_CRAWL_TIMEOUT;
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error(`爬取超时 (>${ICBC_TIMEOUT}ms)`)), ICBC_TIMEOUT);
     });
@@ -686,32 +726,34 @@ async function scrapeIcbcNav(productCode) {
 
       let searchInput = null;
 
-      // 优先找净值披露页面内的搜索框（placeholder="请输入关键词"）
-      const prioritySelectors = [
-        'input[placeholder="请输入关键词"]',
-        'input[placeholder*="关键词"]',
-        'input[placeholder*="产品代码"]',
-        'input[placeholder*="代码"]',
-      ];
-
-      for (const sel of prioritySelectors) {
-        const handles = await page.$$(sel);
-        for (const h of handles) {
-          const info = await h.evaluate(el => ({
-            visible: el.offsetParent !== null,
-            type: el.type,
-            disabled: el.disabled,
-            w: el.getBoundingClientRect().width,
-            h: el.getBoundingClientRect().height,
-            ph: el.placeholder
-          }));
-          if (info.visible && !info.disabled && info.w > 50 && info.h > 20) {
-            searchInput = h;
-            log(`[scrapeIcbcNav] 找到搜索框: placeholder="${info.ph}", 尺寸=${info.w}x${info.h}`);
-            break;
+      // 优先找净值披露区域下方的搜索框（旁边有红色"搜索"按钮）
+      // 页面有两个搜索框：顶部导航栏的（全局搜索，有下拉）和净值披露区域的（无下拉）
+      // 我们需要的是净值披露区域下方的那个
+      searchInput = await page.evaluateHandle(() => {
+        const inputs = document.querySelectorAll('input[placeholder="请输入关键词"]');
+        for (const input of inputs) {
+          const parent = input.parentElement;
+          if (parent) {
+            const searchBtn = parent.querySelector('button, [type="button"], span');
+            if (searchBtn && searchBtn.textContent?.trim() === '搜索') {
+              return input;
+            }
           }
         }
-        if (searchInput) break;
+        return inputs[inputs.length - 1] || null;
+      });
+
+      if (searchInput) {
+        const info = await searchInput.evaluate(el => ({
+          visible: el.offsetParent !== null,
+          type: el.type,
+          disabled: el.disabled,
+          w: el.getBoundingClientRect().width,
+          h: el.getBoundingClientRect().height,
+          y: el.getBoundingClientRect().top,
+          ph: el.placeholder
+        }));
+        log(`[scrapeIcbcNav] 找到搜索框: placeholder="${info.ph}", 尺寸=${info.w}x${info.h}, y坐标=${Math.round(info.y)}`);
       }
 
       // 兜底：找其他可见输入框（排除 header 里的"请输入内容"全局搜索框）
@@ -767,13 +809,32 @@ async function scrapeIcbcNav(productCode) {
       log(`[scrapeIcbcNav] 搜索按钮点击: ${searchBtnClicked}`);
 
       // 等待搜索结果
+      log(`[scrapeIcbcNav] 等待搜索结果加载...`, 'DEBUG');
       await new Promise(r => setTimeout(r, 3000));
       try {
         await page.waitForNetworkIdle({ idleTime: 1500, timeout: 10000 });
-      } catch (e) {}
+        log(`[scrapeIcbcNav] 网络已空闲`, 'DEBUG');
+      } catch (e) {
+        log(`[scrapeIcbcNav] 等待网络空闲超时: ${e.message}`, 'WARN');
+      }
 
       // ── 第5步：探索搜索结果 ──
       log(`[scrapeIcbcNav] ===== 探索搜索结果 =====`);
+      
+      // 先看一下当前页面有多少表格/列表
+      const pageSnapshot = await page.evaluate(() => {
+        const tables = document.querySelectorAll('table');
+        const lists = document.querySelectorAll('[class*="list"], [class*="List"]');
+        const rows = document.querySelectorAll('tr, [class*="row"], [class*="Row"]');
+        return {
+          tableCount: tables.length,
+          listCount: lists.length,
+          rowCount: rows.length,
+          bodyTextLen: document.body?.textContent?.length || 0,
+          url: window.location.href
+        };
+      });
+      log(`[scrapeIcbcNav] 页面快照: 表格=${pageSnapshot.tableCount}, 列表=${pageSnapshot.listCount}, 行=${pageSnapshot.rowCount}, 文本长度=${pageSnapshot.bodyTextLen}, URL=${pageSnapshot.url}`, 'DEBUG');
 
       const resultInfo = await page.evaluate((code) => {
         const results = [];
@@ -1496,34 +1557,41 @@ app.get('/api/scrape/cmb', async (req, res) => {
 
   log(`[cmb]${userTag} 开始爬取, code: ${code}`);
   
-  try {
-    const nav = await scrapeCmbNav(code);
-    
-    if (nav && nav.nav > 0) {
-      log(`[cmb]${userTag} 爬取成功, code: ${code}, nav: ${nav.nav}`);
-      res.json({ success: true, data: nav });
-    } else {
-      log(`[cmb]${userTag} 爬取结果为空，使用 fallback 数据, code: ${code}`, 'WARN');
-      res.json({
-        success: true,
-        data: {
-          nav: parseFloat((1.0 + Math.random() * 0.1).toFixed(4)),
-          name: `产品${code}`,
-          date: new Date().toISOString().split('T')[0]
-        }
-      });
-    }
-  } catch (e) {
-    log(`[cmb]${userTag} 爬取失败，使用 fallback 数据, code: ${code}, 错误: ${e.message}`, 'ERROR');
-    res.json({
-      success: true,
-      data: {
-        nav: parseFloat((1.0 + Math.random() * 0.1).toFixed(4)),
-        name: `产品${code}`,
-        date: new Date().toISOString().split('T')[0]
+  // 添加随机延迟（1-3秒）避免连续请求触发反爬
+  const delay = 1000 + Math.random() * 2000
+  log(`[cmb]${userTag} 爬取前随机延迟 ${Math.round(delay)}ms, code: ${code}`, 'DEBUG')
+  await new Promise(r => setTimeout(r, delay))
+  
+  // 重试机制：失败后最多重试 2 次，间隔 5秒
+  const maxRetries = 2
+  let lastError = null
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const retryDelay = 3000 + attempt * 2000
+        log(`[cmb]${userTag} 第 ${attempt} 次重试, code: ${code}, 等待 ${retryDelay}ms`, 'WARN')
+        await new Promise(r => setTimeout(r, retryDelay))
       }
-    });
+      const nav = await scrapeCmbNav(code, { retryCount: 0 });
+      
+      if (nav && nav.nav > 0) {
+        log(`[cmb]${userTag} 爬取成功, code: ${code}, nav: ${nav.nav}, 尝试次数: ${attempt + 1}`);
+        return res.json({ success: true, data: nav });
+      } else {
+        lastError = new Error('爬取结果为空')
+        log(`[cmb]${userTag} 爬取结果为空, code: ${code}, 尝试次数: ${attempt + 1}`, 'WARN');
+        if (attempt < maxRetries) continue
+      }
+    } catch (e) {
+      lastError = e
+      log(`[cmb]${userTag} 爬取失败, code: ${code}, 尝试次数: ${attempt + 1}, 错误: ${e.message}`, 'ERROR');
+      if (attempt < maxRetries) continue
+    }
   }
+  
+  // 所有重试都失败
+  log(`[cmb]${userTag} 最终失败, code: ${code}, 错误: ${lastError?.message}`, 'ERROR');
+  res.status(500).json({ success: false, error: lastError?.message || '未知错误' });
 });
 
 app.get('/api/scrape/cmb/history', async (req, res) => {
@@ -1550,14 +1618,12 @@ app.get('/api/scrape/cmb/history', async (req, res) => {
       log(`[cmb/history] 爬取成功, code: ${code}, 条数: ${history.length}`);
       res.json({ success: true, data: history });
     } else {
-      log(`[cmb/history] 爬取结果为空，使用 fallback 数据, code: ${code}`, 'WARN');
-      const fallbackHistory = generateMockHistory(code, maxPagesNum);
-      res.json({ success: true, data: fallbackHistory });
+      log(`[cmb/history] 爬取结果为空, code: ${code}`, 'WARN');
+      res.status(500).json({ success: false, error: '爬取结果为空' });
     }
   } catch (e) {
-    log(`[cmb/history] 爬取失败，使用 fallback 数据, code: ${code}, 错误: ${e.message}`, 'ERROR');
-    const fallbackHistory = generateMockHistory(code, maxPagesNum);
-    res.json({ success: true, data: fallbackHistory });
+    log(`[cmb/history] 爬取失败, code: ${code}, 错误: ${e.message}`, 'ERROR');
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
@@ -1599,14 +1665,7 @@ app.get('/api/scrape/cmb/batch', async (req, res) => {
     res.json({ success: true, data: results });
   } catch (e) {
     log(`[cmb/batch]${userTag} 批量查询失败, 错误: ${e.message}`, 'ERROR');
-    // 返回各个产品的 fallback 数据
-    const fallback = codeList.map(code => ({
-      code,
-      nav: parseFloat((1.0 + Math.random() * 0.1).toFixed(4)),
-      name: `产品${code}`,
-      date: new Date().toISOString().split('T')[0]
-    }));
-    res.json({ success: true, data: fallback });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
@@ -1632,34 +1691,41 @@ app.get('/api/scrape/icbc', async (req, res) => {
 
   log(`[icbc]${userTag} 开始爬取, code: ${code}`);
 
-  try {
-    const nav = await scrapeIcbcNav(code);
+  // 添加随机延迟（1-3秒）避免连续请求触发反爬
+  const delay = 1000 + Math.random() * 2000
+  log(`[icbc]${userTag} 爬取前随机延迟 ${Math.round(delay)}ms, code: ${code}`, 'DEBUG')
+  await new Promise(r => setTimeout(r, delay))
 
-    if (nav && nav.nav > 0) {
-      log(`[icbc]${userTag} 爬取成功, code: ${code}, nav: ${nav.nav}`);
-      res.json({ success: true, data: nav });
-    } else {
-      log(`[icbc]${userTag} 爬取结果为空，使用 fallback 数据, code: ${code}`, 'WARN');
-      res.json({
-        success: true,
-        data: {
-          nav: parseFloat((1.0 + Math.random() * 0.1).toFixed(4)),
-          name: `工银理财产品${code}`,
-          date: new Date().toISOString().split('T')[0]
-        }
-      });
-    }
-  } catch (e) {
-    log(`[icbc]${userTag} 爬取失败，使用 fallback 数据, code: ${code}, 错误: ${e.message}`, 'ERROR');
-    res.json({
-      success: true,
-      data: {
-        nav: parseFloat((1.0 + Math.random() * 0.1).toFixed(4)),
-        name: `工银理财产品${code}`,
-        date: new Date().toISOString().split('T')[0]
+  // 重试机制：失败后最多重试 2 次
+  const maxRetries = 2
+  let lastError = null
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const retryDelay = 3000 + attempt * 2000
+        log(`[icbc]${userTag} 第 ${attempt} 次重试, code: ${code}, 等待 ${retryDelay}ms`, 'WARN')
+        await new Promise(r => setTimeout(r, retryDelay))
       }
-    });
+      const nav = await scrapeIcbcNav(code);
+
+      if (nav && nav.nav > 0) {
+        log(`[icbc]${userTag} 爬取成功, code: ${code}, nav: ${nav.nav}, 尝试次数: ${attempt + 1}`);
+        return res.json({ success: true, data: nav });
+      } else {
+        lastError = new Error('爬取结果为空')
+        log(`[icbc]${userTag} 爬取结果为空, code: ${code}, 尝试次数: ${attempt + 1}`, 'WARN');
+        if (attempt < maxRetries) continue
+      }
+    } catch (e) {
+      lastError = e
+      log(`[icbc]${userTag} 爬取失败, code: ${code}, 尝试次数: ${attempt + 1}, 错误: ${e.message}`, 'ERROR');
+      if (attempt < maxRetries) continue
+    }
   }
+  
+  // 所有重试都失败
+  log(`[icbc]${userTag} 最终失败, code: ${code}, 错误: ${lastError?.message}`, 'ERROR');
+  res.status(500).json({ success: false, error: lastError?.message || '未知错误' });
 });
 
 // ── 工银理财历史净值查询 ──
@@ -1688,14 +1754,12 @@ app.get('/api/scrape/icbc/history', async (req, res) => {
       log(`[icbc/history]${userTag} 爬取成功, code: ${code}, 条数: ${history.length}`);
       res.json({ success: true, data: history });
     } else {
-      log(`[icbc/history]${userTag} 爬取结果为空，使用 fallback 数据, code: ${code}`, 'WARN');
-      const fallbackHistory = generateMockHistory(code, 30);
-      res.json({ success: true, data: fallbackHistory });
+      log(`[icbc/history]${userTag} 爬取结果为空, code: ${code}`, 'WARN');
+      res.status(500).json({ success: false, error: '爬取结果为空' });
     }
   } catch (e) {
-    log(`[icbc/history]${userTag} 爬取失败，使用 fallback 数据, code: ${code}, 错误: ${e.message}`, 'ERROR');
-    const fallbackHistory = generateMockHistory(code, 30);
-    res.json({ success: true, data: fallbackHistory });
+    log(`[icbc/history]${userTag} 爬取失败, code: ${code}, 错误: ${e.message}`, 'ERROR');
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 

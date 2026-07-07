@@ -943,6 +943,19 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
+              <!-- 固收产品特有列：持有年化收益率 -->
+              <th 
+                v-if="props.type === 'fixed_income'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('annualRate')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>持有年化</span>
+                  <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
               <th 
                 v-if="props.type === 'fund'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
@@ -973,19 +986,6 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <div class="flex items-center justify-end space-x-1">
                   <span>天数</span>
                   <ChevronsUpDown v-if="sortKey !== 'holdingDays'" class="w-3 h-3 text-apple-secondary/40" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
-                </div>
-              </th>
-              <!-- 固收产品特有列：持有年化收益率 -->
-              <th 
-                v-if="props.type === 'fixed_income'"
-                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
-                @click="handleSort('annualRate')"
-              >
-                <div class="flex items-center justify-end space-x-1">
-                  <span>持有年化</span>
-                  <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-3 h-3 text-apple-secondary/40" />
                   <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
@@ -1091,7 +1091,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <div class="flex items-center space-x-2 mt-1">
                     <span 
                       v-if="!props.type"
-                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0"
                       :class="{
                         'bg-primary-50 text-primary-500': product.type === 'fund',
                         'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income'
@@ -1099,9 +1099,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     >
                       {{ getProductTypeLabel(product.type) }}
                     </span>
-                    <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary">代码: {{ product.code }}</span>
-                    <span v-if="product.note" class="text-[11px] text-amber-500 truncate max-w-[100px]" :title="product.note">{{ product.note }}</span>
-                    <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
+                    <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0">代码: {{ product.code }}</span>
+                    <span v-if="product.note" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.note">{{ product.note }}</span>
+                    <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                   </div>
                 </div>
               </td>
@@ -1113,6 +1113,23 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[14px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }} 元</p>
                 </template>
                 <template v-else-if="getPosition(product.id) && !pageSettings.showMarketValue">
+                  <p class="text-[14px] font-semibold text-apple-secondary">****</p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
+              </td>
+              <!-- 固收产品特有列：持有年化收益率 -->
+              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
+                  <p 
+                    class="text-[14px] font-semibold"
+                    :class="(getPosition(product.id) as any).annualRate >= 0 ? 'text-profit' : 'text-loss'"
+                  >
+                    {{ (getPosition(product.id) as any).annualRate >= 0 ? '+' : '' }}{{ (getPosition(product.id) as any).annualRate.toFixed(2) }}%
+                  </p>
+                </template>
+                <template v-else-if="getPosition(product.id) && !pageSettings.showProfitRate">
                   <p class="text-[14px] font-semibold text-apple-secondary">****</p>
                 </template>
                 <template v-else>
@@ -1154,23 +1171,6 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p class="text-[14px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
-                </template>
-                <template v-else>
-                  <p class="text-[13px] text-apple-secondary">-</p>
-                </template>
-              </td>
-              <!-- 固收产品特有列：持有年化收益率 -->
-              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
-                  <p 
-                    class="text-[14px] font-semibold"
-                    :class="(getPosition(product.id) as any).annualRate >= 0 ? 'text-profit' : 'text-loss'"
-                  >
-                    {{ (getPosition(product.id) as any).annualRate >= 0 ? '+' : '' }}{{ (getPosition(product.id) as any).annualRate.toFixed(2) }}%
-                  </p>
-                </template>
-                <template v-else-if="getPosition(product.id) && !pageSettings.showProfitRate">
-                  <p class="text-[14px] font-semibold text-apple-secondary">****</p>
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>

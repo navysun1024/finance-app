@@ -10,3 +10,4 @@ logs
 .db-server.pid
 .scraper.pid
 .vite.pid
+data/finance.db_副本

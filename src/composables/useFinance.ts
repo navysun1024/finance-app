@@ -215,14 +215,20 @@ export function useFinance() {
  }
  }
  remainingShares = cumulativeShares;
+ let realizedProfit = 0;
+ let totalDividend = 0;
  for (const t of productTransactions) {
  if (t.type === 'sell') {
  remainingShares -= t.shares;
+ realizedProfit += t.amount - t.shares * avgCost;
+ } else if (t.type === 'dividend') {
+ totalDividend += t.amount;
  }
  }
  const marketValue = Math.round(remainingShares * currentNav);
- const profit = marketValue - (remainingShares * avgCost);
- const profitRate = remainingShares > 0 ? (profit / (remainingShares * avgCost)) * 100 : 0;
+ const unrealizedProfit = marketValue - (remainingShares * avgCost);
+ const profit = unrealizedProfit + realizedProfit + totalDividend;
+ const profitRate = remainingShares > 0 ? (unrealizedProfit / (remainingShares * avgCost)) * 100 : 0;
  const holdingDays = firstBuyDate > 0 ? Math.max(1, Math.ceil((Date.now() - firstBuyDate) / (1000 * 60 * 60 * 24))) : 0;
  const xirrRate = calculateXIRR(
  buyTransactions.map(t => ({ date: t.date, amount: t.amount, fee: t.fee })),
@@ -285,233 +291,248 @@ export function useFinance() {
  return product ? calculatePosition(product) : undefined;
  };
  const getProfitHistory = (days: number = 30): {
- date: string;
- profit: number;
- productProfits: { productId: string; productName: string; profit: number }[];
+  date: string;
+  profit: number;
+  productProfits: { productId: string; productName: string; profit: number }[];
 }[] => {
- const today = new Date();
- const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
- const windowStart = todayStart - (days - 1) * 24 * 60 * 60 * 1000;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const windowStart = todayStart - (days - 1) * 24 * 60 * 60 * 1000;
 
- const productDailyProfits: Map<string, Map<string, number>> = new Map();
+  const productDailyProfits: Map<string, Map<string, number>> = new Map();
 
- for (const product of products.value) {
- const productTransactions = getTransactionsByProductId(product.id);
- if (productTransactions.length === 0) continue;
+  for (const product of products.value) {
+    const productTransactions = getTransactionsByProductId(product.id);
+    if (productTransactions.length === 0) continue;
 
- let shares = 0;
- let avgCost = 0;
- let currentNav = 1;
- let hasSeenNavUpdate = false;
+    let shares = 0;
+    let avgCost = 0;
+    let currentNav = 1;
+    let hasSeenNavUpdate = false;
 
- for (const t of productTransactions) {
- if (t.date >= windowStart) break;
- if (t.type === 'buy') {
- const newShares = shares + t.shares;
- avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
- shares = newShares;
- } else if (t.type === 'sell') {
- shares = Math.max(0, shares - t.shares);
- } else if (t.type === 'nav_update') {
- currentNav = t.price;
- hasSeenNavUpdate = true;
- }
- }
+    for (const t of productTransactions) {
+      if (t.date >= windowStart) break;
+      if (t.type === 'buy') {
+        const newShares = shares + t.shares;
+        avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
+        shares = newShares;
+      } else if (t.type === 'sell') {
+        shares = Math.max(0, shares - t.shares);
+      } else if (t.type === 'nav_update') {
+        currentNav = t.price;
+        hasSeenNavUpdate = true;
+      }
+    }
 
- if (!hasSeenNavUpdate && avgCost > 0) {
- currentNav = avgCost;
- }
+    if (!hasSeenNavUpdate && avgCost > 0) {
+      currentNav = avgCost;
+    }
 
- const dailyProfits: Map<string, number> = new Map();
- let hasNavByPreviousDay = hasSeenNavUpdate;
+    // 按日期预索引窗口期内的交易，避免每日循环中重复 filter
+    const dayTxMap = new Map<string, Transaction[]>()
+    for (const t of productTransactions) {
+      if (t.date < windowStart) continue
+      const dt = new Date(t.date)
+      const ds = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+      if (!dayTxMap.has(ds)) dayTxMap.set(ds, [])
+      dayTxMap.get(ds)!.push(t)
+    }
 
- for (let i = days - 1; i >= 0; i--) {
- const date = new Date(today);
- date.setDate(date.getDate() - i);
- const dateStr = date.toISOString().split('T')[0];
- const dayStart = new Date(date).setHours(0, 0, 0, 0);
- const dayEnd = new Date(date).setHours(23, 59, 59, 999);
+    const dailyProfits: Map<string, number> = new Map();
+    let hasNavByPreviousDay = hasSeenNavUpdate;
 
- let dailyProfit = 0;
- const navBefore = currentNav;
- const dayTransactions = productTransactions.filter(t => t.date >= dayStart && t.date <= dayEnd);
- let hasNavUpdateToday = false;
- let sharesAtNavUpdate = shares; // 记录净值更新时的份额，用于计算当日净值变动收益
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
 
- for (const t of dayTransactions) {
- if (t.type === 'buy') {
- const newShares = shares + t.shares;
- avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
- shares = newShares;
- if (currentNav === 1 && avgCost > 0) {
- currentNav = avgCost;
- }
- } else if (t.type === 'sell') {
- // 赎回只更新份额，不计入赎回收益（赎回收益含历史累积，不属于当日新增）
- shares = Math.max(0, shares - t.shares);
- } else if (t.type === 'dividend') {
- dailyProfit += t.amount;
- } else if (t.type === 'nav_update') {
- currentNav = t.price;
- sharesAtNavUpdate = shares; // 净值更新时的份额（赎回前的全部份额）
- hasNavUpdateToday = true;
- }
- }
+      let dailyProfit = 0;
+      const navBefore = currentNav;
+      const dayTransactions = dayTxMap.get(dateStr) || []; // O(1) 查找，无需 filter
+      let hasNavUpdateToday = false;
+      let sharesAtNavUpdate = shares;
 
- if (hasNavByPreviousDay) {
- dailyProfit += (currentNav - navBefore) * sharesAtNavUpdate;
- }
+      for (const t of dayTransactions) {
+        if (t.type === 'buy') {
+          const newShares = shares + t.shares;
+          avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
+          shares = newShares;
+          if (currentNav === 1 && avgCost > 0) {
+            currentNav = avgCost;
+          }
+        } else if (t.type === 'sell') {
+          shares = Math.max(0, shares - t.shares);
+        } else if (t.type === 'dividend') {
+          dailyProfit += t.amount;
+        } else if (t.type === 'nav_update') {
+          currentNav = t.price;
+          sharesAtNavUpdate = shares;
+          hasNavUpdateToday = true;
+        }
+      }
 
- if (hasNavUpdateToday) {
- hasNavByPreviousDay = true;
- }
+      if (hasNavByPreviousDay) {
+        dailyProfit += (currentNav - navBefore) * sharesAtNavUpdate;
+      }
 
- if (Math.abs(dailyProfit) > 0.01) {
- dailyProfits.set(dateStr, Math.round(dailyProfit * 100) / 100);
- }
- }
+      if (hasNavUpdateToday) {
+        hasNavByPreviousDay = true;
+      }
 
- if (dailyProfits.size > 0) {
- productDailyProfits.set(product.id, dailyProfits);
- }
- }
+      if (Math.abs(dailyProfit) > 0.01) {
+        dailyProfits.set(dateStr, Math.round(dailyProfit * 100) / 100);
+      }
+    }
 
- const history: {
- date: string;
- profit: number;
- productProfits: { productId: string; productName: string; profit: number }[];
- }[] = [];
+    if (dailyProfits.size > 0) {
+      productDailyProfits.set(product.id, dailyProfits);
+    }
+  }
 
- for (let i = days - 1; i >= 0; i--) {
- const date = new Date(today);
- date.setDate(date.getDate() - i);
- const dateStr = date.toISOString().split('T')[0];
+  const history: {
+    date: string;
+    profit: number;
+    productProfits: { productId: string; productName: string; profit: number }[];
+  }[] = [];
 
- let totalProfit = 0;
- const productProfits: { productId: string; productName: string; profit: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
 
- for (const product of products.value) {
- const dailyProfits = productDailyProfits.get(product.id);
- if (!dailyProfits) continue;
+    let totalProfit = 0;
+    const productProfits: { productId: string; productName: string; profit: number }[] = [];
 
- const profit = dailyProfits.get(dateStr);
- if (profit !== undefined && profit !== 0) {
- productProfits.push({
- productId: product.id,
- productName: product.name,
- profit
- });
- totalProfit += profit;
- }
- }
+    for (const product of products.value) {
+      const dailyProfits = productDailyProfits.get(product.id);
+      if (!dailyProfits) continue;
 
- history.push({
- date: dateStr,
- profit: Math.round(totalProfit * 100) / 100,
- productProfits
- });
- }
+      const profit = dailyProfits.get(dateStr);
+      if (profit !== undefined && profit !== 0) {
+        productProfits.push({
+          productId: product.id,
+          productName: product.name,
+          profit
+        });
+        totalProfit += profit;
+      }
+    }
 
- return history;
+    history.push({
+      date: dateStr,
+      profit: Math.round(totalProfit * 100) / 100,
+      productProfits
+    });
+  }
+
+  return history;
 };
 
 // 获取市值历史（每天每个产品的 shares * nav）
 const getMarketValueHistory = (days: number = 365): {
- date: string;
- marketValues: { productId: string; productName: string; marketValue: number }[];
+  date: string;
+  marketValues: { productId: string; productName: string; marketValue: number }[];
 }[] => {
- const today = new Date();
- const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
- const windowStart = todayStart - (days - 1) * 24 * 60 * 60 * 1000;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const windowStart = todayStart - (days - 1) * 24 * 60 * 60 * 1000;
 
- // 每个产品：{ dailyValues: Map<dateStr, marketValue> }
- const productDailyValues: Map<string, Map<string, number>> = new Map();
+  // 每个产品：{ dailyValues: Map<dateStr, marketValue> }
+  const productDailyValues: Map<string, Map<string, number>> = new Map();
 
- for (const product of products.value) {
-   const productTransactions = getTransactionsByProductId(product.id);
-   if (productTransactions.length === 0) continue;
+  for (const product of products.value) {
+    const productTransactions = getTransactionsByProductId(product.id);
+    if (productTransactions.length === 0) continue;
 
-   let shares = 0;
-   let avgCost = 0;
-   let currentNav = 1;
-   let hasSeenNavUpdate = false;
+    let shares = 0;
+    let avgCost = 0;
+    let currentNav = 1;
+    let hasSeenNavUpdate = false;
 
-   // 先处理窗口前的交易，得到初始 shares/nav
-   for (const t of productTransactions) {
-     if (t.date >= windowStart) break;
-     if (t.type === 'buy') {
-       const newShares = shares + t.shares;
-       avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
-       shares = newShares;
-     } else if (t.type === 'sell') {
-       shares = Math.max(0, shares - t.shares);
-     } else if (t.type === 'nav_update') {
-       currentNav = t.price;
-       hasSeenNavUpdate = true;
-     }
-   }
+    // 先处理窗口前的交易，得到初始 shares/nav
+    for (const t of productTransactions) {
+      if (t.date >= windowStart) break;
+      if (t.type === 'buy') {
+        const newShares = shares + t.shares;
+        avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
+        shares = newShares;
+      } else if (t.type === 'sell') {
+        shares = Math.max(0, shares - t.shares);
+      } else if (t.type === 'nav_update') {
+        currentNav = t.price;
+        hasSeenNavUpdate = true;
+      }
+    }
 
-   if (!hasSeenNavUpdate && avgCost > 0) {
-     currentNav = avgCost;
-   }
+    if (!hasSeenNavUpdate && avgCost > 0) {
+      currentNav = avgCost;
+    }
 
-   const dailyVals: Map<string, number> = new Map();
+    // 按日期预索引窗口期内的交易，避免每日循环中重复 filter
+    const dayTxMap = new Map<string, Transaction[]>()
+    for (const t of productTransactions) {
+      if (t.date < windowStart) continue
+      const dt = new Date(t.date)
+      const ds = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+      if (!dayTxMap.has(ds)) dayTxMap.set(ds, [])
+      dayTxMap.get(ds)!.push(t)
+    }
 
-   for (let i = days - 1; i >= 0; i--) {
-     const date = new Date(today);
-     date.setDate(date.getDate() - i);
-     const dateStr = date.toISOString().split('T')[0];
-     const dayStart = new Date(date).setHours(0, 0, 0, 0);
-     const dayEnd = new Date(date).setHours(23, 59, 59, 999);
+    const dailyVals: Map<string, number> = new Map();
 
-     const dayTransactions = productTransactions.filter(t => t.date >= dayStart && t.date <= dayEnd);
-     for (const t of dayTransactions) {
-       if (t.type === 'buy') {
-         const newShares = shares + t.shares;
-         avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
-         shares = newShares;
-         if (currentNav === 1 && avgCost > 0) currentNav = avgCost;
-       } else if (t.type === 'sell') {
-         shares = Math.max(0, shares - t.shares);
-       } else if (t.type === 'nav_update') {
-         currentNav = t.price;
-       }
-     }
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
 
-     if (shares > 0 && currentNav > 0) {
-       dailyVals.set(dateStr, Math.round(shares * currentNav * 100) / 100);
-     }
-   }
+      const dayTransactions = dayTxMap.get(dateStr) || []; // O(1) 查找，无需 filter
+      for (const t of dayTransactions) {
+        if (t.type === 'buy') {
+          const newShares = shares + t.shares;
+          avgCost = newShares > 0 ? (avgCost * shares + t.amount + t.fee) / newShares : 0;
+          shares = newShares;
+          if (currentNav === 1 && avgCost > 0) currentNav = avgCost;
+        } else if (t.type === 'sell') {
+          shares = Math.max(0, shares - t.shares);
+        } else if (t.type === 'nav_update') {
+          currentNav = t.price;
+        }
+      }
 
-   if (dailyVals.size > 0) {
-     productDailyValues.set(product.id, dailyVals);
-   }
- }
+      if (shares > 0 && currentNav > 0) {
+        dailyVals.set(dateStr, Math.round(shares * currentNav * 100) / 100);
+      }
+    }
 
- const history: {
-   date: string;
-   marketValues: { productId: string; productName: string; marketValue: number }[];
- }[] = [];
+    if (dailyVals.size > 0) {
+      productDailyValues.set(product.id, dailyVals);
+    }
+  }
 
- for (let i = days - 1; i >= 0; i--) {
-   const date = new Date(today);
-   date.setDate(date.getDate() - i);
-   const dateStr = date.toISOString().split('T')[0];
+  const history: {
+    date: string;
+    marketValues: { productId: string; productName: string; marketValue: number }[];
+  }[] = [];
 
-   const marketValues: { productId: string; productName: string; marketValue: number }[] = [];
-   for (const product of products.value) {
-     const vals = productDailyValues.get(product.id);
-     if (!vals) continue;
-     const mv = vals.get(dateStr);
-     if (mv !== undefined && mv > 0) {
-       marketValues.push({ productId: product.id, productName: product.name, marketValue: mv });
-     }
-   }
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
 
-   history.push({ date: dateStr, marketValues });
- }
+    const marketValues: { productId: string; productName: string; marketValue: number }[] = [];
+    for (const product of products.value) {
+      const vals = productDailyValues.get(product.id);
+      if (!vals) continue;
+      const mv = vals.get(dateStr);
+      if (mv !== undefined && mv > 0) {
+        marketValues.push({ productId: product.id, productName: product.name, marketValue: mv });
+      }
+    }
 
- return history;
+    history.push({ date: dateStr, marketValues });
+  }
+
+  return history;
 };
 
  return {

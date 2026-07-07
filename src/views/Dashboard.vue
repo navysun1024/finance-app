@@ -309,7 +309,7 @@ const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, 
   const history = days > 0 ? getRawHistory(days) : getRawHistory(3650)
   const dates = history.map(h => {
       const parts = h.date.split('-')
-      return `${parts[0].substring(2)}/${parts[1]}/${parts[2]}`
+      return `${parts[0].substring(2)}/${parts[1]}`
     })
 
   // 过滤掉持仓金额小于200元的产品
@@ -387,7 +387,7 @@ const mobile = isMobile()
     xAxis: {
       type: 'category',
       data: dates,
-      axisLabel: { rotate: 45, fontSize: mobile ? 8 : 10 }
+      axisLabel: { rotate: 0, fontSize: mobile ? 8 : 10 }
     },
     yAxis: {
       type: 'value',
@@ -588,20 +588,30 @@ const handleResize = () => {
 onMounted(async () => {
   await refresh()
   await nextTick()
-  // 延迟初始化图表和日历数据，让页面先渲染完成并可交互
+  // 先初始化图表（轻量操作），日历数据延后到空闲时计算，避免阻塞主线程影响页面切换
   initTimer = setTimeout(() => {
     initCharts()
-    // 异步加载日历数据，避免阻塞页面响应
-    const types = positionsByType.value.map(g => g.type)
-    const loadNext = (idx: number) => {
-      if (idx >= types.length) {
-        expandCalendarToFull()
-        return
+    // 使用 requestIdleCallback 在浏览器空闲时异步加载日历数据
+    const loadCalendarAsync = () => {
+      const types = positionsByType.value.map(g => g.type)
+      let idx = 0
+      const loadNext = () => {
+        if (idx >= types.length) {
+          expandCalendarToFull()
+          return
+        }
+        loadCalendarData(types[idx])
+        idx++
+        // 每加载一个类型后让出主线程，确保页面响应
+        setTimeout(loadNext, 0)
       }
-      loadCalendarData(types[idx])
-      setTimeout(() => loadNext(idx + 1), 0)
+      loadNext()
     }
-    setTimeout(() => loadNext(0), 0)
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(loadCalendarAsync, { timeout: 3000 })
+    } else {
+      setTimeout(loadCalendarAsync, 2000)
+    }
   }, 100)
   window.addEventListener('resize', handleResize)
 })
@@ -615,6 +625,8 @@ onUnmounted(() => {
   typeCharts.clear()
   trendCharts.clear()
   mvCharts.clear()
+  // 清除所有原始收益历史缓存，释放内存
+  rawHistoryCache.clear()
 })
 </script>
 

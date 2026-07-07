@@ -1464,6 +1464,17 @@ async function runNavUpdate() {
     log(`[NAV调度] 共有 ${byUser.size} 个用户需要更新净值`)
 
     for (const [userId, userProducts] of byUser) {
+      // 同一用户内排序：基金 → 招银 → 工银
+      userProducts.sort((a, b) => {
+        const getOrder = (p) => {
+          if (p.type === 'fund' || p.navSource === 'tiantian') return 0
+          if (p.navSource === 'cmb') return 1
+          if (p.navSource === 'icbc') return 2
+          return 0
+        }
+        return getOrder(a) - getOrder(b)
+      })
+      
       log(`[NAV调度] [用户 ${userId}] 开始处理 ${userProducts.length} 个产品`)
       // 查询该用户所有 nav_update 交易（不限于今天，因为净值日期可能是昨天）
       const allNavTxRows = await new Promise((resolve, reject) => {
@@ -1504,6 +1515,23 @@ async function runNavUpdate() {
 
           const navDateTs = parseNavDate(result.date)
           const navDateKey = getDateOnlyTimestamp(navDateTs)
+
+          // 更新产品备注中的限购信息（即使净值已存在也需要更新）
+          if (result.purchaseLimitLabel) {
+            try {
+              const newNote = mergePurchaseLimitNote(product.note || '', result.purchaseLimitLabel)
+              await new Promise((resolve, reject) => {
+                db.run(
+                  'UPDATE products SET note = ? WHERE id = ? AND userId = ?',
+                  [newNote, product.id, userId],
+                  (err) => { if (err) reject(err); else resolve() }
+                )
+              })
+              log(`[NAV调度] [用户 ${userId}] 更新限购信息: ${product.name} - ${result.purchaseLimitLabel}`, 'DEBUG')
+            } catch (noteErr) {
+              log(`[NAV调度] 更新限购信息失败: ${product.name}, 错误: ${noteErr.message}`, 'WARN')
+            }
+          }
 
           // 检查该产品在净值日期是否已有 nav_update 记录
           const existingDates = updatedMap.get(product.id)
@@ -1563,22 +1591,6 @@ async function runNavUpdate() {
               }
             )
           })
-
-          // 更新产品备注中的限购信息
-          if (result.purchaseLimitLabel) {
-            try {
-              const newNote = mergePurchaseLimitNote(product.note || '', result.purchaseLimitLabel)
-              await new Promise((resolve, reject) => {
-                db.run(
-                  'UPDATE products SET note = ? WHERE id = ? AND userId = ?',
-                  [newNote, product.id, userId],
-                  (err) => { if (err) reject(err); else resolve() }
-                )
-              })
-            } catch (noteErr) {
-              log(`[NAV调度] 更新产品备注失败: ${product.name}, 错误: ${noteErr.message}`, 'WARN')
-            }
-          }
 
           // 更新已记录集合
           if (!updatedMap.has(product.id)) updatedMap.set(product.id, new Set())

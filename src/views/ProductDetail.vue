@@ -792,7 +792,11 @@ const updateChart = () => {
   chart.setOption({
     tooltip: {
       trigger: 'axis',
-      formatter: '{b}<br/>净值: {c}'
+      formatter: (params: any) => {
+        const idx = params[0].dataIndex
+        const fullDate = navData[idx]?.date || params[0].name
+        return `${fullDate}<br/>净值: ${params[0].value}`
+      }
     },
     grid: {
       left: 10,
@@ -805,14 +809,14 @@ const updateChart = () => {
       type: 'category',
       data: navData.map(t => {
         const dateStr = t.date
-        // formatDate 返回 YYYY/MM/DD 格式，转为 YY/MM/DD 显示
+        // formatDate 返回 YYYY/MM/DD 格式，转为 YY/MM 显示（年月）
         if (dateStr.length === 10 && dateStr.includes('/')) {
-          return dateStr.substring(2)
+          return dateStr.substring(2, 7) // 取 YY/MM
         }
         return dateStr
       }),
       axisLabel: {
-        rotate: 30,
+        rotate: 0,
         fontSize: 12,
         interval: 'auto',
         margin: 12
@@ -847,11 +851,11 @@ const updateChart = () => {
       data: navData.map(t => t.nav),
       smooth: true,
       lineStyle: {
-        color: '#10b981',
+        color: '#1e40af',
         width: 2
       },
       itemStyle: {
-        color: '#10b981'
+        color: '#1e40af'
       },
       symbol: 'circle',
       symbolSize: navData.length > 60 ? 0 : 6,
