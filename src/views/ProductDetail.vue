@@ -62,7 +62,7 @@ const handleFetchNav = async () => {
     
     const allowedSources = product.value.type === 'fund' 
       ? ['tiantian'] 
-      : ['cmb', 'icbc']
+      : ['tiantian', 'cmb', 'icbc']
     const navSrc = allowedSources.includes(product.value.navSource || '') 
       ? product.value.navSource 
       : (product.value.type === 'fund' ? 'tiantian' : 'cmb')
@@ -156,7 +156,7 @@ const handleFetchNavHistory = async () => {
   
   const allowedSources = product.value.type === 'fund' 
     ? ['tiantian'] 
-    : ['cmb', 'icbc']
+    : ['tiantian', 'cmb', 'icbc']
   const navSrc = allowedSources.includes(product.value.navSource || '') 
     ? product.value.navSource 
     : (product.value.type === 'fund' ? 'tiantian' : 'cmb')
@@ -241,7 +241,9 @@ const handleFetchNavHistory = async () => {
 const backfillingNav = ref(false)
 
 const handleBackfillNav = async () => {
-  if (!product.value?.code || product.value.type !== 'fund') return
+  const canBackfill = product.value?.type === 'fund' ||
+    (product.value?.type === 'fixed_income' && product.value?.navSource === 'tiantian')
+  if (!product.value?.code || !canBackfill) return
 
   backfillingNav.value = true
   navFetchError.value = ''
@@ -944,7 +946,7 @@ onUnmounted(() => {
       </div>
       <div class="flex items-center space-x-2 flex-wrap gap-2">
         <button
-          v-if="product.code && product.type !== 'fund' && product.navSource !== ''"
+          v-if="product.code && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
           class="apple-btn-primary text-sm"
@@ -953,7 +955,7 @@ onUnmounted(() => {
           <span>{{ fetchingNavHistory ? '查询中...' : '查询历史净值' }}</span>
         </button>
         <button
-          v-if="product.code && product.type === 'fund'"
+          v-if="product.code && (product.type === 'fund' || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
           @click="handleBackfillNav"
           :disabled="backfillingNav"
           class="apple-btn-primary text-sm"

@@ -188,6 +188,31 @@ const dailyReturnMap = computed(() => {
   return map
 })
 
+// 当天有净值更新的产品 ID 集合
+// 通过交易 ID 前缀（Date.now().toString(36)）判断交易创建时间
+const todayNavUpdateSet = computed(() => {
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayEnd = new Date()
+  todayEnd.setHours(23, 59, 59, 999)
+  
+  const set = new Set<string>()
+  for (const product of products.value) {
+    const navUpdates = getTransactionsByProductId(product.id)
+      .filter(t => t.type === 'nav_update')
+    // 检查是否有净值更新交易的创建时间在今天
+    const hasTodayUpdate = navUpdates.some(t => {
+      // ID 前 8 位是 Date.now().toString(36) 的时间戳
+      const creationTime = parseInt(t.id.substring(0, 8), 36)
+      return creationTime >= todayStart.getTime() && creationTime <= todayEnd.getTime()
+    })
+    if (hasTodayUpdate) {
+      set.add(product.id)
+    }
+  }
+  return set
+})
+
 // 批量获取所有基金的阶段涨幅
 const fetchAllStageGains = async () => {
   if (props.type !== 'fund') return
@@ -892,6 +917,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           :daily-return="getDailyReturn(product.code)?.dailyReturn"
           :show-profit-amount="pageSettings.showProfitAmount"
           :show-profit-rate="pageSettings.showProfitRate"
+          :nav-updated-today="todayNavUpdateSet.has(product.id)"
           @edit="handleEdit(product)"
           @delete="handleDelete(product.id)"
           @click="(id) => router.push({ name: 'product-detail', params: { id } })"
@@ -1264,7 +1290,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   >
                     {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) >= 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
                   </p>
-                  <p class="text-[11px] text-apple-secondary mt-0.5">{{ getDailyReturn(product.code)?.date || '' }}</p>
+                  <p class="text-[11px] mt-0.5" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
+                    {{ getDailyReturn(product.code)?.date || '' }}
+                  </p>
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>

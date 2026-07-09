@@ -1497,7 +1497,7 @@ async function runNavUpdate() {
           let result
           let sourceLabel
           
-          const allowedSources = product.type === 'fund' ? ['tiantian'] : ['cmb', 'icbc']
+          const allowedSources = product.type === 'fund' ? ['tiantian'] : ['tiantian', 'cmb', 'icbc']
           const navSrc = allowedSources.includes(product.navSource || '') 
             ? product.navSource 
             : (product.type === 'fund' ? 'tiantian' : 'cmb')
@@ -1972,8 +1972,11 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
     const { productId } = req.params
     const product = await dbGetAsync('SELECT * FROM products WHERE id = ? AND userId = ?', [productId, req.userId])
     if (!product) return res.status(404).json({ error: '产品不存在' })
-    if (product.type !== 'fund') return res.status(400).json({ error: '仅基金产品支持此功能' })
-    if (!product.code) return res.status(400).json({ error: '基金代码缺失' })
+    // 支持基金产品，以及 navSource 为 tiantian 的固收产品
+    if (product.type !== 'fund' && product.navSource !== 'tiantian') {
+      return res.status(400).json({ error: '仅基金产品或天天基金数据源的产品支持此功能' })
+    }
+    if (!product.code) return res.status(400).json({ error: '产品代码缺失' })
 
     // 从东方财富获取全部历史净值
     const url = `https://fund.eastmoney.com/pingzhongdata/${product.code}.js`

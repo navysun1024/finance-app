@@ -9,9 +9,11 @@ withDefaults(defineProps<{
   dailyReturn?: number | null
   showProfitAmount?: boolean
   showProfitRate?: boolean
+  navUpdatedToday?: boolean
 }>(), {
   showProfitAmount: true,
-  showProfitRate: true
+  showProfitRate: true,
+  navUpdatedToday: false
 })
 
 const emit = defineEmits<{
@@ -101,9 +103,9 @@ const emit = defineEmits<{
     <div class="flex items-center justify-between mt-2 pt-2 border-t border-apple-border/20">
       <span class="text-[10px] text-apple-secondary">
         持有 {{ position.totalShares.toFixed(2) }} 份
-        <span v-if="position.lastNavUpdateDate > 0" class="ml-1 text-apple-secondary">
-          · {{ formatDate(position.lastNavUpdateDate) }}
-        </span>
+        <span v-if="position.lastNavUpdateDate > 0" class="ml-1" :class="navUpdatedToday ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
+            · {{ formatDate(position.lastNavUpdateDate) }}
+          </span>
         <span v-if="position.product.dcaAmount && position.product.dcaCycle" class="ml-1 text-primary-500/70">
           · 定投 {{ position.product.dcaAmount }}元/{{ DCA_CYCLE_OPTIONS.find(o => o.value === position.product.dcaCycle)?.label || position.product.dcaCycle }}
         </span>
