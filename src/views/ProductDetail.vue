@@ -1259,7 +1259,7 @@ onUnmounted(() => {
         
         <!-- 日期区间选择 -->
         <div class="flex items-center space-x-1">
-          <Calendar class="w-4 h-4 text-apple-secondary" />
+          <span class="text-xs text-apple-secondary">区间:</span>
           <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
             <button
               v-for="opt in txDateRangeOptions"

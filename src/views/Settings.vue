@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Download, Upload, Trash2, FileText, AlertCircle, Clock, Play, Table } from 'lucide-vue-next'
+import { Download, Upload, Trash2, FileText, AlertCircle, Clock, Play, Table, PieChart } from 'lucide-vue-next'
 import { exportData, importData, clearAllData, logout, getCurrentUser } from '@/utils/storage'
 import { useFinance } from '@/composables/useFinance'
 import { exportToExcel } from '@/utils/excel'
@@ -307,6 +307,37 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
       </div>
     </div>
     
+    <div class="glass-card p-6">
+      <div class="flex items-start space-x-4">
+        <div class="w-11 h-11 bg-purple-500 rounded-xl flex items-center justify-center flex-shrink-0">
+          <PieChart class="w-5 h-5 text-white" />
+        </div>
+        <div class="flex-1">
+          <h3 class="text-[15px] font-semibold text-apple-text">盈亏计算说明</h3>
+          <p class="text-[13px] text-apple-secondary mt-1">清仓与自选产品在各项统计中的参与情况</p>
+        </div>
+      </div>
+      <div class="mt-4 space-y-3 text-[13px] text-apple-secondary">
+        <div>
+          <p class="font-medium text-apple-text mb-1">概览页面（Dashboard）</p>
+          <ul class="space-y-1 pl-4 list-disc">
+            <li>仅统计持有中的产品（份额 > 0.01）</li>
+            <li>清仓产品的历史盈亏不计入总盈亏和盈亏率</li>
+            <li>自选产品不参与任何计算</li>
+          </ul>
+        </div>
+        <div>
+          <p class="font-medium text-apple-text mb-1">产品列表页</p>
+          <ul class="space-y-1 pl-4 list-disc">
+            <li>总市值：仅包含持有中的产品</li>
+            <li>总盈亏、盈亏率：包含所有有交易记录的产品（含清仓）</li>
+            <li>XIRR 年化收益率：包含所有有交易记录的产品（含清仓）</li>
+            <li>自选产品不参与任何计算</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
     <div class="glass-card p-6">
       <h3 class="text-[15px] font-semibold text-primary-500 mb-3">数据存储说明</h3>
       <ul class="text-[13px] text-apple-secondary space-y-1.5">

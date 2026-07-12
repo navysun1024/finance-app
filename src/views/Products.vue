@@ -5,8 +5,8 @@ import ProductModal from '@/components/ProductModal.vue'
 import ProductListItem from '@/components/ProductListItem.vue'
 import { useFinance } from '@/composables/useFinance'
 import { useRouter } from 'vue-router'
-import type { ProductType } from '@/types'
-import { DCA_CYCLE_OPTIONS } from '@/types'
+import type { ProductType, ProductStatus } from '@/types'
+import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency, formatCurrency1 } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
 import { fetchFundStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchFundNav, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
@@ -37,6 +37,7 @@ const showModal = ref(false)
 const editingProduct = ref<typeof products.value[0] | null>(null)
 const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
+const filterStatus = ref<ProductStatus | 'all'>('holding')
 
 const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y' | 'holder'>('marketValue')
 const sortOrder = ref<'asc' | 'desc'>('desc')
@@ -468,6 +469,27 @@ const summaryStats = computed(() => {
   }
 })
 
+const getPosition = (productId: string) => {
+  return positionMap.value.get(productId) || null
+}
+
+const productStatusMap = computed(() => {
+  const map = new Map<string, ProductStatus>()
+  for (const product of products.value) {
+    const pos = getPosition(product.id)
+    const shares = pos?.totalShares ?? 0
+    const hasBuy = (pos?.transactions ?? []).some(t => t.type === 'buy')
+    if (shares > 0.01) {
+      map.set(product.id, 'holding')
+    } else if (hasBuy) {
+      map.set(product.id, 'closed')
+    } else {
+      map.set(product.id, 'watchlist')
+    }
+  }
+  return map
+})
+
 const filteredProducts = computed(() => {
   let result = [...products.value]
   // 如果指定了类型过滤，只显示该类型
@@ -483,6 +505,9 @@ const filteredProducts = computed(() => {
       p.note.toLowerCase().includes(query) ||
       (p.code && p.code.toLowerCase().includes(query))
     )
+  }
+  if (filterStatus.value !== 'all') {
+    result = result.filter(p => productStatusMap.value.get(p.id) === filterStatus.value)
   }
   result.sort((a, b) => {
     const posA = positionMap.value.get(a.id)
@@ -566,10 +591,6 @@ const positionMap = computed(() => {
   }
   return map
 })
-
-const getPosition = (productId: string) => {
-  return positionMap.value.get(productId) || null
-}
 
 const handleAdd = () => {
   editingProduct.value = null
@@ -904,6 +925,19 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           {{ option.label }}
         </option>
       </select>
+      <div class="flex rounded-xl overflow-hidden border border-apple-border/50 bg-white">
+        <button
+          v-for="status in ['all', 'holding', 'closed', 'watchlist'] as const"
+          :key="status"
+          @click="filterStatus = status"
+          class="px-3 py-2 text-[13px] font-medium transition-all"
+          :class="filterStatus === status 
+            ? 'bg-primary-500 text-white' 
+            : 'bg-transparent text-apple-secondary hover:text-apple-text'"
+        >
+          {{ status === 'all' ? '全部' : PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.label }}
+        </button>
+      </div>
     </div>
     
     <!-- 移动端卡片布局 -->
@@ -918,6 +952,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           :show-profit-amount="pageSettings.showProfitAmount"
           :show-profit-rate="pageSettings.showProfitRate"
           :nav-updated-today="todayNavUpdateSet.has(product.id)"
+          :status="productStatusMap.get(product.id)"
           @edit="handleEdit(product)"
           @delete="handleDelete(product.id)"
           @click="(id) => router.push({ name: 'product-detail', params: { id } })"
@@ -944,6 +979,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ChevronsUpDown v-if="sortKey !== 'name'" class="w-3 h-3 text-apple-secondary/40" />
                   <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <th 
+                class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider select-none"
+              >
+                <div class="flex items-center space-x-1">
+                  <span>状态</span>
                 </div>
               </th>
               <th 
@@ -1130,6 +1172,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                   </div>
                 </div>
+              </td>
+              <td class="px-2 py-3 whitespace-nowrap">
+                <span 
+                  v-if="productStatusMap.get(product.id)"
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+                  :style="{ backgroundColor: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color + '15', color: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color }"
+                >
+                  {{ PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.label }}
+                </span>
+                <span v-else class="text-[13px] text-apple-secondary">-</span>
               </td>
               <td v-if="props.type !== 'fund'" class="px-2 py-3 whitespace-nowrap">
                 <p class="text-[14px] text-apple-secondary">{{ product.holder || '-' }}</p>

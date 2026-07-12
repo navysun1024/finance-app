@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { Edit2, Trash2, ArrowRight } from 'lucide-vue-next'
-import type { Position } from '@/types'
-import { DCA_CYCLE_OPTIONS } from '@/types'
+import type { Position, ProductStatus } from '@/types'
+import { DCA_CYCLE_OPTIONS, PRODUCT_STATUS_OPTIONS } from '@/types'
 import { formatCurrency1, formatPercent, formatDate } from '@/utils/format'
 
 withDefaults(defineProps<{
   position: Position
+  status?: ProductStatus
   dailyReturn?: number | null
   showProfitAmount?: boolean
   showProfitRate?: boolean
@@ -39,15 +40,25 @@ const emit = defineEmits<{
             }"
           />
           <h3 class="text-sm font-semibold text-apple-text truncate">{{ position.product.name }}</h3>
+          <span 
+            v-if="status"
+            class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium"
+            :style="{ backgroundColor: PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.color + '15', color: PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.color }"
+          >
+            {{ PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.label }}
+          </span>
         </div>
         <p class="text-[11px] text-apple-secondary">
           {{ position.product.code || '暂无代码' }}
           <span v-if="position.product.holder" class="mx-1">·</span>
           <span v-if="position.product.holder">{{ position.product.holder }}</span>
-          <template v-if="position.product.type === 'fund' && position.product.note">
+          <template v-if="position.product.note">
             <span class="mx-1">·</span>
-            <span class="text-primary-500 truncate max-w-[120px] inline-block align-bottom">{{ position.product.note }}</span>
+            <span class="text-amber-500 truncate max-w-[100px] inline-block align-bottom">{{ position.product.note }}</span>
           </template>
+          <span v-if="position.product.dcaAmount && position.product.dcaCycle" class="ml-1 text-primary-500">
+            · 定投 {{ position.product.dcaAmount }}元/{{ DCA_CYCLE_OPTIONS.find(o => o.value === position.product.dcaCycle)?.label || position.product.dcaCycle }}
+          </span>
         </p>
       </div>
       <div class="flex items-center space-x-1 ml-2">
@@ -106,9 +117,6 @@ const emit = defineEmits<{
         <span v-if="position.lastNavUpdateDate > 0" class="ml-1" :class="navUpdatedToday ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
             · {{ formatDate(position.lastNavUpdateDate) }}
           </span>
-        <span v-if="position.product.dcaAmount && position.product.dcaCycle" class="ml-1 text-primary-500/70">
-          · 定投 {{ position.product.dcaAmount }}元/{{ DCA_CYCLE_OPTIONS.find(o => o.value === position.product.dcaCycle)?.label || position.product.dcaCycle }}
-        </span>
       </span>
       <span class="text-[10px] text-apple-secondary flex items-center">
         详情 <ArrowRight class="w-2.5 h-2.5 ml-0.5" />
