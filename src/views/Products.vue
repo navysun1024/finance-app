@@ -4,7 +4,7 @@ import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOf
 import ProductModal from '@/components/ProductModal.vue'
 import ProductListItem from '@/components/ProductListItem.vue'
 import { useFinance } from '@/composables/useFinance'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import type { ProductType, ProductStatus } from '@/types'
 import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency, formatCurrency1 } from '@/utils/format'
@@ -22,6 +22,7 @@ const pageSettings = computed(() => {
   return props.type === 'fund' ? fundSettings.value : fixedIncomeSettings.value
 })
 const router = useRouter()
+const route = useRoute()
 
 // 切换当前页面的所有显示控制
 const togglePageDisplay = () => {
@@ -39,7 +40,7 @@ const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 const filterStatus = ref<ProductStatus | 'all'>('holding')
 
-const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y' | 'holder'>('marketValue')
+const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y' | 'holder' | 'inceptionDays'>('marketValue')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
 // 阶段涨幅数据缓存
@@ -310,6 +311,52 @@ const getFixedIncomeAnnualRate = (code: string | undefined): FixedIncomeAnnualRa
   return fixedIncomeAnnualRateMap.value.get(code)
 }
 
+// ==================== 成立天数（基于最早净值日期计算）====================
+const inceptionDaysMap = computed(() => {
+  const map = new Map<string, number>()
+  for (const product of products.value) {
+    if (product.type !== 'fixed_income' || !product.code) continue
+    const navUpdates = getTransactionsByProductId(product.id)
+      .filter(t => t.type === 'nav_update')
+      .sort((a, b) => a.date - b.date)
+    if (navUpdates.length === 0) continue
+    const earliestDate = navUpdates[0].date
+    const days = Math.floor((Date.now() - earliestDate) / (24 * 60 * 60 * 1000))
+    map.set(product.code, days)
+  }
+  return map
+})
+
+const getInceptionDays = (code: string | undefined): number | undefined => {
+  if (!code) return undefined
+  return inceptionDaysMap.value.get(code)
+}
+
+// ==================== 成立年化收益率（首笔净值至今的年化）====================
+const inceptionAnnualRateMap = computed(() => {
+  const map = new Map<string, number>()
+  for (const product of products.value) {
+    if (product.type !== 'fixed_income' || !product.code) continue
+    const navUpdates = getTransactionsByProductId(product.id)
+      .filter(t => t.type === 'nav_update')
+      .sort((a, b) => a.date - b.date)
+    if (navUpdates.length < 2) continue
+    const first = navUpdates[0]
+    const last = navUpdates[navUpdates.length - 1]
+    const days = (last.date - first.date) / (24 * 60 * 60 * 1000)
+    if (days < 7) continue
+    const simpleReturn = last.price / first.price
+    const annualRate = (Math.pow(simpleReturn, 365 / days) - 1) * 100
+    map.set(product.code, annualRate)
+  }
+  return map
+})
+
+const getInceptionAnnualRate = (code: string | undefined): number | undefined => {
+  if (!code) return undefined
+  return inceptionAnnualRateMap.value.get(code)
+}
+
 // ==================== 持仓汇总（懒加载 + 缓存）====================
 const aggregatedHoldings = ref<AggregatedHoldingsResult | null>(null)
 const loadingAggregatedHoldings = ref(false)
@@ -556,6 +603,9 @@ const filteredProducts = computed(() => {
       case 'fiAnnual1y':
         comparison = (getFixedIncomeAnnualRate(a.code)?.['1y'] || 0) - (getFixedIncomeAnnualRate(b.code)?.['1y'] || 0)
         break
+      case 'inceptionDays':
+        comparison = (getInceptionDays(a.code) || 0) - (getInceptionDays(b.code) || 0)
+        break
     }
     return sortOrder.value === 'asc' ? comparison : -comparison
   })
@@ -608,9 +658,18 @@ const handleDelete = (id: string) => {
   }
 }
 
+let isRestoringFromQuery = false
+
 onMounted(() => {
+  isRestoringFromQuery = true
+  if (route.query.status) {
+    filterStatus.value = route.query.status as ProductStatus | 'all'
+  }
+  if (route.query.type && !props.type) {
+    filterType.value = route.query.type as ProductType | 'all'
+  }
+  isRestoringFromQuery = false
   fetchAllStageGains()
-  // 持仓汇总：页面加载时强制从 API 获取最新数据
   if (props.type === 'fund') {
     fetchAllAggregatedHoldings(true)
   }
@@ -620,6 +679,18 @@ watch(() => products.value, () => {
   if (props.type === 'fund') {
     fetchAllStageGains()
   }
+})
+
+watch(filterStatus, (val) => {
+  if (isRestoringFromQuery) return
+  const query = { ...route.query, status: val === 'all' ? undefined : val }
+  router.replace({ query })
+})
+
+watch(filterType, (val) => {
+  if (isRestoringFromQuery || props.type) return
+  const query = { ...route.query, type: val === 'all' ? undefined : val }
+  router.replace({ query })
 })
 
 const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string }) => {
@@ -953,9 +1024,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           :show-profit-rate="pageSettings.showProfitRate"
           :nav-updated-today="todayNavUpdateSet.has(product.id)"
           :status="productStatusMap.get(product.id)"
+          :is-watchlist-mode="filterStatus === 'watchlist' && props.type === 'fixed_income'"
+          :inception-days="getInceptionDays(product.code)"
+          :fi-annual-1m="getFixedIncomeAnnualRate(product.code)?.['1m']"
+          :inception-annual-rate="getInceptionAnnualRate(product.code)"
           @edit="handleEdit(product)"
           @delete="handleDelete(product.id)"
-          @click="(id) => router.push({ name: 'product-detail', params: { id } })"
+          @click="(id) => router.push({ name: 'product-detail', params: { id }, query: { status: filterStatus, type: filterType } })"
         />
       </div>
       <div v-else class="glass-card p-8 text-center">
@@ -1052,7 +1127,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 @click="handleSort('holdingDays')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>天数</span>
+                  <span>持有</span>
                   <ChevronsUpDown v-if="sortKey !== 'holdingDays'" class="w-3 h-3 text-apple-secondary/40" />
                   <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
@@ -1133,6 +1208,18 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
+                v-if="props.type === 'fixed_income'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('inceptionDays')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>成立</span>
+                  <ChevronsUpDown v-if="sortKey !== 'inceptionDays'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <th 
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('dailyReturn')"
               >
@@ -1151,7 +1238,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               v-for="product in filteredProducts" 
               :key="product.id" 
               class="hover:bg-primary-50/30 cursor-pointer transition-colors"
-              @click="router.push({ name: 'product-detail', params: { id: product.id } })"
+              @click="router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus, type: filterType } })"
             >
               <td class="px-2 py-3">
                 <div>
@@ -1332,6 +1419,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
+                </template>
+              </td>
+              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getInceptionDays(product.code) !== undefined">
+                  <p class="text-[14px] font-semibold text-apple-text">{{ getInceptionDays(product.code) }} 天</p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
               <td class="px-2 py-3 text-right whitespace-nowrap">

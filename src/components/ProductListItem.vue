@@ -11,10 +11,15 @@ withDefaults(defineProps<{
   showProfitAmount?: boolean
   showProfitRate?: boolean
   navUpdatedToday?: boolean
+  isWatchlistMode?: boolean
+  inceptionDays?: number
+  fiAnnual1m?: number
+  inceptionAnnualRate?: number
 }>(), {
   showProfitAmount: true,
   showProfitRate: true,
-  navUpdatedToday: false
+  navUpdatedToday: false,
+  isWatchlistMode: false
 })
 
 const emit = defineEmits<{
@@ -78,28 +83,56 @@ const emit = defineEmits<{
     </div>
     
     <div class="mt-2 flex items-center justify-between text-[11px]">
-      <div class="flex-1 min-w-0">
-        <p class="text-apple-secondary/70">市值</p>
-        <p class="text-sm font-semibold text-apple-text truncate">{{ formatCurrency1(position.marketValue) }}</p>
-      </div>
-      <div class="flex-1 min-w-0 text-center">
-        <p class="text-apple-secondary/70">{{ position.product.type === 'fixed_income' ? '年化收益率' : '收益率' }}</p>
-        <p 
-          class="text-sm font-semibold"
-          :class="showProfitRate ? ((position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
-        >
-          {{ showProfitRate ? formatPercent(position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) : '****' }}
-        </p>
-      </div>
-      <div class="flex-1 min-w-0 text-center">
-        <p class="text-apple-secondary/70">收益</p>
-        <p 
-          class="text-sm font-semibold"
-          :class="showProfitAmount ? (position.profit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
-        >
-          {{ showProfitAmount ? (position.profit >= 0 ? '+' : '') + formatCurrency1(position.profit) : '****' }}
-        </p>
-      </div>
+      <!-- 自选模式：显示成立天数、近1月年化、成立年化 -->
+      <template v-if="isWatchlistMode">
+        <div class="flex-1 min-w-0">
+          <p class="text-apple-secondary/70">成立天数</p>
+          <p class="text-sm font-semibold text-apple-text truncate">{{ inceptionDays ?? '-' }} 天</p>
+        </div>
+        <div class="flex-1 min-w-0 text-center">
+          <p class="text-apple-secondary/70">近1月</p>
+          <p 
+            class="text-sm font-semibold"
+            :class="(fiAnnual1m ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
+          >
+            {{ fiAnnual1m !== undefined ? `${fiAnnual1m >= 0 ? '+' : ''}${fiAnnual1m.toFixed(2)}%` : '-' }}
+          </p>
+        </div>
+        <div class="flex-1 min-w-0 text-center">
+          <p class="text-apple-secondary/70">成立年化</p>
+          <p 
+            class="text-sm font-semibold"
+            :class="(inceptionAnnualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
+          >
+            {{ inceptionAnnualRate !== undefined ? `${inceptionAnnualRate >= 0 ? '+' : ''}${inceptionAnnualRate.toFixed(2)}%` : '-' }}
+          </p>
+        </div>
+      </template>
+      <!-- 非自选模式：显示市值、收益率、收益 -->
+      <template v-else>
+        <div class="flex-1 min-w-0">
+          <p class="text-apple-secondary/70">市值</p>
+          <p class="text-sm font-semibold text-apple-text truncate">{{ formatCurrency1(position.marketValue) }}</p>
+        </div>
+        <div class="flex-1 min-w-0 text-center">
+          <p class="text-apple-secondary/70">{{ position.product.type === 'fixed_income' ? '年化收益率' : '收益率' }}</p>
+          <p 
+            class="text-sm font-semibold"
+            :class="showProfitRate ? ((position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
+          >
+            {{ showProfitRate ? formatPercent(position.product.type === 'fixed_income' ? position.annualRate : position.profitRate) : '****' }}
+          </p>
+        </div>
+        <div class="flex-1 min-w-0 text-center">
+          <p class="text-apple-secondary/70">收益</p>
+          <p 
+            class="text-sm font-semibold"
+            :class="showProfitAmount ? (position.profit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
+          >
+            {{ showProfitAmount ? (position.profit >= 0 ? '+' : '') + formatCurrency1(position.profit) : '****' }}
+          </p>
+        </div>
+      </template>
       <div class="flex-1 min-w-0 text-right">
         <p class="text-apple-secondary/70">当日收益</p>
         <p 
@@ -113,10 +146,17 @@ const emit = defineEmits<{
     
     <div class="flex items-center justify-between mt-2 pt-2 border-t border-apple-border/20">
       <span class="text-[10px] text-apple-secondary">
-        持有 {{ position.totalShares.toFixed(2) }} 份
-        <span v-if="position.lastNavUpdateDate > 0" class="ml-1" :class="navUpdatedToday ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
+        <template v-if="isWatchlistMode">
+          <span v-if="position.lastNavUpdateDate > 0" :class="navUpdatedToday ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
+            {{ formatDate(position.lastNavUpdateDate) }}
+          </span>
+        </template>
+        <template v-else>
+          持有 {{ position.totalShares.toFixed(2) }} 份
+          <span v-if="position.lastNavUpdateDate > 0" class="ml-1" :class="navUpdatedToday ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
             · {{ formatDate(position.lastNavUpdateDate) }}
           </span>
+        </template>
       </span>
       <span class="text-[10px] text-apple-secondary flex items-center">
         详情 <ArrowRight class="w-2.5 h-2.5 ml-0.5" />

@@ -887,6 +887,22 @@ const handleResize = () => {
   holdingsChart?.resize()
 }
 
+const goBackToProducts = () => {
+  // 传递筛选状态 query params，使产品列表页恢复之前的选择
+  const query: Record<string, string> = {}
+  if (route.query.status) query.status = route.query.status as string
+  if (route.query.type) query.type = route.query.type as string
+  
+  if (!product.value) {
+    router.push({ name: 'products', query })
+    return
+  }
+  router.push({ 
+    name: product.value.type === 'fund' ? 'funds' : 'fixed-income',
+    query 
+  })
+}
+
 onMounted(async () => {
   await initFinance()
   if (!product.value) {
@@ -924,7 +940,7 @@ onUnmounted(() => {
     <div class="flex flex-col md:flex-row md:items-center space-y-3 md:space-y-0 md:space-x-4">
       <div class="flex items-center space-x-4">
         <button 
-          @click="router.push({ name: 'products' })"
+          @click="goBackToProducts()"
           class="p-2 text-apple-secondary hover:text-apple-text hover:bg-black/5 rounded-full transition-colors flex-shrink-0"
         >
           <ArrowLeft class="w-5 h-5" />
