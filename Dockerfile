@@ -9,11 +9,13 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositorie
 
 # 配置npm国内镜像
 ENV npm_config_registry=https://registry.npmmirror.com
+# 构建层不需要 Chromium，跳过 puppeteer 自动下载（节省数分钟）
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # 【缓存优化】先拷贝依赖文件，代码变更不会触发npm ci重跑
 COPY package.json package-lock.json ./
-# 使用 BuildKit 缓存 npm 缓存目录，避免每次重新下载
-RUN --mount=type=cache,target=/root/.npm npm ci
+# 使用 BuildKit 缓存 npm 缓存目录 + prefer-offline 优先使用缓存
+RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline
 
 # 再拷贝业务源码编译
 COPY . .

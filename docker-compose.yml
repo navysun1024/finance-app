@@ -1,11 +1,11 @@
 services:
-  finance-app:
+  asset-track:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         BUILDKIT_INLINE_CACHE: '1'
-    container_name: finance-app
+    container_name: asset-track
     restart: unless-stopped
     ports:
       - "8080:80"
