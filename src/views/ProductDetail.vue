@@ -4,7 +4,7 @@ import { ArrowLeft, Plus, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
 import { formatCurrency, formatCurrency1, formatPercent, formatDate, getDateOnly } from '@/utils/format'
-import { fetchFundNav, fetchCmbNav, fetchIcbcNav, fetchCmbNavHistory, fetchIcbcNavHistory, fetchFundStageGains, fetchFundHoldings, type NavResult, type StageGains, type FundHoldingsResult } from '@/utils/fundApi'
+import { fetchEquityNav, fetchCmbNav, fetchIcbcNav, fetchCmbNavHistory, fetchIcbcNavHistory, fetchEquityStageGains, fetchEquityHoldings, type NavResult, type StageGains, type EquityHoldingsResult } from '@/utils/equityApi'
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
@@ -13,7 +13,7 @@ import * as echarts from 'echarts'
 
 const route = useRoute()
 const router = useRouter()
-const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, PRODUCT_TYPE_OPTIONS } = useFinance()
+const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, PRODUCT_TYPE_OPTIONS, refresh } = useFinance()
 
 const fetchingNav = ref(false)
 const fetchingNavHistory = ref(false)
@@ -22,14 +22,14 @@ const fetchingHoldings = ref(false)
 const navFetchError = ref('')
 const navHistorySuccess = ref('')
 const stageGains = ref<StageGains | null>(null)
-const holdingsData = ref<FundHoldingsResult | null>(null)
+const holdingsData = ref<EquityHoldingsResult | null>(null)
 
 const handleFetchStageGains = async () => {
-  if (!product.value?.code || product.value.type !== 'fund') return
+  if (!product.value?.code || (product.value.type !== 'equity' && product.value.type !== 'fund')) return
 
   fetchingStageGains.value = true
   try {
-    const result = await fetchFundStageGains(product.value.code)
+    const result = await fetchEquityStageGains(product.value.code)
     stageGains.value = result.data
   } catch (e: any) {
     console.error('获取阶段涨幅失败:', e)
@@ -39,11 +39,11 @@ const handleFetchStageGains = async () => {
 }
 
 const handleFetchHoldings = async () => {
-  if (!product.value?.code || product.value.type !== 'fund') return
+  if (!product.value?.code || (product.value.type !== 'equity' && product.value.type !== 'fund')) return
 
   fetchingHoldings.value = true
   try {
-    holdingsData.value = await fetchFundHoldings(product.value.code)
+    holdingsData.value = await fetchEquityHoldings(product.value.code)
   } catch (e: any) {
     console.error('获取持仓信息失败:', e)
   } finally {
@@ -58,24 +58,20 @@ const handleFetchNav = async () => {
   navFetchError.value = ''
   try {
     let result: NavResult
-    let sourceLabel: string
     
-    const allowedSources = product.value.type === 'fund' 
+    const allowedSources = (product.value.type === 'equity' || product.value.type === 'fund')
       ? ['tiantian'] 
       : ['tiantian', 'cmb', 'icbc']
     const navSrc = allowedSources.includes(product.value.navSource || '') 
       ? product.value.navSource 
-      : (product.value.type === 'fund' ? 'tiantian' : 'cmb')
+      : (product.value.type === 'equity' || product.value.type === 'fund' ? 'tiantian' : 'cmb')
     
     if (navSrc === 'tiantian') {
-      result = await fetchFundNav(product.value.code)
-      sourceLabel = '天天基金'
+      result = await fetchEquityNav(product.value.code)
     } else if (navSrc === 'icbc') {
       result = await fetchIcbcNav(product.value.code)
-      sourceLabel = '工银理财'
     } else {
       result = await fetchCmbNav(product.value.code)
-      sourceLabel = '招银理财'
     }
     let dateTimestamp = Date.now()
     if (result.date) {
@@ -110,7 +106,6 @@ const handleFetchNav = async () => {
     }
 
     const updateTime = new Date().toLocaleString('zh-CN')
-    const navNote = `${sourceLabel}自动查询 - ${updateTime}`
     addTransaction(
       productId.value,
       'nav_update',
@@ -119,7 +114,7 @@ const handleFetchNav = async () => {
       result.nav,
       0,
       0,
-      navNote
+      updateTime
     )
 
     // 将限购信息写入产品备注
@@ -154,12 +149,12 @@ const handleFetchNav = async () => {
 const handleFetchNavHistory = async () => {
   if (!product.value?.code) return
   
-  const allowedSources = product.value.type === 'fund' 
+  const allowedSources = (product.value.type === 'equity' || product.value.type === 'fund')
     ? ['tiantian'] 
     : ['tiantian', 'cmb', 'icbc']
   const navSrc = allowedSources.includes(product.value.navSource || '') 
     ? product.value.navSource 
-    : (product.value.type === 'fund' ? 'tiantian' : 'cmb')
+    : (product.value.type === 'equity' || product.value.type === 'fund' ? 'tiantian' : 'cmb')
   
   if (navSrc === 'tiantian') return
 
@@ -176,13 +171,10 @@ const handleFetchNavHistory = async () => {
     )
 
     let results: NavResult[]
-    let sourceLabel: string
     if (navSrc === 'icbc') {
       results = await fetchIcbcNavHistory(product.value.code, 50)
-      sourceLabel = '工银理财'
     } else {
       results = await fetchCmbNavHistory(product.value.code, 50)
-      sourceLabel = '招银理财'
     }
     let addedCount = 0
 
@@ -210,6 +202,8 @@ const handleFetchNavHistory = async () => {
 
       const dateKey = getDateOnly(dateTimestamp)
       if (!existingDates.has(dateKey)) {
+        const now = new Date()
+        const timeStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
         addTransaction(
           productId.value,
           'nav_update',
@@ -218,7 +212,7 @@ const handleFetchNavHistory = async () => {
           result.nav,
           0,
           0,
-          `${sourceLabel}批量查询 - 净值日期 ${result.date}`
+          timeStr
         )
         existingDates.add(dateKey)
         addedCount++
@@ -237,11 +231,11 @@ const handleFetchNavHistory = async () => {
   }
 }
 
-// 补全基金历史净值
+// 补全权益历史净值
 const backfillingNav = ref(false)
 
 const handleBackfillNav = async () => {
-  const canBackfill = product.value?.type === 'fund' ||
+  const canBackfill = (product.value?.type === 'equity' || product.value?.type === 'fund') ||
     (product.value?.type === 'fixed_income' && product.value?.navSource === 'tiantian')
   if (!product.value?.code || !canBackfill) return
 
@@ -254,6 +248,7 @@ const handleBackfillNav = async () => {
     if (!res.ok) throw new Error(data.error || '补全失败')
     if (data.inserted > 0) {
       navHistorySuccess.value = `补全成功！共 ${data.total} 条历史净值，新增 ${data.inserted} 条`
+      await refresh()
     } else {
       navHistorySuccess.value = `无缺失数据，共 ${data.total} 条历史净值已是完整`
     }
@@ -597,12 +592,14 @@ const navRangeOptions = [
 const navRange = ref<string>('all')
 
 const getProductTypeLabel = (type: string) => {
-  const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === type)
+  const normalized = type === 'fund' ? 'equity' : type
+  const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.label : type
 }
 
 const getProductTypeColor = (type: string) => {
-  const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === type)
+  const normalized = type === 'fund' ? 'equity' : type
+  const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.color : '#6b7280'
 }
 
@@ -758,8 +755,8 @@ const updateChart = () => {
   const navValues = navData.map(t => t.nav)
   const minNav = Math.min(...navValues, position.value?.currentNav || 1)
   const maxNav = Math.max(...navValues, position.value?.currentNav || 1)
-  const navRange = maxNav - minNav
-  const padding = navRange * 0.1 || 0.02
+  const navSpread = maxNav - minNav
+  const padding = navSpread * 0.1 || 0.02
 
   // 构建净值日期索引，用于定位买入/卖出点
   const navDateIndex = new Map<string, number>()
@@ -791,7 +788,37 @@ const updateChart = () => {
     })
     .filter(Boolean)
   
+  // 计算默认区间的年化收益率（仅固收产品）
+  let titleOption: any = {}
+  if (product.value?.type === 'fixed_income' && navData.length >= 2) {
+    const startNav = navData[0].nav
+    const endNav = navData[navData.length - 1].nav
+    const startTimestamp = navData[0].timestamp
+    const endTimestamp = navData[navData.length - 1].timestamp
+    const days = (endTimestamp - startTimestamp) / (24 * 60 * 60 * 1000)
+    
+    if (days >= 1 && startNav > 0) {
+      const totalReturn = endNav / startNav
+      const annualReturn = (Math.pow(totalReturn, 365 / days) - 1) * 100
+      const totalReturnPct = (totalReturn - 1) * 100
+      const color = annualReturn >= 0 ? '#ef4444' : '#22c55e'
+      
+      titleOption = {
+        title: [{
+          text: `区间年化: ${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%`,
+          subtext: `累计: ${totalReturnPct >= 0 ? '+' : ''}${totalReturnPct.toFixed(2)}% · ${Math.floor(days)}天`,
+          left: 'right',
+          bottom: 60,
+          textAlign: 'right',
+          textStyle: { fontSize: 14, fontWeight: 600, color },
+          subtextStyle: { fontSize: 11, color: '#8e8e93' }
+        }]
+      }
+    }
+  }
+  
   chart.setOption({
+    ...titleOption,
     tooltip: {
       trigger: 'axis',
       formatter: (params: any) => {
@@ -803,7 +830,7 @@ const updateChart = () => {
     grid: {
       left: 10,
       right: 10,
-      bottom: 10,
+      bottom: 40,
       top: 10,
       containLabel: true
     },
@@ -811,17 +838,17 @@ const updateChart = () => {
       type: 'category',
       data: navData.map(t => {
         const dateStr = t.date
-        // formatDate 返回 YYYY/MM/DD 格式，转为 YY/MM 显示（年月）
         if (dateStr.length === 10 && dateStr.includes('/')) {
-          return dateStr.substring(2, 7) // 取 YY/MM
+          const parts = dateStr.split('/')
+          return `${parts[0].substring(2)}-${parts[1]}-${parts[2]}`
         }
         return dateStr
       }),
       axisLabel: {
         rotate: 0,
-        fontSize: 12,
+        fontSize: 11,
         interval: 'auto',
-        margin: 12
+        margin: 8
       },
       axisTick: {
         alignWithLabel: true
@@ -830,6 +857,34 @@ const updateChart = () => {
         show: true
       }
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        start: 0,
+        end: 100,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: false
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        start: 0,
+        end: 100,
+        height: 20,
+        bottom: 2,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(0,0,0,0.05)',
+        fillerColor: 'rgba(30, 64, 175, 0.2)',
+        handleStyle: {
+          color: '#1e40af'
+        },
+        textStyle: {
+          fontSize: 10
+        }
+      }
+    ],
     yAxis: {
       type: 'value',
       min: Math.max(0, minNav - padding),
@@ -878,6 +933,110 @@ const updateChart = () => {
 const initChart = () => {
   if (!chartRef.value) return
   chart = echarts.init(chartRef.value)
+  
+  // 计算区间年化收益率并更新显示（仅固收产品）
+  const updateRangeAnnualReturn = (start: number, end: number) => {
+    const isFixedIncome = product.value?.type === 'fixed_income'
+    if (!isFixedIncome) return
+    
+    const navData = filteredNavTransactions.value
+    if (navData.length < 2) {
+      chart!.setOption({ title: [{ text: '' }] })
+      return
+    }
+    
+    const startIdx = Math.floor((start / 100) * (navData.length - 1))
+    const endIdx = Math.ceil((end / 100) * (navData.length - 1))
+    const visibleData = navData.slice(startIdx, endIdx + 1)
+    
+    if (visibleData.length < 2) {
+      chart!.setOption({ title: [{ text: '' }] })
+      return
+    }
+    
+    const startNav = visibleData[0].nav
+    const endNav = visibleData[visibleData.length - 1].nav
+    const startTimestamp = visibleData[0].timestamp
+    const endTimestamp = visibleData[visibleData.length - 1].timestamp
+    
+    // 计算持有天数
+    const days = (endTimestamp - startTimestamp) / (24 * 60 * 60 * 1000)
+    
+    if (days < 1 || startNav <= 0) {
+      chart!.setOption({ title: [{ text: '' }] })
+      return
+    }
+    
+    // 计算年化收益率：((终值/初值)^(365/天数) - 1) * 100%
+    const totalReturn = endNav / startNav
+    const annualReturn = (Math.pow(totalReturn, 365 / days) - 1) * 100
+    const totalReturnPct = (totalReturn - 1) * 100
+    
+    const color = annualReturn >= 0 ? '#ef4444' : '#22c55e'
+    
+    chart!.setOption({
+      title: [
+        {
+          text: `区间年化: ${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%`,
+          subtext: `累计: ${totalReturnPct >= 0 ? '+' : ''}${totalReturnPct.toFixed(2)}% · ${Math.floor(days)}天`,
+          left: 'right',
+          bottom: 60,
+          textAlign: 'right',
+          textStyle: {
+            fontSize: 14,
+            fontWeight: 600,
+            color
+          },
+          subtextStyle: {
+            fontSize: 11,
+            color: '#8e8e93'
+          }
+        }
+      ]
+    })
+  }
+  
+  // 监听 dataZoom 事件，动态调整 y 轴范围和显示区间年化
+  chart.on('dataZoom', () => {
+    const option = chart!.getOption()
+    const dataZoomOpt = option.dataZoom as any[]
+    if (!dataZoomOpt || dataZoomOpt.length === 0) return
+    
+    const start = dataZoomOpt[0].start
+    const end = dataZoomOpt[0].end
+    const navData = filteredNavTransactions.value
+    if (navData.length === 0) return
+    
+    const startIdx = Math.floor((start / 100) * (navData.length - 1))
+    const endIdx = Math.ceil((end / 100) * (navData.length - 1))
+    const visibleData = navData.slice(startIdx, endIdx + 1)
+    
+    if (visibleData.length === 0) return
+    
+    let min = Infinity
+    let max = -Infinity
+    for (const item of visibleData) {
+      if (item.nav < min) min = item.nav
+      if (item.nav > max) max = item.nav
+    }
+    
+    const range = max - min
+    const padding = range * 0.1 || 0.01
+    
+    chart!.setOption({
+      yAxis: {
+        min: Math.max(0, min - padding),
+        max: max + padding
+      }
+    })
+    
+    // 更新区间年化收益率显示
+    updateRangeAnnualReturn(start, end)
+  })
+  
+  // 初始更新一次区间年化
+  updateRangeAnnualReturn(0, 100)
+  
   updateChart()
 }
 
@@ -898,7 +1057,7 @@ const goBackToProducts = () => {
     return
   }
   router.push({ 
-    name: product.value.type === 'fund' ? 'funds' : 'fixed-income',
+    name: (product.value.type === 'equity' || product.value.type === 'fund') ? 'equity' : 'fixed-income',
     query 
   })
 }
@@ -911,8 +1070,8 @@ onMounted(async () => {
   }
   initChart()
   window.addEventListener('resize', handleResize)
-  // 基金产品自动加载阶段涨幅和持仓信息
-  if (product.value.type === 'fund' && product.value.code) {
+  // 权益产品自动加载阶段涨幅和持仓信息
+  if ((product.value.type === 'equity' || product.value.type === 'fund') && product.value.code) {
     handleFetchStageGains()
     handleFetchHoldings()
   }
@@ -962,7 +1121,7 @@ onUnmounted(() => {
       </div>
       <div class="flex items-center space-x-2 flex-wrap gap-2">
         <button
-          v-if="product.code && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
+          v-if="product.code && product.type !== 'equity' && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
           class="apple-btn-primary text-sm"
@@ -971,7 +1130,7 @@ onUnmounted(() => {
           <span>{{ fetchingNavHistory ? '查询中...' : '查询历史净值' }}</span>
         </button>
         <button
-          v-if="product.code && (product.type === 'fund' || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
+          v-if="product.code && (product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
           @click="handleBackfillNav"
           :disabled="backfillingNav"
           class="apple-btn-primary text-sm"
@@ -994,7 +1153,7 @@ onUnmounted(() => {
     <p v-if="navHistorySuccess" class="text-sm text-loss mt-2">{{ navHistorySuccess }}</p>
 
     <!-- 持仓概览 + 阶段涨幅/收益率 并排显示 -->
-    <div :class="(product.type === 'fund' || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''">
+    <div :class="(product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''">
       <!-- 持仓概览 -->
       <div v-if="position" class="glass-card p-6">
         <div class="flex items-center justify-between mb-4">
@@ -1004,7 +1163,7 @@ onUnmounted(() => {
             :class="['w-5 h-5', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']"
           />
         </div>
-        <div :class="['grid gap-4', product.type === 'fund' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-5']">
+        <div :class="['grid gap-4', (product.type === 'equity' || product.type === 'fund') ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-5']">
           <div>
             <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">持有天数</p>
             <p class="text-[15px] font-semibold text-apple-text mt-1">{{ position?.holdingDays || 0 }} 天</p>
@@ -1025,7 +1184,7 @@ onUnmounted(() => {
               {{ formatPercent(position?.profitRate || 0) }}
             </p>
           </div>
-          <div v-if="product.type !== 'fund'">
+          <div v-if="product.type !== 'equity' && product.type !== 'fund'">
             <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">年化收益率</p>
             <p :class="['text-[15px] font-semibold mt-1', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.annualRate || 0) }}
@@ -1034,9 +1193,9 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 阶段涨幅 (仅基金产品显示) -->
-      <div v-if="product.type === 'fund' && stageGains" class="glass-card p-5">
-        <div class="flex items-center justify-between mb-4">
+      <!-- 阶段涨幅 (仅权益产品显示) -->
+      <div v-if="(product.type === 'equity' || product.type === 'fund') && stageGains" class="glass-card p-5">
+        <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
             @click="handleFetchStageGains"
@@ -1098,7 +1257,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="product.type === 'fund' && !stageGains && !fetchingStageGains" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !stageGains && !fetchingStageGains" class="glass-card p-5">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
@@ -1110,9 +1269,9 @@ onUnmounted(() => {
             <span>加载</span>
           </button>
         </div>
-        <p class="text-sm text-apple-secondary mt-2">点击加载查看基金阶段涨幅数据</p>
+        <p class="text-sm text-apple-secondary mt-2">点击加载查看权益阶段涨幅数据</p>
       </div>
-      <div v-else-if="product.type === 'fund' && fetchingStageGains" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingStageGains" class="glass-card p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">阶段涨幅</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
@@ -1159,9 +1318,9 @@ onUnmounted(() => {
     </div>
     
     <!-- 持仓信息 + 净值走势 并排显示 -->
-    <div :class="product.type === 'fund' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch' : ''">
-      <!-- 持仓信息 (仅基金产品显示) -->
-      <div v-if="product.type === 'fund' && holdingsData" class="glass-card p-5">
+    <div :class="(product.type === 'equity' || product.type === 'fund') ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch' : ''">
+      <!-- 持仓信息 (仅权益产品显示) -->
+      <div v-if="(product.type === 'equity' || product.type === 'fund') && holdingsData" class="glass-card p-5">
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <div class="flex items-center space-x-3">
@@ -1197,7 +1356,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="product.type === 'fund' && !holdingsData && !fetchingHoldings" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !holdingsData && !fetchingHoldings" class="glass-card p-5">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <button
@@ -1209,9 +1368,9 @@ onUnmounted(() => {
             <span>加载</span>
           </button>
         </div>
-        <p class="text-sm text-apple-secondary mt-2">点击加载查看基金持仓信息</p>
+        <p class="text-sm text-apple-secondary mt-2">点击加载查看权益持仓信息</p>
       </div>
-      <div v-else-if="product.type === 'fund' && fetchingHoldings && !holdingsData" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingHoldings && !holdingsData" class="glass-card p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">持仓信息</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
       </div>

@@ -93,7 +93,7 @@ async function main() {
            MIN(CASE WHEN t.type = 'buy' THEN t.date END) as firstBuyDate
     FROM products p
     LEFT JOIN transactions t ON t.productId = p.id AND t.type = 'buy'
-    WHERE p.type = 'fund' AND p.code IS NOT NULL AND p.code != ''
+    WHERE p.type = 'equity' AND p.code IS NOT NULL AND p.code != ''
     GROUP BY p.id
     HAVING firstBuyDate IS NOT NULL
     ORDER BY p.name
@@ -139,7 +139,8 @@ async function main() {
       let inserted = 0
       for (const navItem of missingNavs) {
         const txId = generateId()
-        const note = `天天基金历史补全 - 净值日期 ${navItem.dateStr}`
+        const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+        const note = updateTime
         try {
           await runSql(
             'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',

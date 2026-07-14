@@ -1,6 +1,6 @@
 import { createLogger } from './logger'
 
-const logger = createLogger('FundApi')
+const logger = createLogger('EquityApi')
 
 export interface NavResult {
   code?: string
@@ -12,11 +12,11 @@ export interface NavResult {
 }
 
 /**
- * 获取基金限购信息
+ * 获取权益限购信息
  */
-export async function fetchFundPurchaseLimit(fundCode: string): Promise<string> {
+export async function fetchEquityPurchaseLimit(equityCode: string): Promise<string> {
   try {
-    const response = await fetch(`/api/db/api/fund/purchase-limit/${fundCode}`)
+    const response = await fetch(`/api/db/api/fund/purchase-limit/${equityCode}`)
     const result = await response.json()
     return result.purchaseLimitLabel || ''
   } catch {
@@ -24,32 +24,32 @@ export async function fetchFundPurchaseLimit(fundCode: string): Promise<string> 
   }
 }
 
-export async function fetchFundNav(fundCode: string): Promise<NavResult> {
-  logger.info(`查询基金净值, code: ${fundCode}`)
-  return logger.withTiming(`fetchFundNav(${fundCode})`, async () => {
-    const url = `/api/pingzhongdata/pingzhongdata/${fundCode}.js`
+export async function fetchEquityNav(equityCode: string): Promise<NavResult> {
+  logger.info(`查询权益净值, code: ${equityCode}`)
+  return logger.withTiming(`fetchEquityNav(${equityCode})`, async () => {
+    const url = `/api/pingzhongdata/pingzhongdata/${equityCode}.js`
 
     const response = await fetch(url)
     const text = await response.text()
 
     if (!text || text.length < 100) {
-      logger.warn(`基金 ${fundCode} 数据为空, 响应长度: ${text?.length || 0}`)
-      throw new Error(`基金 ${fundCode} 数据为空`)
+      logger.warn(`权益 ${equityCode} 数据为空, 响应长度: ${text?.length || 0}`)
+      throw new Error(`权益 ${equityCode} 数据为空`)
     }
 
     const nameMatch = text.match(/var Data_fundName\s*=\s*['"]([^'"]+)['"]/)
-    const fundName = nameMatch ? nameMatch[1] : ''
+    const equityName = nameMatch ? nameMatch[1] : ''
 
     const trendMatch = text.match(/var Data_netWorthTrend\s*=\s*(\[[\s\S]+?\]);/)
     if (!trendMatch) {
-      logger.error(`基金 ${fundCode} 净值趋势数据解析失败`)
-      throw new Error(`基金 ${fundCode} 净值趋势数据解析失败`)
+      logger.error(`权益 ${equityCode} 净值趋势数据解析失败`)
+      throw new Error(`权益 ${equityCode} 净值趋势数据解析失败`)
     }
 
     const data = JSON.parse(trendMatch[1])
     if (!data || data.length === 0) {
-      logger.warn(`基金 ${fundCode} 暂无净值数据`)
-      throw new Error(`基金 ${fundCode} 暂无净值数据`)
+      logger.warn(`权益 ${equityCode} 暂无净值数据`)
+      throw new Error(`权益 ${equityCode} 暂无净值数据`)
     }
 
     const last = data[data.length - 1]
@@ -66,13 +66,13 @@ export async function fetchFundNav(fundCode: string): Promise<NavResult> {
     }
 
     // 并行获取限购信息
-    const purchaseLimitLabel = await fetchFundPurchaseLimit(fundCode)
+    const purchaseLimitLabel = await fetchEquityPurchaseLimit(equityCode)
 
-    logger.info(`基金 ${fundCode} 净值查询成功: nav=${last.y}, date=${dateStr}, name=${fundName}, dailyReturn=${dailyReturn}, limit=${purchaseLimitLabel}`)
+    logger.info(`权益 ${equityCode} 净值查询成功: nav=${last.y}, date=${dateStr}, name=${equityName}, dailyReturn=${dailyReturn}, limit=${purchaseLimitLabel}`)
     return {
       nav: last.y,
       date: dateStr,
-      name: fundName,
+      name: equityName,
       dailyReturn,
       purchaseLimitLabel
     }
@@ -203,43 +203,43 @@ export interface CachedResult<T> {
   updatedAt?: number
 }
 
-export async function fetchFundStageGains(fundCode: string, force = false): Promise<CachedResult<StageGains>> {
-  logger.info(`查询基金阶段涨幅, code: ${fundCode}, force: ${force}`)
-  return logger.withTiming(`fetchFundStageGains(${fundCode})`, async () => {
+export async function fetchEquityStageGains(equityCode: string, force = false): Promise<CachedResult<StageGains>> {
+  logger.info(`查询权益阶段涨幅, code: ${equityCode}, force: ${force}`)
+  return logger.withTiming(`fetchEquityStageGains(${equityCode})`, async () => {
     try {
       const url = force 
-        ? `/api/db/fund/stage-gains/${fundCode}?force=true`
-        : `/api/db/fund/stage-gains/${fundCode}`
+        ? `/api/db/fund/stage-gains/${equityCode}?force=true`
+        : `/api/db/fund/stage-gains/${equityCode}`
       const response = await fetch(url)
       const result = await response.json()
       if (result.success) {
-        logger.info(`基金阶段涨幅查询成功, code: ${fundCode}, fromCache: ${result.fromCache}`)
+        logger.info(`权益阶段涨幅查询成功, code: ${equityCode}, fromCache: ${result.fromCache}`)
         return {
           data: result.data,
           fromCache: result.fromCache || false,
           updatedAt: result.updatedAt
         }
       } else {
-        logger.error(`基金阶段涨幅查询失败, code: ${fundCode}, 错误: ${result.error}`)
+        logger.error(`权益阶段涨幅查询失败, code: ${equityCode}, 错误: ${result.error}`)
         throw new Error(result.error || '查询失败')
       }
     } catch (e: any) {
-      logger.error(`基金阶段涨幅请求异常, code: ${fundCode}, 错误: ${e.message}`, e)
-      throw new Error(`基金阶段涨幅查询失败: ${e.message}`)
+      logger.error(`权益阶段涨幅请求异常, code: ${equityCode}, 错误: ${e.message}`, e)
+      throw new Error(`权益阶段涨幅查询失败: ${e.message}`)
     }
   })
 }
 
 /**
- * 批量获取多只基金的阶段涨幅
- * @param fundCodes 基金代码数组
+ * 批量获取多只权益的阶段涨幅
+ * @param equityCodes 权益代码数组
  */
-export async function fetchFundStageGainsBatch(fundCodes: string[]): Promise<Record<string, StageGains>> {
-  if (fundCodes.length === 0) return {}
-  logger.info(`批量查询基金阶段涨幅, 数量: ${fundCodes.length}`)
-  return logger.withTiming(`fetchFundStageGainsBatch(${fundCodes.length})`, async () => {
+export async function fetchEquityStageGainsBatch(equityCodes: string[]): Promise<Record<string, StageGains>> {
+  if (equityCodes.length === 0) return {}
+  logger.info(`批量查询权益阶段涨幅, 数量: ${equityCodes.length}`)
+  return logger.withTiming(`fetchEquityStageGainsBatch(${equityCodes.length})`, async () => {
     try {
-      const url = `/api/db/fund/stage-gains-batch?codes=${encodeURIComponent(fundCodes.join(','))}`
+      const url = `/api/db/fund/stage-gains-batch?codes=${encodeURIComponent(equityCodes.join(','))}`
       const response = await fetch(url)
       const result = await response.json()
       if (result.success) {
@@ -256,9 +256,9 @@ export async function fetchFundStageGainsBatch(fundCodes: string[]): Promise<Rec
   })
 }
 
-// ==================== 基金持仓信息 ====================
+// ==================== 权益持仓信息 ====================
 
-export interface FundHolding {
+export interface EquityHolding {
   index: number      // 序号
   code: string       // 股票代码
   name: string       // 股票名称
@@ -267,7 +267,7 @@ export interface FundHolding {
   marketValue: number // 持仓市值 (万元)
 }
 
-export interface FundAssetAllocation {
+export interface EquityAssetAllocation {
   stockRatio: number | null   // 股票占净比 (%)
   bondRatio: number | null    // 债券占净比 (%)
   cashRatio: number | null    // 现金占净比 (%)
@@ -275,43 +275,43 @@ export interface FundAssetAllocation {
   reportDate: string          // 报告期
 }
 
-export interface FundHoldingsResult {
-  stocks: FundHolding[]
-  assetAllocation: FundAssetAllocation
+export interface EquityHoldingsResult {
+  stocks: EquityHolding[]
+  assetAllocation: EquityAssetAllocation
   reportDate: string
-  dataSource?: string  // 数据来源说明（如“数据来自目标ETF”）
+  dataSource?: string  // 数据来源说明（如"数据来自目标ETF"）
 }
 
-export async function fetchFundHoldings(fundCode: string): Promise<FundHoldingsResult> {
-  logger.info(`查询基金持仓信息, code: ${fundCode}`)
-  return logger.withTiming(`fetchFundHoldings(${fundCode})`, async () => {
+export async function fetchEquityHoldings(equityCode: string): Promise<EquityHoldingsResult> {
+  logger.info(`查询权益持仓信息, code: ${equityCode}`)
+  return logger.withTiming(`fetchEquityHoldings(${equityCode})`, async () => {
     try {
-      const response = await fetch(`/api/db/fund/holdings/${fundCode}`)
+      const response = await fetch(`/api/db/fund/holdings/${equityCode}`)
       const result = await response.json()
       if (result.success) {
-        logger.info(`基金持仓信息查询成功, code: ${fundCode}, 重仓股数量: ${result.data?.stocks?.length || 0}`)
+        logger.info(`权益持仓信息查询成功, code: ${equityCode}, 重仓股数量: ${result.data?.stocks?.length || 0}`)
         return result.data
       } else {
-        logger.error(`基金持仓信息查询失败, code: ${fundCode}, 错误: ${result.error}`)
+        logger.error(`权益持仓信息查询失败, code: ${equityCode}, 错误: ${result.error}`)
         throw new Error(result.error || '查询失败')
       }
     } catch (e: any) {
-      logger.error(`基金持仓信息请求异常, code: ${fundCode}, 错误: ${e.message}`, e)
-      throw new Error(`基金持仓信息查询失败: ${e.message}`)
+      logger.error(`权益持仓信息请求异常, code: ${equityCode}, 错误: ${e.message}`, e)
+      throw new Error(`权益持仓信息查询失败: ${e.message}`)
     }
   })
 }
 
-// ==================== 基金持仓汇总 ====================
+// ==================== 权益持仓汇总 ====================
 
 export interface AggregatedStock {
   code: string        // 股票代码
   name: string        // 股票名称
   totalValue: number  // 汇总市值 (元)
   ratio: number       // 占总持仓比例 (%)
-  funds: {            // 持有该股票的基金明细
+  funds: {            // 持有该股票的权益明细
     fundCode: string
-    ratio: number     // 该基金中占比
+    ratio: number     // 该权益中占比
     value: number     // 持有市值
   }[]
 }
@@ -336,26 +336,26 @@ export interface AggregatedHoldingsResult {
   assetCategories: AssetCategory[]
   assetAllocation: AssetAllocation | null
   totalValue: number   // 总市值 (元)
-  fundCount: number    // 基金数量
+  fundCount: number    // 权益数量
 }
 
 /**
- * 获取多只基金的持仓汇总
- * @param funds - 基金代码和市值的数组 [{code, marketValue}]
+ * 获取多只权益的持仓汇总
+ * @param equityProducts - 权益代码和市值的数组 [{code, marketValue}]
  */
 export async function fetchAggregatedHoldings(
-  funds: { code: string; marketValue: number }[]
+  equityProducts: { code: string; marketValue: number }[]
 ): Promise<AggregatedHoldingsResult> {
-  if (funds.length === 0) {
+  if (equityProducts.length === 0) {
     return { stocks: [], assetCategories: [], assetAllocation: null, totalValue: 0, fundCount: 0 }
   }
   
-  const fundsParam = funds.map(f => `${f.code}:${f.marketValue}`).join(',')
-  logger.info(`查询基金持仓汇总, 基金数量: ${funds.length}`)
+  const fundsParam = equityProducts.map(f => `${f.code}:${f.marketValue}`).join(',')
+  logger.info(`查询权益持仓汇总, 权益数量: ${equityProducts.length}`)
   
-  return logger.withTiming(`fetchAggregatedHoldings(${funds.length})`, async () => {
+  return logger.withTiming(`fetchAggregatedHoldings(${equityProducts.length})`, async () => {
     try {
-      const response = await fetch(`/api/db/fund/aggregated-holdings?funds=${encodeURIComponent(fundsParam)}`)
+      const response = await fetch(`/api/db/equity/aggregated-holdings?funds=${encodeURIComponent(fundsParam)}`)
       const result = await response.json()
       if (result.success) {
         logger.info(`持仓汇总查询成功, 股票数量: ${result.data?.stocks?.length || 0}`)

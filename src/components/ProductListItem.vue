@@ -40,7 +40,7 @@ const emit = defineEmits<{
           <span 
             class="w-1.5 h-1.5 rounded-full"
             :class="{
-              'bg-blue-500': position.product.type === 'fund',
+              'bg-blue-500': position.product.type === 'equity' || position.product.type === 'fund',
               'bg-green-500': position.product.type === 'fixed_income'
             }"
           />

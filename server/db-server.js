@@ -1467,7 +1467,7 @@ async function runNavUpdate() {
       // 同一用户内排序：基金 → 招银 → 工银
       userProducts.sort((a, b) => {
         const getOrder = (p) => {
-          if (p.type === 'fund' || p.navSource === 'tiantian') return 0
+          if (p.type === 'equity' || p.type === 'fund' || p.navSource === 'tiantian') return 0
           if (p.navSource === 'cmb') return 1
           if (p.navSource === 'icbc') return 2
           return 0
@@ -1497,10 +1497,10 @@ async function runNavUpdate() {
           let result
           let sourceLabel
           
-          const allowedSources = product.type === 'fund' ? ['tiantian'] : ['tiantian', 'cmb', 'icbc']
+          const allowedSources = (product.type === 'equity' || product.type === 'fund') ? ['tiantian'] : ['tiantian', 'cmb', 'icbc']
           const navSrc = allowedSources.includes(product.navSource || '') 
             ? product.navSource 
-            : (product.type === 'fund' ? 'tiantian' : 'cmb')
+            : (product.type === 'equity' || product.type === 'fund' ? 'tiantian' : 'cmb')
           
           if (navSrc === 'tiantian') {
             result = await fetchFundNavServer(product.code)
@@ -1570,7 +1570,7 @@ async function runNavUpdate() {
 
           // 插入 nav_update 交易
           const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-          const note = `${sourceLabel}定时更新 - ${updateTime}`
+          const note = updateTime
 
           const txId = generateId()
           await new Promise((resolve, reject) => {
@@ -1973,7 +1973,7 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
     const product = await dbGetAsync('SELECT * FROM products WHERE id = ? AND userId = ?', [productId, req.userId])
     if (!product) return res.status(404).json({ error: '产品不存在' })
     // 支持基金产品，以及 navSource 为 tiantian 的固收产品
-    if (product.type !== 'fund' && product.navSource !== 'tiantian') {
+    if (product.type !== 'equity' && product.type !== 'fund' && product.navSource !== 'tiantian') {
       return res.status(400).json({ error: '仅基金产品或天天基金数据源的产品支持此功能' })
     }
     if (!product.code) return res.status(400).json({ error: '产品代码缺失' })
@@ -2019,6 +2019,7 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
 
     // 批量插入缺失的净值记录
     let inserted = 0
+    const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
     for (const navItem of missingNavs) {
       const d = new Date(navItem.x)
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -2027,7 +2028,7 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
       try {
         await dbRunAsync(
           'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [txId, req.userId, productId, 'nav_update', ts, 0, navItem.y, 0, 0, `历史补全 - ${dateStr}`]
+          [txId, req.userId, productId, 'nav_update', ts, 0, navItem.y, 0, 0, updateTime]
         )
         inserted++
       } catch (e) {

@@ -3,9 +3,9 @@ import { h, defineComponent, defineAsyncComponent } from 'vue'
 
 const Products = defineAsyncComponent(() => import('@/views/Products.vue'))
 
-const FundProducts = defineComponent({
+const EquityProducts = defineComponent({
   render() {
-    return h(Products, { type: 'fund' })
+    return h(Products, { type: 'equity' })
   }
 })
 
@@ -41,9 +41,9 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
-      path: '/funds',
-      name: 'funds',
-      component: FundProducts,
+      path: '/equity',
+      name: 'equity',
+      component: EquityProducts,
       meta: { requiresAuth: true }
     },
     {

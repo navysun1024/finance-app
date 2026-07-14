@@ -176,13 +176,13 @@ export async function exportData(): Promise<string> {
   logger.info('开始导出数据...')
   const products = await getProducts()
   const allTransactions = await getTransactions()
-  // 获取基金产品ID列表
-  const fundProductIds = new Set(products.filter(p => p.type === 'fund').map(p => p.id))
-  // 导出时仅排除基金产品的 nav_update 历史净值数据（可通过定时调度器重新获取）
+  // 获取权益产品ID列表
+  const equityProductIds = new Set(products.filter(p => p.type === 'equity' || p.type === 'fund').map(p => p.id))
+  // 导出时仅排除权益产品的 nav_update 历史净值数据（可通过定时调度器重新获取）
   // 固收产品的净值数据保留在导出中
   const transactions = allTransactions.filter(t => {
-    if (t.type === 'nav_update' && fundProductIds.has(t.productId)) {
-      return false // 排除基金产品的净值更新记录
+    if (t.type === 'nav_update' && equityProductIds.has(t.productId)) {
+      return false // 排除权益产品的净值更新记录
     }
     return true
   })
@@ -193,7 +193,7 @@ export async function exportData(): Promise<string> {
     dcaCycle: p.dcaCycle || ''
   }))
   const excludedCount = allTransactions.length - transactions.length
-  logger.info(`导出完成: 产品 ${productsWithDca.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条基金净值更新记录)`)
+  logger.info(`导出完成: 产品 ${productsWithDca.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条权益净值更新记录)`)
   return JSON.stringify({ products: productsWithDca, transactions }, null, 2)
 }
 

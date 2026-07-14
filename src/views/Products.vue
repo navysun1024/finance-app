@@ -9,17 +9,17 @@ import type { ProductType, ProductStatus } from '@/types'
 import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency, formatCurrency1 } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
-import { fetchFundStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchFundNav, type StageGains, type AggregatedHoldingsResult } from '@/utils/fundApi'
+import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult } from '@/utils/equityApi'
 
 const props = defineProps<{
   type?: ProductType
 }>()
 
-const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction, fundSettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
+const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
 
 // 根据当前页面类型选择对应的显示设置
 const pageSettings = computed(() => {
-  return props.type === 'fund' ? fundSettings.value : fixedIncomeSettings.value
+  return props.type === 'equity' ? equitySettings.value : fixedIncomeSettings.value
 })
 const router = useRouter()
 const route = useRoute()
@@ -51,11 +51,11 @@ const loadingStageGains = ref(false)
 const loadingBatchNav = ref(false)
 const batchNavResult = ref<{ success: number; total: number; skip?: number } | null>(null)
 
-// ==================== 批量更新净值（支持基金和固收理财）====================
+// ==================== 批量更新净值（支持权益和固收理财）====================
 const handleBatchUpdateNav = async () => {
   if (!props.type) return
   
-  const targetProducts = products.value.filter(p => p.type === props.type && p.code)
+  const targetProducts = products.value.filter(p => (p.type === 'fund' ? 'equity' : p.type) === props.type && p.code)
   if (targetProducts.length === 0) {
     return
   }
@@ -69,14 +69,14 @@ const handleBatchUpdateNav = async () => {
   try {
     let results: any[] = []
     
-    if (props.type === 'fund') {
-      // 基金：逐个查询
+    if (props.type === 'equity') {
+      // 权益：逐个查询
       for (const product of targetProducts) {
         try {
-          const navResult = await fetchFundNav(product.code!)
+          const navResult = await fetchEquityNav(product.code!)
           results.push({ ...navResult, code: product.code })
         } catch (error) {
-          console.error(`基金 ${product.code} 查询失败:`, error)
+          console.error(`权益 ${product.code} 查询失败:`, error)
           results.push({ code: product.code, nav: null })
         }
       }
@@ -94,11 +94,11 @@ const handleBatchUpdateNav = async () => {
       if (result.nav !== null && result.code) {
         const product = codeToProductMap.get(result.code)
         if (product) {
-          // 解析日期（基金格式：2026-06-23，固收理财格式：20260623）
+          // 解析日期（权益格式：2026-06-23，固收理财格式：20260623）
           let dateTimestamp = Date.now()
           if (result.date) {
             if (result.date.includes('-')) {
-              // 基金日期格式：2026-06-23
+              // 权益日期格式：2026-06-23
               const parts = result.date.split('-')
               dateTimestamp = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime()
             } else if (result.date.length === 8) {
@@ -137,7 +137,7 @@ const handleBatchUpdateNav = async () => {
           // amount 和 shares 对于 nav_update 类型不重要，使用 0
           const now = new Date()
           const timeStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
-          await addTransaction(product.id, 'nav_update', dateTimestamp, 0, result.nav, 0, 0, `净值批量更新 - ${timeStr}`)
+          await addTransaction(product.id, 'nav_update', dateTimestamp, 0, result.nav, 0, 0, timeStr)
           successCount++
         }
       }
@@ -215,15 +215,15 @@ const todayNavUpdateSet = computed(() => {
   return set
 })
 
-// 批量获取所有基金的阶段涨幅
+// 批量获取所有权益产品的阶段涨幅
 const fetchAllStageGains = async () => {
-  if (props.type !== 'fund') return
+  if (props.type !== 'equity') return
   
-  const fundProducts = products.value.filter(p => p.type === 'fund' && p.code)
-  if (fundProducts.length === 0) return
+  const equityProducts = products.value.filter(p => (p.type === 'equity' || p.type === 'fund') && p.code)
+  if (equityProducts.length === 0) return
   
-  // 找出未缓存的基金代码
-  const uncachedCodes = fundProducts
+  // 找出未缓存的权益产品代码
+  const uncachedCodes = equityProducts
     .map(p => p.code!)
     .filter(code => !stageGainsMap.value.has(code))
   
@@ -232,7 +232,7 @@ const fetchAllStageGains = async () => {
   loadingStageGains.value = true
   try {
     // 使用批量 API 一次获取所有未缓存数据
-    const results = await fetchFundStageGainsBatch(uncachedCodes)
+    const results = await fetchEquityStageGainsBatch(uncachedCodes)
     for (const [code, gains] of Object.entries(results)) {
       stageGainsMap.value.set(code, gains)
     }
@@ -399,18 +399,18 @@ const setAggregatedHoldingsCache = (data: AggregatedHoldingsResult) => {
 }
 
 const fetchAllAggregatedHoldings = async (force = false) => {
-  if (props.type !== 'fund') return
+  if (props.type !== 'equity') return
   
-  // 获取所有有 code 且有市值的基金
-  const fundData = products.value
-    .filter(p => p.type === 'fund' && p.code)
+  // 获取所有有 code 且有市值的权益产品
+  const equityData = products.value
+    .filter(p => (p.type === 'equity' || p.type === 'fund') && p.code)
     .map(p => {
       const pos = calculatePosition(p)
       return { code: p.code!, marketValue: pos?.marketValue || 0 }
     })
     .filter(f => f.marketValue > 0)
   
-  if (fundData.length === 0) return
+  if (equityData.length === 0) return
   
   // 尝试读取缓存
   if (!force) {
@@ -424,7 +424,7 @@ const fetchAllAggregatedHoldings = async (force = false) => {
   
   loadingAggregatedHoldings.value = true
   try {
-    const result = await fetchAggregatedHoldings(fundData)
+    const result = await fetchAggregatedHoldings(equityData)
     aggregatedHoldings.value = result
     aggregatedHoldingsFromCache.value = false
     setAggregatedHoldingsCache(result)
@@ -539,11 +539,13 @@ const productStatusMap = computed(() => {
 
 const filteredProducts = computed(() => {
   let result = [...products.value]
+  // 兼容旧数据：将 'fund' 类型视为 'equity'
+  const normalizeType = (t: string) => t === 'fund' ? 'equity' : t
   // 如果指定了类型过滤，只显示该类型
   if (props.type) {
-    result = result.filter(p => p.type === props.type)
+    result = result.filter(p => normalizeType(p.type) === props.type)
   } else if (filterType.value !== 'all') {
-    result = result.filter(p => p.type === filterType.value)
+    result = result.filter(p => normalizeType(p.type) === filterType.value)
   }
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
@@ -622,7 +624,8 @@ const handleSort = (key: typeof sortKey.value) => {
 }
 
 const getProductTypeLabel = (type: string) => {
-  const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === type)
+  const normalized = type === 'fund' ? 'equity' : type
+  const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.label : type
 }
 
@@ -636,7 +639,8 @@ const getDcaLabel = (dcaAmount: number, dcaCycle: string) => {
 const positionMap = computed(() => {
   const map = new Map<string, ReturnType<typeof calculatePosition>>()
   for (const product of products.value) {
-    if (props.type && product.type !== props.type) continue
+    const normalizedType = product.type === 'fund' ? 'equity' : product.type
+    if (props.type && normalizedType !== props.type) continue
     map.set(product.id, calculatePosition(product))
   }
   return map
@@ -670,13 +674,13 @@ onMounted(() => {
   }
   isRestoringFromQuery = false
   fetchAllStageGains()
-  if (props.type === 'fund') {
+  if (props.type === 'equity') {
     fetchAllAggregatedHoldings(true)
   }
 })
 
 watch(() => products.value, () => {
-  if (props.type === 'fund') {
+  if (props.type === 'equity') {
     fetchAllStageGains()
   }
 })
@@ -709,10 +713,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       <div>
         <div class="flex items-center space-x-2">
           <h2 class="apple-section-title">
-            {{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}
+            {{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '产品' }}
           </h2>
           <button
-            v-if="props.type === 'fund' || props.type === 'fixed_income'"
+            v-if="props.type === 'equity' || props.type === 'fixed_income'"
             @click="togglePageDisplay()"
             class="p-1.5 rounded-lg hover:bg-black/5 transition-colors"
             :title="(pageSettings.showProfitAmount && pageSettings.showProfitRate && pageSettings.showMarketValue && pageSettings.showCost) ? '点击隐藏收益' : '点击显示收益'"
@@ -721,12 +725,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             <EyeOff v-else class="w-4 h-4 text-apple-secondary" />
           </button>
         </div>
-        <p class="apple-section-subtitle mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="apple-section-subtitle mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
       <div class="flex items-center gap-2">
-        <!-- 批量更新净值按钮（基金和固收理财页面显示） -->
+        <!-- 批量更新净值按钮（权益和固收理财页面显示） -->
         <button 
-          v-if="props.type === 'fixed_income' || props.type === 'fund'"
+          v-if="props.type === 'fixed_income' || props.type === 'equity'"
           @click="handleBatchUpdateNav"
           :disabled="loadingBatchNav"
           class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px] disabled:opacity-50"
@@ -808,13 +812,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
     </div>
 
-    <!-- 持仓穿透汇总（仅基金页面显示） -->
-    <div v-if="props.type === 'fund'" class="glass-card overflow-hidden">
+    <!-- 持仓穿透汇总（仅权益页面显示） -->
+    <div v-if="props.type === 'equity'" class="glass-card overflow-hidden">
       <div class="p-5 border-b border-black/5 flex items-center justify-between">
         <div>
           <h3 class="text-[17px] font-semibold text-apple-text">持仓穿透</h3>
           <p class="text-[12px] text-apple-secondary mt-1">
-            <span v-if="aggregatedHoldings">共 {{ aggregatedHoldings.fundCount }} 只基金，{{ aggregatedHoldings.stocks.length }} 只股票</span>
+            <span v-if="aggregatedHoldings">共 {{ aggregatedHoldings.fundCount }} 只权益产品，{{ aggregatedHoldings.stocks.length }} 只股票</span>
             <span v-if="aggregatedHoldingsFromCache" class="text-amber-500"> · 缓存数据</span>
           </p>
         </div>
@@ -876,7 +880,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">代码</th>
               <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持仓金额</th>
               <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">占比</th>
-              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持有基金</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持有权益</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-apple-border/50">
@@ -1034,8 +1038,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         />
       </div>
       <div v-else class="glass-card p-8 text-center">
-        <p class="text-apple-text text-[16px] font-medium">暂无{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
-        <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="text-apple-text text-[16px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
+        <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
     </div>
     
@@ -1064,7 +1068,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                v-if="props.type !== 'fund'"
+                v-if="props.type !== 'equity'"
                 class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('holder')"
               >
@@ -1100,7 +1104,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                v-if="props.type === 'fund'"
+                v-if="props.type === 'equity'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('profitRate')"
               >
@@ -1170,9 +1174,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
-              <!-- 基金类型特有列：阶段涨幅 -->
+              <!-- 权益类型特有列：阶段涨幅 -->
               <th 
-                v-if="props.type === 'fund'"
+                v-if="props.type === 'equity'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('stageGains1m')"
               >
@@ -1184,7 +1188,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                v-if="props.type === 'fund'"
+                v-if="props.type === 'equity'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('stageGains3m')"
               >
@@ -1196,7 +1200,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                v-if="props.type === 'fund'"
+                v-if="props.type === 'equity'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('stageGainsYtd')"
               >
@@ -1248,7 +1252,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                       v-if="!props.type"
                       class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0"
                       :class="{
-                        'bg-primary-50 text-primary-500': product.type === 'fund',
+                        'bg-primary-50 text-primary-500': product.type === 'equity' || product.type === 'fund',
                         'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income'
                       }"
                     >
@@ -1270,7 +1274,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </span>
                 <span v-else class="text-[13px] text-apple-secondary">-</span>
               </td>
-              <td v-if="props.type !== 'fund'" class="px-2 py-3 whitespace-nowrap">
+              <td v-if="props.type !== 'equity'" class="px-2 py-3 whitespace-nowrap">
                 <p class="text-[14px] text-apple-secondary">{{ product.holder || '-' }}</p>
               </td>
               <td class="px-2 py-3 text-right whitespace-nowrap">
@@ -1301,7 +1305,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
+              <td v-if="props.type === 'equity'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
                   <p 
                     class="text-[14px] font-semibold"
@@ -1381,8 +1385,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <!-- 基金类型特有列：阶段涨幅 -->
-              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
+              <!-- 权益类型特有列：阶段涨幅 -->
+              <td v-if="props.type === 'equity'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
                     class="text-[14px] font-semibold"
@@ -1395,7 +1399,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
+              <td v-if="props.type === 'equity'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
                     class="text-[14px] font-semibold"
@@ -1408,7 +1412,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td v-if="props.type === 'fund'" class="px-2 py-3 text-right whitespace-nowrap">
+              <td v-if="props.type === 'equity'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getStageGains(product.code)">
                   <p 
                     class="text-[14px] font-semibold"
@@ -1466,8 +1470,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         </table>
       </div>
       <div v-if="filteredProducts.length === 0" class="p-10 text-center">
-        <p class="text-apple-text text-[17px] font-medium">暂无{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
-        <p class="text-apple-secondary text-[14px] mt-2">点击上方按钮添加{{ props.type === 'fund' ? '基金' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="text-apple-text text-[17px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
+        <p class="text-apple-secondary text-[14px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
       </div>
     </div>
     

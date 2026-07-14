@@ -11,7 +11,7 @@ import * as echarts from 'echarts'
 
 const refreshRef = ref<InstanceType<typeof PullRefresh> | null>(null)
 
-const { portfolioSummary, getProfitHistory, getMarketValueHistory, transactions, refresh, dashboardSettings, fundSettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
+const { portfolioSummary, getProfitHistory, getMarketValueHistory, transactions, refresh, dashboardSettings, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
 
 const typeChartRefs = ref<Record<string, HTMLDivElement>>({})
 const trendChartRefs = ref<Record<string, HTMLDivElement>>({})
@@ -26,7 +26,8 @@ const positionsByType = computed(() => {
   const positions = portfolioSummary.value.positions
   const map = new Map<string, typeof positions>()
   for (const pos of positions) {
-    const type = pos.product.type
+    // 兼容旧数据：将 'fund' 类型视为 'equity'
+    const type = pos.product.type === 'fund' ? 'equity' : pos.product.type
     if (!map.has(type)) map.set(type, [])
     map.get(type)!.push(pos)
   }
@@ -105,7 +106,7 @@ const getRawHistory = (days: number) => {
 const buildCalendarData = (history: ReturnType<typeof getProfitHistory>, type: string): CalendarDayData[] => {
   const typeProductIds = new Set(
     portfolioSummary.value.positions
-      .filter(p => p.product.type === type)
+      .filter(p => (p.product.type === 'fund' ? 'equity' : p.product.type) === type)
       .map(p => p.product.id)
   )
   return history.map(h => {
@@ -538,7 +539,7 @@ const updateAllTrendCharts = () => {
 
 // 根据产品类型获取对应的显示设置
 const getSettingsByType = (type: string) => {
-  if (type === 'fund') return fundSettings
+  if (type === 'equity') return equitySettings
   if (type === 'fixed_income') return fixedIncomeSettings
   return dashboardSettings
 }

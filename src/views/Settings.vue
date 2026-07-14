@@ -235,7 +235,7 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         <div class="flex-1">
           <h3 class="text-[15px] font-semibold text-apple-text">定时净值更新</h3>
           <p class="text-[13px] text-apple-secondary mt-1">
-            每天自动更新基金与理财产品净值
+            每天自动更新权益与理财产品净值
             <span v-if="schedulerStatus?.scheduleTimes">（{{ formatScheduleTimes(schedulerStatus.scheduleTimes) }}）</span>
           </p>
         </div>

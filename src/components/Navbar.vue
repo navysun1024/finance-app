@@ -10,7 +10,7 @@ const route = useRoute()
 const navItems = [
   { name: 'dashboard', label: '概览', icon: LayoutDashboard },
   { name: 'transactions', label: '记账', icon: PlusCircle },
-  { name: 'funds', label: '基金', icon: TrendingUp },
+  { name: 'equity', label: '权益', icon: TrendingUp },
   { name: 'fixed-income', label: '固收', icon: DollarSign },
   { name: 'settings', label: '设置', icon: Settings }
 ]
@@ -77,7 +77,7 @@ onUnmounted(() => {
         <!-- User Menu -->
         <div class="flex items-center space-x-3">
           <span class="inline-flex items-center gap-1 text-[10px] text-primary-500 font-mono tracking-wide bg-primary-50 px-2 py-0.5 rounded-full font-medium">
-            <Tag class="w-2.5 h-2.5" />v1.3.5
+            <Tag class="w-2.5 h-2.5" />v1.3.6
           </span>
           <div ref="userMenuRef" class="relative">
             <button

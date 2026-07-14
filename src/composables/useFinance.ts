@@ -7,7 +7,7 @@ export const PRODUCT_TYPE_OPTIONS: {
  label: string;
  color: string;
 }[] = [
- { value: 'fund', label: '基金', color: '#3b82f6' },
+ { value: 'equity', label: '权益', color: '#3b82f6' },
  { value: 'fixed_income', label: '固收理财', color: '#8b5cf6' }
 ];
 export const TRANSACTION_TYPE_OPTIONS: {
@@ -29,7 +29,7 @@ type DisplaySettings = { showProfitAmount: boolean; showProfitRate: boolean; sho
 
 // 每个页面的独立显示控制
 const dashboardSettings = ref<DisplaySettings>({ showProfitAmount: true, showProfitRate: true, showMarketValue: true, showCost: true })
-const fundSettings = ref<DisplaySettings>({ showProfitAmount: true, showProfitRate: true, showMarketValue: true, showCost: true })
+const equitySettings = ref<DisplaySettings>({ showProfitAmount: true, showProfitRate: true, showMarketValue: true, showCost: true })
 const fixedIncomeSettings = ref<DisplaySettings>({ showProfitAmount: true, showProfitRate: true, showMarketValue: true, showCost: true })
 
 const loadDisplaySettings = () => {
@@ -38,7 +38,7 @@ const loadDisplaySettings = () => {
     if (saved) {
       const settings = JSON.parse(saved)
       if (settings.dashboard) dashboardSettings.value = { ...dashboardSettings.value, ...settings.dashboard }
-      if (settings.fund) fundSettings.value = { ...fundSettings.value, ...settings.fund }
+      if (settings.equity) equitySettings.value = { ...equitySettings.value, ...settings.equity }
       if (settings.fixedIncome) fixedIncomeSettings.value = { ...fixedIncomeSettings.value, ...settings.fixedIncome }
     }
   } catch {
@@ -49,7 +49,7 @@ const loadDisplaySettings = () => {
 const saveDisplaySettings = () => {
   localStorage.setItem('displaySettings', JSON.stringify({
     dashboard: dashboardSettings.value,
-    fund: fundSettings.value,
+    equity: equitySettings.value,
     fixedIncome: fixedIncomeSettings.value
   }))
 }
@@ -556,7 +556,7 @@ const getMarketValueHistory = (days: number = 365): {
  PRODUCT_TYPE_OPTIONS,
  TRANSACTION_TYPE_OPTIONS,
  dashboardSettings,
- fundSettings,
+ equitySettings,
  fixedIncomeSettings,
  saveDisplaySettings
  };

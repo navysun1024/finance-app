@@ -17,7 +17,7 @@ const emit = defineEmits<{
 }>()
 
 const name = ref('')
-const type = ref<ProductType>('fund')
+const type = ref<ProductType>('equity')
 const code = ref('')
 const note = ref('')
 const holder = ref('')
@@ -38,16 +38,16 @@ watch(() => props.visible, (val) => {
     holder.value = props.editProduct.holder || ''
     dcaAmount.value = props.editProduct.dcaAmount || 0
     dcaCycle.value = props.editProduct.dcaCycle || ''
-    navSource.value = props.editProduct.navSource || (props.editProduct.type === 'fund' ? 'tiantian' : '')
+    navSource.value = props.editProduct.navSource || (props.editProduct.type === 'equity' || props.editProduct.type === 'fund' ? 'tiantian' : '')
   } else if (val) {
     name.value = ''
-    type.value = props.defaultType || 'fund'
+    type.value = props.defaultType || 'equity'
     code.value = ''
     note.value = ''
     holder.value = ''
     dcaAmount.value = 0
     dcaCycle.value = ''
-    navSource.value = (props.defaultType || 'fund') === 'fund' ? 'tiantian' : ''
+    navSource.value = (props.defaultType || 'equity') === 'equity' ? 'tiantian' : ''
   }
 })
 
@@ -114,7 +114,7 @@ const handleSubmit = () => {
           <div>
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
               产品代码
-              <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（基金代码支持从天天基金网查询净值）</span>
+              <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（权益代码支持从天天基金网查询净值）</span>
             </label>
             <input 
               v-model="code"

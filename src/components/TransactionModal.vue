@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { X } from 'lucide-vue-next'
 import type { Transaction, Product, TransactionType } from '@/types'
-import { TRANSACTION_TYPE_OPTIONS } from '@/composables/useFinance'
+import { PRODUCT_TYPE_OPTIONS, TRANSACTION_TYPE_OPTIONS } from '@/composables/useFinance'
 
 const props = defineProps<{
   visible: boolean
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   (e: 'submit', data: { productId: string; type: TransactionType; date: number; amount: number; price: number; shares: number; fee: number; note: string }): void
 }>()
 
+const selectedProductType = ref<string>('equity')
 const productId = ref('')
 const type = ref<TransactionType>('buy')
 const date = ref(new Date().toISOString().split('T')[0])
@@ -50,27 +51,51 @@ watch(() => type.value, () => {
 })
 
 watch(() => props.visible, (val) => {
-  if (val && props.editTransaction) {
-    productId.value = props.editTransaction.productId
-    type.value = props.editTransaction.type
-    date.value = new Date(props.editTransaction.date).toISOString().split('T')[0]
-    amount.value = props.editTransaction.amount.toString()
-    price.value = props.editTransaction.price.toString()
-    shares.value = props.editTransaction.shares.toString()
-    fee.value = props.editTransaction.fee.toString()
-    note.value = props.editTransaction.note
-    isManualShares.value = true
-  } else if (val) {
-    productId.value = props.products[0]?.id || ''
-    type.value = 'buy'
-    date.value = new Date().toISOString().split('T')[0]
-    amount.value = ''
-    price.value = ''
-    shares.value = ''
-    fee.value = ''
-    note.value = ''
-    isManualShares.value = false
+  if (val) {
+    if (props.editTransaction) {
+      productId.value = props.editTransaction.productId
+      type.value = props.editTransaction.type
+      date.value = new Date(props.editTransaction.date).toISOString().split('T')[0]
+      amount.value = props.editTransaction.amount.toString()
+      price.value = props.editTransaction.price.toString()
+      shares.value = props.editTransaction.shares.toString()
+      fee.value = props.editTransaction.fee.toString()
+      note.value = props.editTransaction.note
+      isManualShares.value = true
+      // 根据编辑的产品自动设置产品类型
+      const editedProduct = props.products.find(p => p.id === props.editTransaction!.productId)
+      if (editedProduct) {
+        const normalizedType = editedProduct.type === 'fund' ? 'equity' : editedProduct.type
+        selectedProductType.value = normalizedType
+      }
+    } else {
+      // 新增时默认为第一个产品类型的第一个产品
+      productId.value = props.products[0]?.id || ''
+      type.value = 'buy'
+      date.value = new Date().toISOString().split('T')[0]
+      amount.value = ''
+      price.value = ''
+      shares.value = ''
+      fee.value = ''
+      note.value = ''
+      isManualShares.value = false
+      // 默认为权益类型
+      selectedProductType.value = 'equity'
+    }
   }
+})
+
+const filteredProducts = computed(() => {
+  return props.products.filter(p => {
+    const normalizedType = p.type === 'fund' ? 'equity' : p.type
+    return normalizedType === selectedProductType.value
+  })
+})
+
+// 当选择的产品类型变化时，重置产品选择
+watch(selectedProductType, () => {
+  const filtered = filteredProducts.value
+  productId.value = filtered.length > 0 ? filtered[0].id : ''
 })
 
 const handleSharesInput = () => {
@@ -115,13 +140,24 @@ const handleSubmit = () => {
         </div>
         <div class="p-5 space-y-4">
           <div>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">产品类型</label>
+            <select 
+              v-model="selectedProductType"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+            >
+              <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+          <div>
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">关联产品</label>
             <select 
               v-model="productId"
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             >
               <option value="" disabled>请选择产品</option>
-              <option v-for="product in products" :key="product.id" :value="product.id">
+              <option v-for="product in filteredProducts" :key="product.id" :value="product.id">
                 {{ product.name }}
               </option>
             </select>

@@ -59,7 +59,7 @@ async function doImport() {
     if (!product) {
       const pid = generateId()
       product = { id: pid, name: row.fundName, code: row.fundCode }
-      newProducts.push({ id: pid, name: row.fundName, type: 'fund', code: row.fundCode, note: '', createdAt: Date.now() })
+      newProducts.push({ id: pid, name: row.fundName, type: 'equity', code: row.fundCode, note: '', createdAt: Date.now() })
     }
     const dp = row.date.split(/[-/]/)
     const dateTs = new Date(parseInt(dp[0]), parseInt(dp[1])-1, parseInt(dp[2])).getTime()

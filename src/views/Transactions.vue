@@ -9,7 +9,7 @@ import { formatCurrency } from '@/utils/format'
 import { batchImport, type BatchImportResult } from '@/utils/storage'
 import type { TransactionType, Transaction } from '@/types'
 
-const { products, transactions, addTransaction, updateTransaction, deleteTransaction, refresh, TRANSACTION_TYPE_OPTIONS } = useFinance()
+const { products, transactions, addTransaction, updateTransaction, deleteTransaction, refresh, PRODUCT_TYPE_OPTIONS, TRANSACTION_TYPE_OPTIONS } = useFinance()
 
 const showModal = ref(false)
 const showBatchImport = ref(false)
@@ -18,6 +18,7 @@ const showImportResult = ref(false)
 const importResult = ref<BatchImportResult | null>(null)
 const searchQuery = ref('')
 const filterType = ref<TransactionType | 'all'>('buy')
+const filterProductType = ref<string>('all')
 const sortKey = ref<keyof Transaction>('date')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
@@ -62,6 +63,16 @@ const filteredTransactions = computed(() => {
   // 按交易类型筛选
   if (filterType.value !== 'all') {
     result = result.filter(t => t.type === filterType.value)
+  }
+  // 按产品类型筛选
+  if (filterProductType.value !== 'all') {
+    result = result.filter(t => {
+      const product = products.value.find(p => p.id === t.productId)
+      if (!product) return false
+      // 兼容旧数据：将 'fund' 类型视为 'equity'
+      const normalizedType = product.type === 'fund' ? 'equity' : product.type
+      return normalizedType === filterProductType.value
+    })
   }
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
@@ -227,6 +238,15 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
       >
         <option value="all">全部类型</option>
         <option v-for="option in TRANSACTION_TYPE_OPTIONS" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+      <select 
+        v-model="filterProductType"
+        class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px]"
+      >
+        <option value="all">全部产品类型</option>
+        <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
           {{ option.label }}
         </option>
       </select>

@@ -41,7 +41,7 @@ const handleImport = () => {
       newProducts.push({
         id: productId,
         name: row.fundName,
-        type: 'fund',
+        type: 'equity',
         code: row.fundCode,
         note: '',
         createdAt: Date.now()
@@ -65,7 +65,7 @@ const handleImport = () => {
       price: row.nav,
       shares: row.shares,
       fee: row.fee,
-      note: `批量导入 - ${row.fundName}`
+      note: '批量导入'
     })
   }
   
@@ -98,7 +98,7 @@ const handleImport = () => {
           <div class="bg-primary-50 border border-primary-200 rounded-apple p-4 text-sm text-primary-700">
             <p class="font-medium mb-1">使用说明</p>
             <p>从天天基金网或银行交易记录中复制表格数据，粘贴到下方输入框中。</p>
-            <p class="mt-1">支持格式：确认日期、基金代码、基金简称、业务类型、确认状态、确认份额、确认金额、手续费、确认净值
+            <p class="mt-1">支持格式：确认日期、权益代码、权益简称、业务类型、确认状态、确认份额、确认金额、手续费、确认净值
             <br>支持业务类型：买基金、定时定额投资（均作为买入处理）</p>
           </div>
           
@@ -129,8 +129,8 @@ const handleImport = () => {
                 <thead>
                   <tr>
                     <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">日期</th>
-                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">基金代码</th>
-                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">基金名称</th>
+                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">权益代码</th>
+                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">权益名称</th>
                     <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">金额</th>
                     <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">份额</th>
                     <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">净值</th>
