@@ -2256,7 +2256,7 @@ async function getEffectiveHoldings(fundCode) {
  * 获取多只基金的持仓汇总，按市值加权合并
  * 请求参数: funds=code1:marketValue1,code2:marketValue2,...
  */
-app.get('/fund/aggregated-holdings', async (req, res) => {
+app.get('/equity/aggregated-holdings', async (req, res) => {
   try {
     const { funds } = req.query
     if (!funds) {
