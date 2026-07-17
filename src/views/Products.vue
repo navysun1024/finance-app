@@ -1437,9 +1437,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <template v-if="getDailyReturn(product.code)">
                   <p 
                     class="text-[14px] font-semibold"
-                    :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? 'text-profit' : (getDailyReturn(product.code)?.dailyReturn ?? 0) < 0 ? 'text-loss' : ''"
                   >
-                    {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) >= 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
+                    {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
                   </p>
                   <p class="text-[11px] mt-0.5" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
                     {{ getDailyReturn(product.code)?.date || '' }}

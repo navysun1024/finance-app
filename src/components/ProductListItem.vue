@@ -137,9 +137,9 @@ const emit = defineEmits<{
         <p class="text-apple-secondary/70">当日收益</p>
         <p 
           class="text-sm font-semibold"
-          :class="dailyReturn !== null && dailyReturn !== undefined && dailyReturn >= 0 ? 'text-profit' : 'text-loss'"
+          :class="dailyReturn !== null && dailyReturn !== undefined ? (dailyReturn > 0 ? 'text-profit' : dailyReturn < 0 ? 'text-loss' : '') : ''"
         >
-          {{ dailyReturn !== null && dailyReturn !== undefined ? `${dailyReturn >= 0 ? '+' : ''}${dailyReturn.toFixed(2)}%` : '--' }}
+          {{ dailyReturn !== null && dailyReturn !== undefined ? `${dailyReturn > 0 ? '+' : ''}${dailyReturn.toFixed(2)}%` : '--' }}
         </p>
       </div>
     </div>
