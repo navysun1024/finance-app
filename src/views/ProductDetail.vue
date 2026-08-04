@@ -714,6 +714,15 @@ const fixedIncomeStageGains = computed(() => {
   return result
 })
 
+// 产品成立天数（基于最早净值日期计算）
+const inceptionDays = computed(() => {
+  if (product.value?.type !== 'fixed_income') return null
+  const navList = allNavTransactions.value
+  if (navList.length === 0) return null
+  const earliestTimestamp = navList[0].timestamp
+  return Math.floor((Date.now() - earliestTimestamp) / (24 * 60 * 60 * 1000))
+})
+
 // 计算每个净值的日涨跌幅
 const navChangeMap = computed(() => {
   const map = new Map<string, number>()
@@ -1157,17 +1166,18 @@ onUnmounted(() => {
       <!-- 持仓概览 -->
       <div v-if="position" class="glass-card p-6">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-apple-text">持仓概览</h3>
+          <div class="flex items-center gap-2">
+            <h3 class="text-lg font-semibold text-apple-text">持仓概览</h3>
+            <span class="text-xs text-apple-secondary bg-black/5 px-2 py-0.5 rounded-full">
+              持有 {{ position?.holdingDays || 0 }} 天
+            </span>
+          </div>
           <component 
             :is="(position?.profitRate ?? 0) >= 0 ? TrendingUp : TrendingDown" 
             :class="['w-5 h-5', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']"
           />
         </div>
-        <div :class="['grid gap-4', (product.type === 'equity' || product.type === 'fund') ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-5']">
-          <div>
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">持有天数</p>
-            <p class="text-[15px] font-semibold text-apple-text mt-1">{{ position?.holdingDays || 0 }} 天</p>
-          </div>
+        <div :class="['grid gap-4', (product.type === 'equity' || product.type === 'fund') ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4']">
           <div>
             <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">当前市值</p>
             <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(position?.marketValue || 0) }}</p>
@@ -1279,7 +1289,12 @@ onUnmounted(() => {
       <!-- 年化收益率统计 (仅固收产品显示) -->
       <div v-if="product.type === 'fixed_income' && fixedIncomeStageGains" class="glass-card p-5">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-apple-text">年化收益率统计</h3>
+          <div class="flex items-center gap-2">
+            <h3 class="text-lg font-semibold text-apple-text">年化收益率统计</h3>
+            <span v-if="inceptionDays !== null" class="text-xs text-apple-secondary bg-black/5 px-2 py-0.5 rounded-full">
+              成立 {{ inceptionDays }} 天
+            </span>
+          </div>
           <span class="text-xs text-apple-secondary">基于历史净值计算</span>
         </div>
         <div class="grid grid-cols-5 md:grid-cols-5 gap-3">
