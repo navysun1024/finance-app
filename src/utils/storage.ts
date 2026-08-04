@@ -29,8 +29,19 @@ export async function getProducts(): Promise<Product[]> {
       throw new Error('Failed to fetch products')
     }
     const data = await response.json()
-    logger.debug(`获取产品列表成功, 数量: ${data?.length || 0}`)
-    return data
+    // 兼容旧数据：补全新增字段
+    const normalized = Array.isArray(data)
+      ? data.map((p: any) => ({
+          ...p,
+          holder: p.holder || '',
+          dcaAmount: typeof p.dcaAmount === 'number' ? p.dcaAmount : (p.dcaAmount || 0),
+          dcaCycle: p.dcaCycle || '',
+          navSource: p.navSource || '',
+          holdingTerm: p.holdingTerm || ''
+        }))
+      : []
+    logger.debug(`获取产品列表成功, 数量: ${normalized.length || 0}`)
+    return normalized as Product[]
   })
 }
 
@@ -186,11 +197,13 @@ export async function exportData(): Promise<string> {
     }
     return true
   })
-  // 确保产品包含定投字段（兼容旧数据）
+  // 确保产品包含定投、净值查询源、持有期限字段（兼容旧数据）
   const productsWithDca = products.map(p => ({
     ...p,
     dcaAmount: p.dcaAmount || 0,
-    dcaCycle: p.dcaCycle || ''
+    dcaCycle: p.dcaCycle || '',
+    navSource: p.navSource || '',
+    holdingTerm: (p as any).holdingTerm || ''
   }))
   const excludedCount = allTransactions.length - transactions.length
   logger.info(`导出完成: 产品 ${productsWithDca.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条权益净值更新记录)`)
@@ -214,11 +227,13 @@ export async function importData(jsonString: string): Promise<{ success: boolean
     
     if (data.products && Array.isArray(data.products)) {
       logger.info(`导入产品: ${data.products.length} 条`)
-      // 确保产品包含定投字段（兼容旧数据）
+      // 确保产品包含定投、净值查询源、持有期限字段（兼容旧数据）
       const productsWithDca = data.products.map((p: any) => ({
         ...p,
         dcaAmount: p.dcaAmount || 0,
-        dcaCycle: p.dcaCycle || ''
+        dcaCycle: p.dcaCycle || '',
+        navSource: p.navSource || '',
+        holdingTerm: p.holdingTerm || ''
       }))
       const result = await saveProducts(productsWithDca)
       idMapping = result.idMapping || {}

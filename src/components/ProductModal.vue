@@ -13,7 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource }): void
+  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string }): void
 }>()
 
 const name = ref('')
@@ -24,6 +24,25 @@ const holder = ref('')
 const dcaAmount = ref(0)
 const dcaCycle = ref('')
 const navSource = ref<NavSource>('')
+const holdingTerm = ref('')
+
+// 持有期限常用预设选项
+const HOLDING_TERM_OPTIONS = [
+  { value: '', label: '自定义/不填写' },
+  { value: '7天', label: '7天' },
+  { value: '14天', label: '14天' },
+  { value: '30天', label: '30天' },
+  { value: '60天', label: '60天' },
+  { value: '90天', label: '90天' },
+  { value: '180天', label: '180天' },
+  { value: '270天', label: '270天' },
+  { value: '365天', label: '365天' },
+  { value: '1年', label: '1年' },
+  { value: '2年', label: '2年' },
+  { value: '3年', label: '3年' },
+  { value: '5年', label: '5年' },
+  { value: '无固定期限', label: '无固定期限' }
+]
 
 const availableNavSources = computed(() => {
   return NAV_SOURCE_OPTIONS.filter(opt => opt.applicableTypes.includes(type.value))
@@ -39,6 +58,7 @@ watch(() => props.visible, (val) => {
     dcaAmount.value = props.editProduct.dcaAmount || 0
     dcaCycle.value = props.editProduct.dcaCycle || ''
     navSource.value = props.editProduct.navSource || (props.editProduct.type === 'equity' || props.editProduct.type === 'fund' ? 'tiantian' : '')
+    holdingTerm.value = (props.editProduct as any).holdingTerm || ''
   } else if (val) {
     name.value = ''
     type.value = props.defaultType || 'equity'
@@ -48,6 +68,7 @@ watch(() => props.visible, (val) => {
     dcaAmount.value = 0
     dcaCycle.value = ''
     navSource.value = (props.defaultType || 'equity') === 'equity' ? 'tiantian' : ''
+    holdingTerm.value = ''
   }
 })
 
@@ -55,6 +76,10 @@ watch(type, (newType) => {
   const available = NAV_SOURCE_OPTIONS.filter(opt => opt.applicableTypes.includes(newType))
   if (!available.some(opt => opt.value === navSource.value)) {
     navSource.value = available[0]?.value || ''
+  }
+  // 切换为非固收时清空持有期限
+  if (newType === 'equity' || newType === 'fund') {
+    holdingTerm.value = ''
   }
 })
 
@@ -68,7 +93,8 @@ const handleSubmit = () => {
     holder: holder.value.trim(),
     dcaAmount: dcaAmount.value,
     dcaCycle: dcaCycle.value,
-    navSource: navSource.value
+    navSource: navSource.value,
+    holdingTerm: holdingTerm.value.trim()
   })
 }
 </script>
@@ -142,6 +168,25 @@ const handleSubmit = () => {
               placeholder="请输入持有人姓名"
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
+          </div>
+          <div v-if="type === 'fixed_income'">
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">持有期限</label>
+            <div class="flex gap-2">
+              <select 
+                v-model="holdingTerm"
+                class="glass-input w-1/2 px-3 py-2.5 rounded-xl outline-none"
+              >
+                <option v-for="opt in HOLDING_TERM_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <input 
+                v-model="holdingTerm"
+                type="text" 
+                placeholder="自定义，如: 90天"
+                class="glass-input flex-1 px-4 py-2.5 rounded-xl outline-none"
+              />
+            </div>
           </div>
           <div class="flex space-x-4">
             <div class="flex-1">

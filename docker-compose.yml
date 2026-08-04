@@ -7,8 +7,7 @@ services:
         BUILDKIT_INLINE_CACHE: '1'
     container_name: asset-track
     restart: unless-stopped
-    ports:
-      - "8080:80"
+    network_mode: "host"
     volumes:
       # 持久化数据库（容器重建不丢数据）
       - finance-data:/app/data

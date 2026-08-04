@@ -57,6 +57,8 @@ const emit = defineEmits<{
           {{ position.product.code || '暂无代码' }}
           <span v-if="position.product.holder" class="mx-1">·</span>
           <span v-if="position.product.holder">{{ position.product.holder }}</span>
+          <span v-if="position.product.type === 'fixed_income' && (position.product as any).holdingTerm" class="mx-1">·</span>
+          <span v-if="position.product.type === 'fixed_income' && (position.product as any).holdingTerm" class="text-fixed-income">期限{{ (position.product as any).holdingTerm }}</span>
           <template v-if="position.product.note">
             <span class="mx-1">·</span>
             <span class="text-amber-500 truncate max-w-[100px] inline-block align-bottom">{{ position.product.note }}</span>

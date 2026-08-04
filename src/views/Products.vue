@@ -40,7 +40,7 @@ const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 const filterStatus = ref<ProductStatus | 'all'>('holding')
 
-const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y' | 'holder' | 'inceptionDays'>('marketValue')
+const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y' | 'holder'>('marketValue')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
 // 阶段涨幅数据缓存
@@ -605,9 +605,6 @@ const filteredProducts = computed(() => {
       case 'fiAnnual1y':
         comparison = (getFixedIncomeAnnualRate(a.code)?.['1y'] || 0) - (getFixedIncomeAnnualRate(b.code)?.['1y'] || 0)
         break
-      case 'inceptionDays':
-        comparison = (getInceptionDays(a.code) || 0) - (getInceptionDays(b.code) || 0)
-        break
     }
     return sortOrder.value === 'asc' ? comparison : -comparison
   })
@@ -697,11 +694,11 @@ watch(filterType, (val) => {
   router.replace({ query })
 })
 
-const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string }) => {
+const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource)
+    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm)
   } else {
-    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource)
+    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm)
   }
   showModal.value = false
 }
@@ -1212,18 +1209,6 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                v-if="props.type === 'fixed_income'"
-                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
-                @click="handleSort('inceptionDays')"
-              >
-                <div class="flex items-center justify-end space-x-1">
-                  <span>成立</span>
-                  <ChevronsUpDown v-if="sortKey !== 'inceptionDays'" class="w-3 h-3 text-apple-secondary/40" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
-                </div>
-              </th>
-              <th 
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('dailyReturn')"
               >
@@ -1259,6 +1244,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                       {{ getProductTypeLabel(product.type) }}
                     </span>
                     <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0">代码: {{ product.code }}</span>
+                    <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-[11px] text-fixed-income shrink-0 bg-fixed-income/5 px-1.5 py-0.5 rounded">期限: {{ (product as any).holdingTerm }}</span>
                     <span v-if="product.note" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.note">{{ product.note }}</span>
                     <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                   </div>
@@ -1423,14 +1409,6 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
-                </template>
-              </td>
-              <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getInceptionDays(product.code) !== undefined">
-                  <p class="text-[14px] font-semibold text-apple-text">{{ getInceptionDays(product.code) }} 天</p>
-                </template>
-                <template v-else>
-                  <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
               <td class="px-2 py-3 text-right whitespace-nowrap">

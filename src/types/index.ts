@@ -8,6 +8,7 @@ export interface Product {
   dcaAmount: number
   dcaCycle: string
   navSource: NavSource
+  holdingTerm: string
   createdAt: number
 }
 

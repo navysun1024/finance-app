@@ -80,6 +80,12 @@ db.run(`ALTER TABLE products ADD COLUMN navSource TEXT DEFAULT ''`, (err) => {
   }
 })
 
+db.run(`ALTER TABLE products ADD COLUMN holdingTerm TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
 db.run(`
   CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
@@ -558,7 +564,7 @@ app.post('/api/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -566,7 +572,7 @@ app.post('/api/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -867,7 +873,7 @@ app.post('/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -875,7 +881,7 @@ app.post('/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -1025,7 +1031,7 @@ app.post('/batch-import', authenticate, (req, res) => {
         return
       }
 
-      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, dcaAmount, dcaCycle, navSource, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       let productDone = 0
 
       products.forEach((product) => {
@@ -1041,7 +1047,7 @@ app.post('/batch-import', authenticate, (req, res) => {
           return
         }
 
-        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.dcaAmount || 0, product.dcaCycle || '', product.navSource || '', product.createdAt, (err) => {
+        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.holder || '', product.dcaAmount || 0, product.dcaCycle || '', product.navSource || '', product.holdingTerm || '', product.createdAt, (err) => {
           if (err) {
             log(`批量导入 - 产品插入失败: ${product.name}, 错误: ${err.message}`, 'ERROR')
             db.run('ROLLBACK')

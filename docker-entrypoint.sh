@@ -38,7 +38,7 @@ nginx -g 'daemon off;' &
 NGINX_PID=$!
 
 echo "[INFO] 所有服务已启动"
-echo "[INFO]   Nginx     PID: $NGINX_PID (端口 80)"
+echo "[INFO]   Nginx     PID: $NGINX_PID (端口 8080)"
 echo "[INFO]   DB-Server PID: $DB_PID (端口 3002)"
 echo "[INFO]   Scraper   PID: $SCRAPER_PID (端口 3001)"
 

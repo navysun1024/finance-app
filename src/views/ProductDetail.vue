@@ -136,7 +136,8 @@ const handleFetchNav = async () => {
         product.value.holder,
         product.value.dcaAmount,
         product.value.dcaCycle,
-        product.value.navSource
+        product.value.navSource,
+        (product.value as any).holdingTerm || ''
       )
     }
   } catch (e: any) {
@@ -1120,9 +1121,12 @@ onUnmounted(() => {
               {{ product.code }}
             </span>
           </div>
-          <div class="flex items-center space-x-2 mt-1">
+          <div class="flex items-center space-x-2 mt-1 flex-wrap">
             <span class="apple-tag" :style="{ color: getProductTypeColor(product.type) }">
               {{ getProductTypeLabel(product.type) }}
+            </span>
+            <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-xs text-fixed-income bg-fixed-income/10 px-2 py-0.5 rounded-full">
+              持有期限 {{ (product as any).holdingTerm }}
             </span>
             <span v-if="product.note" class="text-sm text-apple-secondary truncate">{{ product.note }}</span>
           </div>
