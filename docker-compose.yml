@@ -7,7 +7,8 @@ services:
         BUILDKIT_INLINE_CACHE: '1'
     container_name: asset-track
     restart: unless-stopped
-    network_mode: "host"
+    ports:
+      - "8080:80"
     volumes:
       # 持久化数据库（容器重建不丢数据）
       - finance-data:/app/data
@@ -16,7 +17,34 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - NODE_ENV=production
+    # 日志轮转，防止日志无限增长占满磁盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # 容器级别健康检查（与 Dockerfile HEALTHCHECK 互补）
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # 资源限制，防止单容器耗尽宿主机资源
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+        reservations:
+          memory: 512M
+    # 内部网络隔离
+    networks:
+      - finance-net
 
 volumes:
   finance-data:
   finance-logs:
+
+networks:
+  finance-net:
+    driver: bridge

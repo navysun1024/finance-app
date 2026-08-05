@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import { cpus } from 'os'
 
 export default defineConfig({
   plugins: [vue()],
@@ -11,6 +12,23 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['sql.js']
+  },
+  build: {
+    // NAS 内存有限，降低并行 worker 数避免 SIGSEGV
+    // 默认 Vite 会用 CPU 核数 -1，飞牛等小机器容易 OOM -> Segmentation fault
+    workers: Math.max(1, Math.min(2, (cpus().length || 2) - 1)),
+    target: 'es2020',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          xlsx: ['xlsx'],
+          vue: ['vue', 'vue-router'],
+          echarts: ['echarts'],
+          lucide: ['lucide-vue-next']
+        }
+      }
+    }
   },
   server: {
     host: '0.0.0.0',

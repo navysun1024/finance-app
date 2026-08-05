@@ -2,10 +2,15 @@ node_modules
 dist
 .git
 .gitignore
-.DS_Store
+.gitattributes
+.ds_store
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 logs
 *.zip
+*.log
 .qoder
 .trae
 CODE_WIKI.md
@@ -15,4 +20,5 @@ start.sh
 .env*
 .eslintrc*
 .prettierrc*
-.gitattributes
+docker-compose.yml
+.dockerignore

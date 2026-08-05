@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --port 5173",
     "dev:all": "node server/scraper.mjs & vite --port 5173",
-    "build": "vue-tsc && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "build": "node --max-old-space-size=2048 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit && node --max-old-space-size=3072 ./node_modules/vite/bin/vite.js build",
+    "build:ci": "node --max-old-space-size=3072 ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
     "scraper": "node server/scraper.mjs",
     "start": "node server/db-server.js"
