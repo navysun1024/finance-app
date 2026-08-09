@@ -552,7 +552,8 @@ const filteredProducts = computed(() => {
     result = result.filter(p => 
       p.name.toLowerCase().includes(query) || 
       p.note.toLowerCase().includes(query) ||
-      (p.code && p.code.toLowerCase().includes(query))
+      (p.code && p.code.toLowerCase().includes(query)) ||
+      (p.holder && p.holder.toLowerCase().includes(query))
     )
   }
   if (filterStatus.value !== 'all') {
@@ -983,7 +984,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <input 
           v-model="searchQuery"
           type="text" 
-          placeholder="搜索产品名称、代码或备注..."
+          placeholder="搜索产品名称、代码、持有人或备注..."
           class="glass-input w-full pl-10 pr-4 py-2.5 rounded-apple outline-none text-[15px]"
         />
       </div>
