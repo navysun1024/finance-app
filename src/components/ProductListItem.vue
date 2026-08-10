@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Edit2, Trash2, ArrowRight } from 'lucide-vue-next'
+import { Edit2, Trash2, ArrowRight, Scale } from 'lucide-vue-next'
 import type { Position, ProductStatus } from '@/types'
 import { DCA_CYCLE_OPTIONS, PRODUCT_STATUS_OPTIONS } from '@/types'
 import { formatCurrency1, formatPercent, formatDate } from '@/utils/format'
@@ -15,17 +15,20 @@ withDefaults(defineProps<{
   inceptionDays?: number
   fiAnnual1m?: number
   inceptionAnnualRate?: number
+  isComparing?: boolean
 }>(), {
   showProfitAmount: true,
   showProfitRate: true,
   navUpdatedToday: false,
-  isWatchlistMode: false
+  isWatchlistMode: false,
+  isComparing: false
 })
 
 const emit = defineEmits<{
   edit: [productId: string]
   delete: [productId: string]
   click: [productId: string]
+  compare: [productId: string]
 }>()
 </script>
 
@@ -68,18 +71,30 @@ const emit = defineEmits<{
           </span>
         </p>
       </div>
-      <div class="flex items-center space-x-1 ml-2">
-        <button 
-          @click.stop="emit('edit', position.productId)"
-          class="w-7 h-7 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
+      <div class="flex items-center space-x-0.5 ml-2">
+        <button
+          @click.stop="emit('compare', position.productId)"
+          :class="[
+            'w-6 h-6 flex items-center justify-center rounded-md transition-colors',
+            isComparing
+              ? 'text-primary-500 bg-primary-50'
+              : 'text-apple-secondary hover:text-primary-500 hover:bg-primary-50'
+          ]"
+          :title="isComparing ? '移出对比' : '加入对比'"
         >
-          <Edit2 class="w-3.5 h-3.5" />
+          <Scale class="w-3 h-3" />
         </button>
-        <button 
-          @click.stop="emit('delete', position.productId)"
-          class="w-7 h-7 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
+        <button
+          @click.stop="emit('edit', position.productId)"
+          class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
         >
-          <Trash2 class="w-3.5 h-3.5" />
+          <Edit2 class="w-3 h-3" />
+        </button>
+        <button
+          @click.stop="emit('delete', position.productId)"
+          class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
+        >
+          <Trash2 class="w-3 h-3" />
         </button>
       </div>
     </div>

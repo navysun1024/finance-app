@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOff } from 'lucide-vue-next'
+import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOff, Scale } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
 import ProductListItem from '@/components/ProductListItem.vue'
 import { useFinance } from '@/composables/useFinance'
+import { useCompare } from '@/composables/useCompare'
 import { useRouter, useRoute } from 'vue-router'
-import type { ProductType, ProductStatus } from '@/types'
+import type { ProductType, ProductStatus, Product } from '@/types'
 import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency, formatCurrency1 } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
@@ -16,6 +17,17 @@ const props = defineProps<{
 }>()
 
 const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
+
+const { toggleCompare, isInCompare } = useCompare()
+
+// 根据产品类型推断对比类型
+const getCompareType = (product: Product): 'equity' | 'fixed_income' => {
+  return (product.type === 'equity' || product.type === 'fund') ? 'equity' : 'fixed_income'
+}
+
+const handleToggleCompare = (product: Product) => {
+  toggleCompare(product.id, getCompareType(product))
+}
 
 // 根据当前页面类型选择对应的显示设置
 const pageSettings = computed(() => {
@@ -40,8 +52,18 @@ const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 const filterStatus = ref<ProductStatus | 'all'>('holding')
 
-const sortKey = ref<'name' | 'marketValue' | 'annualRate' | 'profitRate' | 'profit' | 'holdingDays' | 'dailyReturn' | 'stageGains1m' | 'stageGains3m' | 'stageGainsYtd' | 'fiAnnual1m' | 'fiAnnual3m' | 'fiAnnual1y' | 'holder'>('marketValue')
-const sortOrder = ref<'asc' | 'desc'>('desc')
+const SORT_KEYS = ['name', 'marketValue', 'annualRate', 'profitRate', 'profit', 'holdingDays', 'dailyReturn', 'stageGains1m', 'stageGains3m', 'stageGainsYtd', 'fiAnnual1m', 'fiAnnual3m', 'fiAnnual1y', 'holder'] as const
+const sortPrefix = `sort_${props.type || 'all'}`
+const sortKey = ref<typeof SORT_KEYS[number]>(
+  (localStorage.getItem(`${sortPrefix}_key`) as typeof SORT_KEYS[number]) || 'marketValue'
+)
+const sortOrder = ref<'asc' | 'desc'>(
+  localStorage.getItem(`${sortPrefix}_order`) === 'asc' ? 'asc' : 'desc'
+)
+watch([sortKey, sortOrder], () => {
+  localStorage.setItem(`${sortPrefix}_key`, sortKey.value)
+  localStorage.setItem(`${sortPrefix}_order`, sortOrder.value)
+})
 
 // 阶段涨幅数据缓存
 const stageGainsMap = ref<Map<string, StageGains>>(new Map())
@@ -170,7 +192,7 @@ const dailyReturnMap = computed(() => {
     if (navUpdates.length < 2) {
       if (navUpdates.length === 1) {
         const d = new Date(navUpdates[0].date)
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         map.set(product.code, { dailyReturn: null, date: dateStr })
       }
       continue
@@ -183,7 +205,7 @@ const dailyReturnMap = computed(() => {
       : null
     
     const d = new Date(latest.date)
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     map.set(product.code, { dailyReturn, date: dateStr })
   }
   
@@ -251,6 +273,14 @@ const getStageGains = (code: string | undefined): StageGains | undefined => {
 const getDailyReturn = (code: string | undefined): { dailyReturn: number | null; date: string } | undefined => {
   if (!code) return undefined
   return dailyReturnMap.value.get(code)
+}
+
+// 当日收益金额 = 持仓市值 × 当日收益率
+const getDailyProfit = (product: Product): number | null => {
+  const pos = getPosition(product.id) as any
+  const daily = getDailyReturn(product.code)
+  if (!pos || !pos.marketValue || !daily || daily.dailyReturn === null) return null
+  return pos.marketValue * daily.dailyReturn / 100
 }
 
 interface FixedIncomeAnnualRate {
@@ -1016,9 +1046,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <!-- 移动端卡片布局 -->
     <div class="md:hidden space-y-2">
       <div v-if="filteredProducts.length > 0" class="space-y-2">
-        <ProductListItem 
-          v-for="product in filteredProducts" 
-          :key="product.id" 
+        <ProductListItem
+          v-for="product in filteredProducts"
+          :key="product.id"
           v-show="getPosition(product.id)"
           :position="getPosition(product.id)!"
           :daily-return="getDailyReturn(product.code)?.dailyReturn"
@@ -1030,8 +1060,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           :inception-days="getInceptionDays(product.code)"
           :fi-annual-1m="getFixedIncomeAnnualRate(product.code)?.['1m']"
           :inception-annual-rate="getInceptionAnnualRate(product.code)"
+          :is-comparing="isInCompare(product.id)"
           @edit="handleEdit(product)"
           @delete="handleDelete(product.id)"
+          @compare="handleToggleCompare(product)"
           @click="(id) => router.push({ name: 'product-detail', params: { id }, query: { status: filterStatus, type: filterType } })"
         />
       </div>
@@ -1414,33 +1446,50 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </td>
               <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getDailyReturn(product.code)">
-                  <p 
+                  <p
                     class="text-[14px] font-semibold"
                     :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? 'text-profit' : (getDailyReturn(product.code)?.dailyReturn ?? 0) < 0 ? 'text-loss' : ''"
                   >
                     {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
                   </p>
-                  <p class="text-[11px] mt-0.5" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
-                    {{ getDailyReturn(product.code)?.date || '' }}
-                  </p>
+                  <div class="flex items-center justify-end space-x-1.5 mt-0.5">
+                    <span v-if="getDailyProfit(product) !== null" class="text-[11px]" :class="(getDailyProfit(product) ?? 0) >= 0 ? 'text-profit' : 'text-loss'">
+                      {{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
+                    </span>
+                    <span class="text-[11px]" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
+                      {{ getDailyReturn(product.code)?.date || '' }}
+                    </span>
+                  </div>
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
               <td class="px-2 py-3 text-center whitespace-nowrap" @click.stop>
-                <div class="flex items-center justify-center space-x-1.5">
-                  <button 
-                    @click="handleEdit(product)"
-                    class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
+                <div class="flex items-center justify-center space-x-0.5">
+                  <button
+                    @click="handleToggleCompare(product)"
+                    :class="[
+                      'w-7 h-7 flex items-center justify-center rounded-md transition-colors',
+                      isInCompare(product.id)
+                        ? 'text-primary-500 bg-primary-50'
+                        : 'text-apple-secondary hover:text-primary-500 hover:bg-primary-50'
+                    ]"
+                    :title="isInCompare(product.id) ? '移出对比' : '加入对比'"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    <Scale class="w-3.5 h-3.5" />
                   </button>
-                  <button 
-                    @click="handleDelete(product.id)"
-                    class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
+                  <button
+                    @click="handleEdit(product)"
+                    class="w-7 h-7 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                  </button>
+                  <button
+                    @click="handleDelete(product.id)"
+                    class="w-7 h-7 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                   </button>
                 </div>
               </td>
