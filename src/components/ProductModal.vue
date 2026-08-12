@@ -4,6 +4,8 @@ import { X } from 'lucide-vue-next'
 import type { Product, ProductType, NavSource } from '@/types'
 import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { DCA_CYCLE_OPTIONS, NAV_SOURCE_OPTIONS } from '@/types'
+import { INDEX_DEFINITIONS } from '@/utils/indexApi'
+import { parseBenchmarkFormula, serializeBenchmarkFormula, type BenchmarkComponent } from '@/utils/benchmark'
 
 const props = defineProps<{
   visible: boolean
@@ -13,7 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string }): void
+  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string }): void
 }>()
 
 const name = ref('')
@@ -25,6 +27,8 @@ const dcaAmount = ref(0)
 const dcaCycle = ref('')
 const navSource = ref<NavSource>('')
 const holdingTerm = ref('')
+const benchmarkEnabled = ref(false)
+const benchmarkComponents = ref<BenchmarkComponent[]>([])
 
 // 持有期限常用预设选项
 const HOLDING_TERM_OPTIONS = [
@@ -59,6 +63,8 @@ watch(() => props.visible, (val) => {
     dcaCycle.value = props.editProduct.dcaCycle || ''
     navSource.value = props.editProduct.navSource || (props.editProduct.type === 'equity' || props.editProduct.type === 'fund' ? 'tiantian' : '')
     holdingTerm.value = (props.editProduct as any).holdingTerm || ''
+    benchmarkEnabled.value = (props.editProduct as any).benchmarkEnabled || false
+    benchmarkComponents.value = parseBenchmarkFormula((props.editProduct as any).benchmarkFormula || '')
   } else if (val) {
     name.value = ''
     type.value = props.defaultType || 'equity'
@@ -69,6 +75,8 @@ watch(() => props.visible, (val) => {
     dcaCycle.value = ''
     navSource.value = (props.defaultType || 'equity') === 'equity' ? 'tiantian' : ''
     holdingTerm.value = ''
+    benchmarkEnabled.value = false
+    benchmarkComponents.value = []
   }
 })
 
@@ -83,6 +91,40 @@ watch(type, (newType) => {
   }
 })
 
+const benchmarkFormulaPreview = computed(() => {
+  return serializeBenchmarkFormula(benchmarkComponents.value)
+})
+
+const toggleBenchmarkIndex = (indexCode: string) => {
+  const idx = benchmarkComponents.value.findIndex(c => c.indexCode === indexCode)
+  if (idx !== -1) {
+    benchmarkComponents.value.splice(idx, 1)
+  } else {
+    const def = INDEX_DEFINITIONS.find(d => d.code === indexCode)
+    benchmarkComponents.value.push({
+      indexCode,
+      indexName: def?.name || indexCode,
+      weight: 0.5,
+    })
+  }
+}
+
+const isBenchmarkIndexSelected = (indexCode: string) => {
+  return benchmarkComponents.value.some(c => c.indexCode === indexCode)
+}
+
+const updateBenchmarkWeight = (indexCode: string, weight: number) => {
+  const comp = benchmarkComponents.value.find(c => c.indexCode === indexCode)
+  if (comp) {
+    comp.weight = Math.max(0, Math.min(100, weight)) / 100
+  }
+}
+
+const getBenchmarkWeight = (indexCode: string): number => {
+  const comp = benchmarkComponents.value.find(c => c.indexCode === indexCode)
+  return comp ? Math.round(comp.weight * 100) : 50
+}
+
 const handleSubmit = () => {
   if (!name.value.trim()) return
   emit('submit', { 
@@ -94,7 +136,9 @@ const handleSubmit = () => {
     dcaAmount: dcaAmount.value,
     dcaCycle: dcaCycle.value,
     navSource: navSource.value,
-    holdingTerm: holdingTerm.value.trim()
+    holdingTerm: holdingTerm.value.trim(),
+    benchmarkEnabled: benchmarkEnabled.value,
+    benchmarkFormula: benchmarkEnabled.value ? benchmarkFormulaPreview.value : ''
   })
 }
 </script>
@@ -209,6 +253,58 @@ const handleSubmit = () => {
                   {{ option.label }}
                 </option>
               </select>
+            </div>
+          </div>
+          <!-- 比较基准配置 -->
+          <div class="border-t border-apple-border/30 pt-4">
+            <div class="flex items-center justify-between">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider">比较基准</label>
+              <button
+                type="button"
+                @click="benchmarkEnabled = !benchmarkEnabled"
+                :class="[
+                  'relative w-10 h-6 rounded-full transition-colors duration-200',
+                  benchmarkEnabled ? 'bg-primary-500' : 'bg-black/10'
+                ]"
+              >
+                <span
+                  :class="[
+                    'absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-200',
+                    benchmarkEnabled ? 'translate-x-4' : ''
+                  ]"
+                ></span>
+              </button>
+            </div>
+            <div v-if="benchmarkEnabled" class="mt-3 space-y-2">
+              <p class="text-xs text-apple-secondary">选择指数并设置权重，生成比较基准趋势线</p>
+              <div v-for="idx in INDEX_DEFINITIONS" :key="idx.code" class="flex items-center gap-3 py-1.5">
+                <button
+                  type="button"
+                  @click="toggleBenchmarkIndex(idx.code)"
+                  :class="[
+                    'w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors',
+                    isBenchmarkIndexSelected(idx.code) ? 'bg-primary-500 border-primary-500' : 'border-apple-border'
+                  ]"
+                >
+                  <svg v-if="isBenchmarkIndexSelected(idx.code)" class="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+                <span class="text-sm text-apple-text flex-1">{{ idx.name }}</span>
+                <div v-if="isBenchmarkIndexSelected(idx.code)" class="flex items-center gap-1">
+                  <input
+                    :value="getBenchmarkWeight(idx.code)"
+                    @input="updateBenchmarkWeight(idx.code, parseFloat(($event.target as HTMLInputElement).value) || 0)"
+                    type="number"
+                    min="0"
+                    max="100"
+                    class="glass-input w-14 px-2 py-1 text-xs rounded-lg outline-none text-right"
+                  />
+                  <span class="text-xs text-apple-secondary">%</span>
+                </div>
+              </div>
+              <div v-if="benchmarkComponents.length > 0" class="mt-2 px-3 py-2 bg-black/5 rounded-lg">
+                <p class="text-[11px] text-apple-secondary">公式预览</p>
+                <p class="text-xs font-mono text-apple-text mt-0.5">{{ benchmarkFormulaPreview }}</p>
+              </div>
             </div>
           </div>
           <div>

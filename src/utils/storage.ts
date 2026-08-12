@@ -37,7 +37,9 @@ export async function getProducts(): Promise<Product[]> {
           dcaAmount: typeof p.dcaAmount === 'number' ? p.dcaAmount : (p.dcaAmount || 0),
           dcaCycle: p.dcaCycle || '',
           navSource: p.navSource || '',
-          holdingTerm: p.holdingTerm || ''
+          holdingTerm: p.holdingTerm || '',
+          benchmarkEnabled: p.benchmarkEnabled === true || p.benchmarkEnabled === 1,
+          benchmarkFormula: p.benchmarkFormula || ''
         }))
       : []
     logger.debug(`获取产品列表成功, 数量: ${normalized.length || 0}`)
@@ -203,7 +205,9 @@ export async function exportData(): Promise<string> {
     dcaAmount: p.dcaAmount || 0,
     dcaCycle: p.dcaCycle || '',
     navSource: p.navSource || '',
-    holdingTerm: (p as any).holdingTerm || ''
+    holdingTerm: (p as any).holdingTerm || '',
+    benchmarkEnabled: (p as any).benchmarkEnabled ?? false,
+    benchmarkFormula: (p as any).benchmarkFormula || ''
   }))
   const excludedCount = allTransactions.length - transactions.length
   logger.info(`导出完成: 产品 ${productsWithDca.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条权益净值更新记录)`)
@@ -233,7 +237,9 @@ export async function importData(jsonString: string): Promise<{ success: boolean
         dcaAmount: p.dcaAmount || 0,
         dcaCycle: p.dcaCycle || '',
         navSource: p.navSource || '',
-        holdingTerm: p.holdingTerm || ''
+        holdingTerm: p.holdingTerm || '',
+        benchmarkEnabled: p.benchmarkEnabled ?? false,
+        benchmarkFormula: p.benchmarkFormula || ''
       }))
       const result = await saveProducts(productsWithDca)
       idMapping = result.idMapping || {}

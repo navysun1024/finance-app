@@ -11,3 +11,7 @@ logs
 .scraper.pid
 .vite.pid
 data/finance.db_副本
+benchmark_export.csv
+holdings_export.csv
+holdings_validation.csv
+holdings_export.json

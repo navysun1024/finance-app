@@ -489,7 +489,8 @@ const topDistributionItems = computed(() => {
   const assetBgMap: Record<string, string> = {
     cash: 'bg-amber-50',
     bond: 'bg-emerald-50',
-    other_stocks: 'bg-blue-50'
+    other_stocks: 'bg-blue-50',
+    other: 'bg-slate-50'
   }
   for (const cat of aggregatedHoldings.value.assetCategories) {
     items.push({ key: `asset-${cat.type}`, name: cat.name, ratio: cat.ratio, isAsset: true, bgClass: assetBgMap[cat.type] || '' })
@@ -725,11 +726,11 @@ watch(filterType, (val) => {
   router.replace({ query })
 })
 
-const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string }) => {
+const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm)
+    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula)
   } else {
-    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm)
+    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula)
   }
   showModal.value = false
 }
@@ -884,15 +885,21 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           </span>
           <span class="flex items-center gap-1">
             <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            <span class="text-apple-secondary">现金及其他</span>
-            <span class="font-semibold text-apple-text">{{ aggregatedHoldings.assetAllocation.cashAndOtherRatio.toFixed(1) }}%</span>
+            <span class="text-apple-secondary">现金</span>
+            <span class="font-semibold text-apple-text">{{ aggregatedHoldings.assetAllocation.cashRatio.toFixed(1) }}%</span>
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+            <span class="text-apple-secondary">其他</span>
+            <span class="font-semibold text-apple-text">{{ aggregatedHoldings.assetAllocation.otherRatio.toFixed(1) }}%</span>
           </span>
         </div>
         <!-- 比例条 -->
         <div class="flex h-3 rounded-full overflow-hidden bg-apple-bg">
           <div class="bg-primary-500" :style="{ width: aggregatedHoldings.assetAllocation.stockRatio + '%' }"></div>
           <div class="bg-emerald-500" :style="{ width: aggregatedHoldings.assetAllocation.bondRatio + '%' }"></div>
-          <div class="bg-amber-500" :style="{ width: aggregatedHoldings.assetAllocation.cashAndOtherRatio + '%' }"></div>
+          <div class="bg-amber-500" :style="{ width: aggregatedHoldings.assetAllocation.cashRatio + '%' }"></div>
+          <div class="bg-slate-400" :style="{ width: aggregatedHoldings.assetAllocation.otherRatio + '%' }"></div>
         </div>
       </div>
       
@@ -954,10 +961,11 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     :class="{
                       'bg-amber-500': cat.type === 'cash',
                       'bg-emerald-500': cat.type === 'bond',
-                      'bg-blue-400': cat.type === 'other_stocks'
+                      'bg-blue-400': cat.type === 'other_stocks',
+                      'bg-slate-400': cat.type === 'other'
                     }"
                   >
-                    <span class="text-[9px] font-bold">{{ cat.type === 'cash' ? '¥' : cat.type === 'bond' ? '债' : '股' }}</span>
+                    <span class="text-[9px] font-bold">{{ cat.type === 'cash' ? '¥' : cat.type === 'bond' ? '债' : cat.type === 'other_stocks' ? '股' : '...' }}</span>
                   </span>
                   <span class="font-medium text-apple-text text-[13px]">{{ cat.name }}</span>
                 </div>
@@ -970,7 +978,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   :class="{
                     'bg-amber-50 text-amber-600': cat.type === 'cash',
                     'bg-emerald-50 text-emerald-600': cat.type === 'bond',
-                    'bg-blue-50 text-blue-500': cat.type === 'other_stocks'
+                    'bg-blue-50 text-blue-500': cat.type === 'other_stocks',
+                    'bg-slate-50 text-slate-500': cat.type === 'other'
                   }"
                 >
                   {{ cat.ratio.toFixed(2) }}%
@@ -980,6 +989,26 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             </tr>
           </tbody>
         </table>
+      </div>
+      
+      <!-- 无持仓数据的基金提示 -->
+      <div v-if="showAggregatedHoldings && aggregatedHoldings?.noHoldingsFunds?.length > 0" class="px-5 py-3 border-t border-black/5 bg-orange-50/50">
+        <div class="flex items-center gap-2 mb-1.5">
+          <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+          <span class="text-[13px] font-medium text-orange-700">以下 {{ aggregatedHoldings.noHoldingsFunds.length }} 只基金暂无持仓数据</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <span 
+            v-for="fund in aggregatedHoldings.noHoldingsFunds" 
+            :key="fund.code"
+            class="inline-flex items-center px-2 py-1 rounded-md bg-orange-100 text-orange-700 text-[11px] gap-1.5"
+          >
+            <span class="font-mono">{{ fund.code }}</span>
+            <span class="text-orange-500/70">{{ formatCurrency(fund.marketValue) }}</span>
+          </span>
+        </div>
       </div>
       
       <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length === 0" class="p-8 text-center">
@@ -1004,6 +1033,15 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           <span v-if="topDistributionItems.length < (aggregatedHoldings.stocks.length + aggregatedHoldings.assetCategories.length)" class="text-[13px] text-apple-secondary self-center">
             +{{ (aggregatedHoldings.stocks.length + aggregatedHoldings.assetCategories.length) - topDistributionItems.length }} 更多
           </span>
+        </div>
+        <!-- 无持仓基金摘要 -->
+        <div v-if="aggregatedHoldings.noHoldingsFunds?.length > 0" class="mt-3 pt-3 border-t border-black/5">
+          <div class="flex items-center gap-1.5 text-[11px] text-orange-600">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <span>{{ aggregatedHoldings.noHoldingsFunds.length }} 只基金暂无持仓数据</span>
+          </div>
         </div>
       </div>
     </div>

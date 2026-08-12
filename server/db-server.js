@@ -13,6 +13,7 @@ const __dirname = dirname(__filename)
 const dbPath = join(__dirname, '../data/finance.db')
 
 import fs from 'fs'
+import { execSync } from 'child_process'
 const dataDir = join(__dirname, '../data')
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true })
@@ -81,6 +82,18 @@ db.run(`ALTER TABLE products ADD COLUMN navSource TEXT DEFAULT ''`, (err) => {
 })
 
 db.run(`ALTER TABLE products ADD COLUMN holdingTerm TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN benchmarkEnabled INTEGER DEFAULT 0`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN benchmarkFormula TEXT DEFAULT ''`, (err) => {
   if (err) {
     // 列已存在，忽略错误
   }
@@ -564,7 +577,7 @@ app.post('/api/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -572,7 +585,7 @@ app.post('/api/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -873,7 +886,7 @@ app.post('/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -881,7 +894,7 @@ app.post('/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt)
           })
           
           stmt.finalize((err) => {
@@ -1167,7 +1180,10 @@ const schedulerState = {
 function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https') ? https : http
-    const req = protocol.get(url, { timeout: 15000, ...options }, (res) => {
+    const defaultOpts = url.startsWith('https')
+      ? { timeout: 15000, rejectUnauthorized: false }
+      : { timeout: 15000 }
+    const req = protocol.get(url, { ...defaultOpts, ...options }, (res) => {
       let data = ''
       res.on('data', chunk => data += chunk)
       res.on('end', () => resolve({ status: res.statusCode, data, headers: res.headers }))
@@ -1175,6 +1191,249 @@ function httpRequest(url, options = {}) {
     req.on('error', reject)
     req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')) })
   })
+}
+
+/**
+ * 带重试的HTTP请求
+ * @param {string} url
+ * @param {object} options
+ * @param {number} retries - 重试次数
+ * @returns {Promise<{status: number, data: string}>}
+ */
+async function httpRequestWithRetry(url, options = {}, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const result = await httpRequest(url, options)
+      if (result.status >= 500 && i < retries) {
+        log(`[HTTP] ${url} 服务器错误(${result.status}), 第${i+1}次重试...`, 'WARN')
+        await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000))
+        continue
+      }
+      return result
+    } catch (e) {
+      if (i < retries) {
+        log(`[HTTP] ${url} 请求失败: ${e.message}, 第${i+1}次重试...`, 'WARN')
+        await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000))
+      } else {
+        throw e
+      }
+    }
+  }
+}
+
+// ==================== 持仓数据请求去重 ====================
+const inFlightHoldingRequests = new Map()
+
+/**
+ * 带去重的持仓数据获取
+ * @param {string} code - 基金代码
+ * @param {object} options - { forceRefresh: boolean }
+ * @returns {Promise<object>}
+ */
+async function getHoldingsWithDedup(code, options = {}) {
+  const cacheKey = `fund_holdings_${code}`
+  
+  // 强制刷新时跳过缓存检查
+  if (!options.forceRefresh) {
+    const cached = await getCache(cacheKey)
+    if (cached && !cached.isExpired) {
+      log(`[持仓] ${code} 命中缓存`)
+      return { ...cached.data, _cached: true, _updatedAt: cached.updatedAt }
+    }
+    // 过期数据：返回旧数据 + 后台刷新
+    if (cached && cached.isExpired) {
+      log(`[持仓] ${code} 缓存过期, 返回旧数据并后台刷新`)
+      refreshHoldingsInBackground(code, cacheKey)
+      return { ...cached.data, _cached: true, _stale: true, _updatedAt: cached.updatedAt }
+    }
+  }
+  
+  // 请求去重
+  if (inFlightHoldingRequests.has(code)) {
+    log(`[持仓] ${code} 等待进行中的请求...`)
+    return inFlightHoldingRequests.get(code)
+  }
+  
+  const request = fetchAndCacheHoldings(code, cacheKey).finally(() => {
+    inFlightHoldingRequests.delete(code)
+  })
+  
+  inFlightHoldingRequests.set(code, request)
+  return request
+}
+
+/**
+ * 后台刷新持仓数据
+ */
+async function refreshHoldingsInBackground(code, cacheKey) {
+  try {
+    log(`[持仓] ${code} 后台刷新开始...`)
+    const data = await fetchHoldingsData(code)
+    await setCache(cacheKey, data, 24 * 60 * 60 * 1000) // 24小时
+    log(`[持仓] ${code} 后台刷新完成`)
+  } catch (e) {
+    log(`[持仓] ${code} 后台刷新失败: ${e.message}`, 'WARN')
+  }
+}
+
+/**
+ * 获取并缓存持仓数据
+ */
+async function fetchAndCacheHoldings(code, cacheKey) {
+  const data = await fetchHoldingsData(code)
+  await setCache(cacheKey, data, 24 * 60 * 60 * 1000) // 24小时
+  log(`[持仓] ${code} 数据已缓存`)
+  return data
+}
+
+/**
+ * 获取持仓核心数据（不含缓存逻辑）
+ */
+async function fetchHoldingsData(code) {
+  const startTime = Date.now()
+  
+  // 并行获取持仓和资产配置
+  const [holdings, assetAllocation] = await Promise.all([
+    fetchFundHoldingsWithRetry(code),
+    fetchFundAssetAllocationWithRetry(code)
+  ])
+
+  let stocks = holdings.stocks
+  let allocation = assetAllocation
+  let reportDate = holdings.reportDate || assetAllocation.reportDate
+  let dataSource = null
+
+  // 检测持仓数据是否过旧（超过6个月）
+  const isStale = holdings.reportDate && (() => {
+    const reportTime = new Date(holdings.reportDate).getTime()
+    const sixMonthsAgo = Date.now() - 180 * 24 * 60 * 60 * 1000
+    return reportTime < sixMonthsAgo
+  })()
+
+  // 如果数据过旧或无股票数据，尝试获取目标ETF持仓
+  if ((isStale || stocks.length === 0) && (assetAllocation.stockRatio === null || assetAllocation.stockRatio <= 1)) {
+    log(`[持仓] ${code} 数据过旧(${holdings.reportDate})或无股票数据，尝试查找目标ETF`)
+    const nameUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js`
+    const { data: nameText } = await httpRequestWithRetry(nameUrl, {
+      headers: { 'Referer': 'https://fund.eastmoney.com/', 'User-Agent': 'Mozilla/5.0' }
+    })
+    const nameMatch = nameText?.match(/var fS_name\s*=\s*"([^"]+)"/)
+    const fundName = nameMatch ? nameMatch[1] : ''
+    log(`[持仓] ${code} 基金名称: ${fundName}`)
+
+    const targetETF = await findTargetETF(code, fundName)
+    if (targetETF) {
+      log(`[持仓] ${code} 找到目标ETF: ${targetETF.name}(${targetETF.code})`)
+      try {
+        const [etfHoldings, etfAllocation] = await Promise.all([
+          fetchFundHoldingsWithRetry(targetETF.code),
+          fetchFundAssetAllocationWithRetry(targetETF.code)
+        ])
+        if (etfHoldings.stocks.length > 0) {
+          stocks = etfHoldings.stocks
+          reportDate = etfHoldings.reportDate || reportDate
+          dataSource = `数据来自目标ETF: ${targetETF.name}(${targetETF.code})`
+        }
+        allocation = etfAllocation
+      } catch (e) {
+        log(`[持仓] 获取目标ETF ${targetETF.code} 数据失败: ${e.message}`, 'WARN')
+      }
+    } else {
+      log(`[持仓] ${code} 未找到目标ETF`)
+    }
+  }
+
+  const elapsed = Date.now() - startTime
+  log(`[持仓] ${code} 数据获取完成, 耗时: ${elapsed}ms, 股票数: ${stocks.length}`)
+
+  return {
+    stocks,
+    assetAllocation: allocation,
+    reportDate,
+    dataSource
+  }
+}
+
+/**
+ * 带重试的基金持仓获取
+ */
+async function fetchFundHoldingsWithRetry(fundCode) {
+  const url = `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${fundCode}&topline=10`
+  const { status, data: text } = await httpRequestWithRetry(url, {
+    headers: {
+      'Referer': 'http://fund.eastmoney.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+  })
+
+  if (status !== 200 || !text) {
+    throw new Error(`基金 ${fundCode} 持仓数据获取失败 (HTTP ${status})`)
+  }
+
+  const dateMatch = text.match(/截止至：<font[^>]*>([^<]+)<\/font>/)
+  const reportDate = dateMatch ? dateMatch[1].trim() : ''
+
+  const firstTableEnd = text.indexOf('</table>')
+  const firstTable = firstTableEnd > 0 ? text.substring(0, firstTableEnd) : text
+
+  const stocks = []
+  const rowRegex = /<tr><td>(\d+)<\/td><td[^>]*>(?:<a[^>]*>|<span[^>]*>)([^<]+)(?:<\/a>|<\/span>)<\/td><td[^>]*>(?:<a[^>]*>|<span[^>]*>)([^<]+)(?:<\/a>|<\/span>)<\/td>[\s\S]*?<td[^>]*>([\d.]+%)<\/td><td[^>]*>([\d,.]+)<\/td><td[^>]*>([\d,.]+)<\/td><\/tr>/g
+  let match
+  while ((match = rowRegex.exec(firstTable)) !== null) {
+    stocks.push({
+      index: parseInt(match[1]),
+      code: match[2],
+      name: match[3],
+      ratio: parseFloat(match[4].replace('%', '')),
+      shares: parseFloat(match[5].replace(/,/g, '')),
+      marketValue: parseFloat(match[6].replace(/,/g, ''))
+    })
+  }
+
+  return { stocks, reportDate }
+}
+
+/**
+ * 带重试的基金资产配置获取
+ */
+async function fetchFundAssetAllocationWithRetry(fundCode) {
+  const url = `https://fund.eastmoney.com/pingzhongdata/${fundCode}.js`
+  const { status, data: text } = await httpRequestWithRetry(url, {
+    headers: {
+      'Referer': 'https://fund.eastmoney.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+  })
+
+  if (status !== 200 || !text) {
+    throw new Error(`基金 ${fundCode} 资产配置获取失败 (HTTP ${status})`)
+  }
+
+  const jsonMatch = text.match(/var Data_assetAllocation\s*=\s*(\{[\s\S]+?\})\s*;/)
+  if (!jsonMatch) {
+    throw new Error(`基金 ${fundCode} 资产配置数据解析失败`)
+  }
+
+  const data = JSON.parse(jsonMatch[1])
+  const categories = data.categories || []
+  const lastIndex = categories.length - 1
+
+  if (lastIndex < 0) {
+    throw new Error(`基金 ${fundCode} 无资产配置数据`)
+  }
+
+  const getSeriesValue = (name) => {
+    const series = (data.series || []).find(s => s.name === name)
+    return series && series.data[lastIndex] !== undefined ? series.data[lastIndex] : null
+  }
+
+  return {
+    stockRatio: getSeriesValue('股票占净比'),
+    bondRatio: getSeriesValue('债券占净比'),
+    cashRatio: getSeriesValue('现金占净比'),
+    netAsset: getSeriesValue('净资产'),
+    reportDate: categories[lastIndex] || ''
+  }
 }
 
 /**
@@ -1817,30 +2076,50 @@ async function fetchStockIndustry(stockCode) {
 const ETF_FEEDER_MAP = {
   // 纳斯达克100ETF联接
   '000834': { code: '159513', name: '纳斯达克100ETF大成' },
-  '000835': { code: '159513', name: '纳斯达克100ETF大成' },  // B份额
+  '000835': { code: '159513', name: '纳斯达克100ETF大成' },
   '040046': { code: '159632', name: '纳斯达克ETF华安' },
-  '040047': { code: '159632', name: '纳斯达克ETF华安' },  // 美元份额
-  '006479': { code: '159941', name: '纳指ETF' },          // 广发纳斯达克100ETF联接
-  '270042': { code: '159941', name: '纳指ETF' },          // 广发纳斯达克100指数
-  '160140': { code: '159941', name: '纳指ETF' },          // 南方纳斯达克100
-  '161125': { code: '159941', name: '纳指ETF' },          // 易方达标普信息科技
-  '050025': { code: '513100', name: '纳指ETF国泰' },      // 博时标普500
-  '016055': { code: '159513', name: '纳斯达克100ETF大成' }, // 博时纳斯达克100联接
+  '040047': { code: '159632', name: '纳斯达克ETF华安' },
+  '006479': { code: '159941', name: '纳指ETF' },
+  '270042': { code: '159941', name: '纳指ETF' },
+  '160140': { code: '159941', name: '纳指ETF' },
+  '016055': { code: '159513', name: '纳斯达克100ETF大成' },
+  '016533': { code: '159501', name: '纳斯达克100ETF嘉实' },
   // 标普500ETF联接
   '050025': { code: '513500', name: '标普500ETF' },
   '008401': { code: '513500', name: '标普500ETF' },
   // 恒生科技ETF联接
-  '012979': { code: '513180', name: '恒生科技ETF' },      // 大成恒生科技联接A
-  '012980': { code: '513180', name: '恒生科技ETF' },      // 大成恒生科技联接C
+  '012979': { code: '513180', name: '恒生科技ETF' },
+  '012980': { code: '513180', name: '恒生科技ETF' },
   // 沪深300ETF联接
   '110020': { code: '510310', name: '沪深300ETF' },
   '002987': { code: '510310', name: '沪深300ETF' },
+  '161125': { code: '510310', name: '沪深300ETF' },
   // 中韩半导体ETF联接
-  '019454': { code: '513310', name: '中韩半导体ETF' },    // 华泰柏瑞中韩半导体ETF联接A
-  '019455': { code: '513310', name: '中韩半导体ETF' },    // 华泰柏瑞中韩半导体ETF联接C
+  '019454': { code: '513310', name: '中韩半导体ETF' },
+  '019455': { code: '513310', name: '中韩半导体ETF' },
   // 中证500ETF联接
   '162216': { code: '510510', name: '500ETF' },
   '003015': { code: '510510', name: '500ETF' },
+  // 中证A500ETF联接
+  '020657': { code: '159338', name: '中证A500ETF' },
+  // 创业板ETF联接
+  '110011': { code: '159915', name: '创业板ETF' },
+  '001593': { code: '159915', name: '创业板ETF' },
+  // 科创50ETF联接
+  '005847': { code: '588000', name: '科创50ETF' },
+  '005318': { code: '588000', name: '科创50ETF' },
+  // 中证1000ETF联接
+  '014195': { code: '560010', name: '中证1000ETF' },
+  '014196': { code: '560010', name: '中证1000ETF' },
+  // 中证2000ETF联接
+  '020832': { code: '159538', name: '中证2000ETF' },
+  // 黄金ETF联接
+  '000307': { code: '518880', name: '黄金ETF' },
+  '000308': { code: '518880', name: '黄金ETF' },
+  // 中证全债ETF联接
+  '012817': { code: '511260', name: '国债ETF' },
+  // 港股通科技ETF联接
+  '013263': { code: '513130', name: '港股通科技ETF' },
 }
 
 /**
@@ -2141,68 +2420,20 @@ app.get('/fund/stage-gains-batch', async (req, res) => {
 app.get('/fund/holdings/:code', async (req, res) => {
   try {
     const { code } = req.params
-    const [holdings, assetAllocation] = await Promise.all([
-      fetchFundHoldings(code),
-      fetchFundAssetAllocation(code)
-    ])
-
-    let stocks = holdings.stocks
-    let allocation = assetAllocation
-    let reportDate = holdings.reportDate || assetAllocation.reportDate
-    let dataSource = null // 数据来源说明
-
-    // 检测持仓数据是否过旧（超过6个月）
-    const isStale = holdings.reportDate && (() => {
-      const reportTime = new Date(holdings.reportDate).getTime()
-      const sixMonthsAgo = Date.now() - 180 * 24 * 60 * 60 * 1000
-      return reportTime < sixMonthsAgo
-    })()
-
-    // 如果数据过旧或无股票数据，尝试获取目标ETF持仓
-    if ((isStale || stocks.length === 0) && (assetAllocation.stockRatio === null || assetAllocation.stockRatio <= 1)) {
-      log(`[持仓] ${code} 数据过旧(${holdings.reportDate})或无股票数据，尝试查找目标ETF`)
-      // 获取基金名称
-      const nameUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js`
-      const { data: nameText } = await httpRequest(nameUrl, {
-        headers: { 'Referer': 'https://fund.eastmoney.com/', 'User-Agent': 'Mozilla/5.0' }
-      })
-      const nameMatch = nameText?.match(/var fS_name\s*=\s*"([^"]+)"/)
-      const fundName = nameMatch ? nameMatch[1] : ''
-      log(`[持仓] ${code} 基金名称: ${fundName}`)
-
-      const targetETF = await findTargetETF(code, fundName)
-      if (targetETF) {
-        log(`[持仓] ${code} 找到目标ETF: ${targetETF.name}(${targetETF.code})`)
-        try {
-          // 同时获取目标ETF的持仓和资产配置
-          const [etfHoldings, etfAllocation] = await Promise.all([
-            fetchFundHoldings(targetETF.code),
-            fetchFundAssetAllocation(targetETF.code)
-          ])
-          if (etfHoldings.stocks.length > 0) {
-            stocks = etfHoldings.stocks
-            reportDate = etfHoldings.reportDate || reportDate
-            dataSource = `数据来自目标ETF: ${targetETF.name}(${targetETF.code})`
-            log(`[持仓] ${code} 使用目标ETF ${targetETF.code} 的持仓数据 (${etfHoldings.reportDate})`)
-          }
-          // 同步使用目标ETF的资产配置
-          allocation = etfAllocation
-          log(`[持仓] ${code} 使用目标ETF ${targetETF.code} 的资产配置 (股票:${etfAllocation.stockRatio}%)`)
-        } catch (e) {
-          log(`[持仓] 获取目标ETF ${targetETF.code} 数据失败: ${e.message}`, 'WARN')
-        }
-      } else {
-        log(`[持仓] ${code} 未找到目标ETF`)
-      }
-    }
-
+    const forceRefresh = req.query.refresh === 'true'
+    
+    const data = await getHoldingsWithDedup(code, { forceRefresh })
+    
     res.json({
       success: true,
       data: {
-        stocks,
-        assetAllocation: allocation,
-        reportDate,
-        dataSource
+        stocks: data.stocks,
+        assetAllocation: data.assetAllocation,
+        reportDate: data.reportDate,
+        dataSource: data.dataSource,
+        _cached: data._cached || false,
+        _stale: data._stale || false,
+        _updatedAt: data._updatedAt || null
       }
     })
   } catch (err) {
@@ -2218,44 +2449,17 @@ app.get('/fund/holdings/:code', async (req, res) => {
  * 同时返回资产配置（股票/债券/现金占比）
  */
 async function getEffectiveHoldings(fundCode) {
-  const [holdings, allocation] = await Promise.all([
-    fetchFundHoldings(fundCode),
-    fetchFundAssetAllocation(fundCode).catch(() => ({ stockRatio: null, bondRatio: null, cashRatio: null, netAsset: null, reportDate: '' }))
-  ])
-  
-  let resultStocks = holdings.stocks
-  let resultReportDate = holdings.reportDate
-  let resultAllocation = allocation
-  
-  // 如果持仓数据过旧（超过6个月）或无股票数据，尝试获取目标 ETF 持仓
-  const isStale = holdings.reportDate && (() => {
-    const reportTime = new Date(holdings.reportDate).getTime()
-    const sixMonthsAgo = Date.now() - 180 * 24 * 60 * 60 * 1000
-    return reportTime < sixMonthsAgo
-  })()
-  
-  if (isStale || holdings.stocks.length === 0) {
-    // 检查是否在 ETF_FEEDER_MAP 中
-    const targetETF = ETF_FEEDER_MAP[fundCode]
-    if (targetETF) {
-      log(`[汇总] ${fundCode} 数据过旧(${holdings.reportDate})，使用目标 ETF: ${targetETF.name}(${targetETF.code})`)
-      try {
-        const [etfHoldings, etfAllocation] = await Promise.all([
-          fetchFundHoldings(targetETF.code),
-          fetchFundAssetAllocation(targetETF.code).catch(() => null)
-        ])
-        if (etfHoldings.stocks.length > 0) {
-          resultStocks = etfHoldings.stocks
-          resultReportDate = etfHoldings.reportDate
-          if (etfAllocation) resultAllocation = etfAllocation
-        }
-      } catch (e) {
-        log(`[汇总] 获取目标 ETF ${targetETF.code} 持仓失败: ${e.message}`, 'WARN')
-      }
+  try {
+    const result = await getHoldingsWithDedup(fundCode)
+    return {
+      stocks: result.stocks || [],
+      reportDate: result.reportDate || '',
+      allocation: result.assetAllocation || { stockRatio: null, bondRatio: null, cashRatio: null, netAsset: null, reportDate: '' }
     }
+  } catch (e) {
+    log(`[汇总] ${fundCode} 获取持仓失败: ${e.message}`, 'WARN')
+    return { stocks: [], reportDate: '', allocation: { stockRatio: null, bondRatio: null, cashRatio: null, netAsset: null, reportDate: '' } }
   }
-  
-  return { stocks: resultStocks, reportDate: resultReportDate, allocation: resultAllocation }
 }
 
 /**
@@ -2292,20 +2496,16 @@ app.get('/equity/aggregated-holdings', async (req, res) => {
       })
     )
     
-    // 汇总所有股票持仓
+    // 汇总所有股票持仓（仅统计有持仓数据的基金）
     const stockMap = new Map() // code -> { name, totalValue, funds: [] }
-    let otherStocksTotalValue = 0 // 非十大持仓股票的总金额
     
     for (const result of holdingsResults) {
-      if (!result.holdings.stocks) continue
+      const stocks = result.holdings?.stocks
+      if (!stocks || stocks.length === 0) continue
       
-      // 计算该基金的十大股票占比之和
-      let topStocksRatioSum = 0
-      
-      for (const stock of result.holdings.stocks) {
+      for (const stock of stocks) {
         // 计算这只基金持有该股票的市值（基金市值 * 占比）
         const stockValue = result.marketValue * (stock.ratio / 100)
-        topStocksRatioSum += stock.ratio
         
         if (!stockMap.has(stock.code)) {
           stockMap.set(stock.code, {
@@ -2324,13 +2524,6 @@ app.get('/equity/aggregated-holdings', async (req, res) => {
           value: stockValue
         })
       }
-      
-      // 计算该基金的非十大股票金额
-      const alloc = result.holdings?.allocation
-      if (alloc && alloc.stockRatio != null && alloc.stockRatio > topStocksRatioSum) {
-        const otherRatio = alloc.stockRatio - topStocksRatioSum
-        otherStocksTotalValue += result.marketValue * (otherRatio / 100)
-      }
     }
     
     // 转换为数组并排序
@@ -2341,28 +2534,54 @@ app.get('/equity/aggregated-holdings', async (req, res) => {
       }))
       .sort((a, b) => b.totalValue - a.totalValue)
     
-    // 计算总市值（所有基金市值之和，作为占比的统一分母）
-    const totalMarketValue = fundList.reduce((sum, f) => sum + f.marketValue, 0)
+    // 过滤出有持仓数据的基金（持仓股票非空）
+    const validHoldings = holdingsResults.filter(r => r.holdings?.stocks?.length > 0)
+    // 没有持仓数据的基金
+    const noHoldingsFunds = holdingsResults
+      .filter(r => !r.holdings?.stocks || r.holdings.stocks.length === 0)
+      .map(r => ({ code: r.code, marketValue: r.marketValue }))
+    
+    // 计算总市值（仅统计有持仓数据的基金）
+    const totalMarketValue = validHoldings.reduce((sum, r) => sum + r.marketValue, 0)
     
     // 计算加权平均资产配置（股票/债券/现金/其他）— 权威数据来源
-    let weightedStockRatio = 0, weightedBondRatio = 0, weightedCashRatio = 0
+    // 两套口径：
+    //   子集口径（allocationRatio）: 基于有配置数据的基金，保证加总=100%，用于前端展示
+    //   全量口径（fullRatio）: 基于所有基金，用于计算金额和"其他"残差
+    let allocStockRatio = 0, allocBondRatio = 0, allocCashRatio = 0  // 子集口径
+    let fullStockRatio = 0, fullBondRatio = 0, fullCashRatio = 0      // 全量口径
     let allocationFundCount = 0
+    let allocationTotalMarketValue = 0
     
-    for (const result of holdingsResults) {
+    // 第一遍：计算有完整配置数据的基金总市值（仅从有持仓的基金中筛选）
+    for (const result of validHoldings) {
       const alloc = result.holdings?.allocation
-      if (!alloc || alloc.stockRatio == null) continue
-      
-      const weight = result.marketValue / totalMarketValue
-      weightedStockRatio += (alloc.stockRatio || 0) * weight
-      weightedBondRatio += (alloc.bondRatio || 0) * weight
-      weightedCashRatio += (alloc.cashRatio || 0) * weight
+      if (!alloc || alloc.stockRatio == null || alloc.bondRatio == null || alloc.cashRatio == null) continue
+      allocationTotalMarketValue += result.marketValue
       allocationFundCount++
     }
     
-    // 其他 = 100 - 股票 - 债券 - 现金
-    const weightedOtherRatio = Math.max(0, 100 - weightedStockRatio - weightedBondRatio - weightedCashRatio)
-    // 现金及其他 = 现金 + 其他
-    const cashAndOtherRatio = weightedCashRatio + weightedOtherRatio
+    // 第二遍：分别计算子集口径和全量口径
+    if (allocationTotalMarketValue > 0) {
+      for (const result of validHoldings) {
+        const alloc = result.holdings?.allocation
+        if (!alloc || alloc.stockRatio == null || alloc.bondRatio == null || alloc.cashRatio == null) continue
+        
+        const subsetWeight = result.marketValue / allocationTotalMarketValue
+        const fullWeight = result.marketValue / totalMarketValue
+        allocStockRatio += alloc.stockRatio * subsetWeight
+        allocBondRatio += alloc.bondRatio * subsetWeight
+        allocCashRatio += alloc.cashRatio * subsetWeight
+        fullStockRatio += alloc.stockRatio * fullWeight
+        fullBondRatio += alloc.bondRatio * fullWeight
+        fullCashRatio += alloc.cashRatio * fullWeight
+      }
+    }
+    
+    // 子集口径的"其他"确保加总=100%
+    const allocOtherRatio = Math.max(0, 100 - allocStockRatio - allocBondRatio - allocCashRatio)
+    // 全量口径的"其他"包含无配置数据的基金的市值
+    const fullOtherRatio = Math.max(0, 100 - fullStockRatio - fullBondRatio - fullCashRatio)
     
     // 计算十大重仓股占比（相对总资产）
     let topStocksRatioSum = 0
@@ -2371,16 +2590,16 @@ app.get('/equity/aggregated-holdings', async (req, res) => {
       topStocksRatioSum += stock.ratio
     }
     
-    // 其他股票 = 股票总占比 - 十大重仓股占比之和（残差，确保总和 = 100%）
-    const otherStocksRatio = Math.max(0, Math.round((weightedStockRatio - topStocksRatioSum) * 100) / 100)
+    // 其他股票 = 全量口径股票占比 - 十大重仓占比之和（确保金额计算口径一致）
+    const otherStocksRatio = Math.max(0, Math.round((fullStockRatio - topStocksRatioSum) * 100) / 100)
     
     // 资产类别分布（按金额降序，与个股并列）
     const assetCategories = []
     if (allocationFundCount > 0) {
-      // 计算各类别对应的金额（基于总市值和配置比例）
+      // 计算各类别对应的金额（基于总市值和全量口径比例）
       const calcValue = (ratio) => Math.round(totalMarketValue * ratio / 100 * 100) / 100
       
-      // 其他股票（非十大持仓，作为残差）
+      // 其他股票（非十大持仓）
       if (otherStocksRatio > 0.01) {
         assetCategories.push({
           type: 'other_stocks',
@@ -2392,23 +2611,33 @@ app.get('/equity/aggregated-holdings', async (req, res) => {
         })
       }
       
-      if (weightedBondRatio > 0.1) {
+      if (fullBondRatio > 0.1) {
         assetCategories.push({
           type: 'bond',
           name: '债券',
           code: '-',
-          totalValue: calcValue(weightedBondRatio),
-          ratio: Math.round(weightedBondRatio * 100) / 100,
+          totalValue: calcValue(fullBondRatio),
+          ratio: Math.round(fullBondRatio * 100) / 100,
           funds: []
         })
       }
-      if (cashAndOtherRatio > 0.1) {
+      if (fullCashRatio > 0.1) {
         assetCategories.push({
           type: 'cash',
-          name: '现金及其他',
+          name: '现金',
           code: '-',
-          totalValue: calcValue(cashAndOtherRatio),
-          ratio: Math.round(cashAndOtherRatio * 100) / 100,
+          totalValue: calcValue(fullCashRatio),
+          ratio: Math.round(fullCashRatio * 100) / 100,
+          funds: []
+        })
+      }
+      if (fullOtherRatio > 0.1) {
+        assetCategories.push({
+          type: 'other',
+          name: '其他',
+          code: '-',
+          totalValue: calcValue(fullOtherRatio),
+          ratio: Math.round(fullOtherRatio * 100) / 100,
           funds: []
         })
       }
@@ -2420,12 +2649,14 @@ app.get('/equity/aggregated-holdings', async (req, res) => {
         stocks,
         assetCategories,
         assetAllocation: allocationFundCount > 0 ? {
-          stockRatio: Math.round(weightedStockRatio * 100) / 100,
-          bondRatio: Math.round(weightedBondRatio * 100) / 100,
-          cashAndOtherRatio: Math.round(cashAndOtherRatio * 100) / 100
+          stockRatio: Math.round(allocStockRatio * 100) / 100,
+          bondRatio: Math.round(allocBondRatio * 100) / 100,
+          cashRatio: Math.round(allocCashRatio * 100) / 100,
+          otherRatio: Math.round(allocOtherRatio * 100) / 100
         } : null,
         totalValue: Math.round(totalMarketValue * 100) / 100,
-        fundCount: fundList.length
+        fundCount: validHoldings.length,
+        noHoldingsFunds
       }
     })
   } catch (err) {
@@ -2501,6 +2732,122 @@ app.get('/cmb/nav-history/:code', async (req, res) => {
     res.json({ success: true, data: history, fromCache: false })
   } catch (err) {
     log(`[CMB历史] 获取失败: ${req.params.code}, 错误: ${err.message}`, 'ERROR')
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+// ==================== 指数历史数据 API ====================
+
+const INDEX_SECID_MAP = {
+  '000905': '1.000905',
+  '000906': '1.000906',
+  '000923': '1.000923',
+  '000300': '1.000300',
+}
+
+const INDEX_CSI_HCODES = new Set(['H11001'])
+
+const INDEX_CACHE_TTL = 4 * 60 * 60 * 1000 // 4小时
+
+/**
+ * 从东方财富获取 00xxxx 类指数历史K线数据
+ * klines 格式: "日期,开盘,收盘,最高,最低,成交量,..."
+ * 收盘价在 index 2 (f53)
+ */
+async function fetchFromEastmoney(indexCode, secid) {
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=5000`
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const curlCmd = `curl -s --max-time 15 -H 'Referer: https://quote.eastmoney.com/' -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' '${url}'`
+      const text = execSync(curlCmd, { encoding: 'utf-8', timeout: 20000 })
+      if (!text) throw new Error(`指数 ${indexCode} 东方财富空响应`)
+      const parsed = JSON.parse(text)
+      const klines = parsed?.data?.klines
+      if (!klines || klines.length === 0) throw new Error(`指数 ${indexCode} 暂无K线数据`)
+      return klines.map(line => {
+        const parts = line.split(',')
+        return { date: parts[0], value: parseFloat(parts[2]) }
+      }).filter(p => !isNaN(p.value))
+    } catch (err) {
+      lastErr = err
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000))
+    }
+  }
+  throw lastErr || new Error(`指数 ${indexCode} 东方财富获取失败`)
+}
+
+/**
+ * 从中证指数官网(www.csindex.com.cn)获取 H 开头债券指数历史行情
+ * 返回字段: [日期, 指数代码, 全称, 简称, 英全, 英简, 开盘, 最高, 最低, 收盘, ...]
+ */
+async function fetchFromCsindex(indexCode) {
+  const today = new Date()
+  const yyyy = today.getFullYear()
+  const mm = String(today.getMonth() + 1).padStart(2, '0')
+  const dd = String(today.getDate()).padStart(2, '0')
+  const endDate = `${yyyy}${mm}${dd}`
+  const startDate = `${yyyy - 10}${mm}${dd}`
+  const url = `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=${indexCode}&startDate=${startDate}&endDate=${endDate}`
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const curlCmd = `curl -s --max-time 20 -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' -H 'Referer: https://www.csindex.com.cn/' '${url}'`
+      const text = execSync(curlCmd, { encoding: 'utf-8', timeout: 25000 })
+      if (!text) throw new Error(`指数 ${indexCode} 中证官网空响应`)
+      const parsed = JSON.parse(text)
+      const rows = parsed?.data
+      if (!Array.isArray(rows) || rows.length === 0) throw new Error(`指数 ${indexCode} 中证官网无数据`)
+      const result = []
+      for (const row of rows) {
+        const dateRaw = row.tradeDate || row[0]
+        const closeRaw = (row.close !== undefined && row.close !== null) ? row.close : row[9]
+        if (!dateRaw || closeRaw === null || closeRaw === undefined) continue
+        const s = String(dateRaw).replace(/-/g, '')
+        const dateStr = s.length >= 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : String(dateRaw).slice(0, 10)
+        const val = parseFloat(closeRaw)
+        if (!isNaN(val)) result.push({ date: dateStr, value: val })
+      }
+      result.sort((a, b) => a.date.localeCompare(b.date))
+      if (result.length === 0) throw new Error(`指数 ${indexCode} 解析后无有效数据`)
+      return result
+    } catch (err) {
+      lastErr = err
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000))
+    }
+  }
+  throw lastErr || new Error(`指数 ${indexCode} 中证官网获取失败`)
+}
+
+async function fetchIndexHistoryServer(indexCode) {
+  if (INDEX_CSI_HCODES.has(indexCode)) {
+    return fetchFromCsindex(indexCode)
+  }
+  const secid = INDEX_SECID_MAP[indexCode]
+  if (!secid) throw new Error(`不支持的指数代码: ${indexCode}`)
+  return fetchFromEastmoney(indexCode, secid)
+}
+
+app.get('/index/history', async (req, res) => {
+  try {
+    const { code } = req.query
+    if (!code) {
+      return res.status(400).json({ success: false, error: '缺少 code 参数' })
+    }
+
+    const cacheKey = `index_history_${code}`
+    const cached = await getCache(cacheKey)
+    if (cached && !cached.isExpired) {
+      return res.json({ success: true, data: cached.data, fromCache: true })
+    }
+
+    const history = await fetchIndexHistoryServer(code)
+    await setCache(cacheKey, history, INDEX_CACHE_TTL)
+    log(`[指数] 获取 ${code} 历史数据成功, ${history.length} 条`)
+
+    res.json({ success: true, data: history, fromCache: false })
+  } catch (err) {
+    log(`[指数] 获取失败: ${err.message}`, 'ERROR')
     res.status(500).json({ success: false, error: err.message })
   }
 })

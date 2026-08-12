@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { ArrowLeft, Plus, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
+import { ArrowLeft, Plus, Edit, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
+import ProductModal from '@/components/ProductModal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
 import { formatCurrency, formatCurrency1, formatPercent, formatDate, getDateOnly } from '@/utils/format'
 import { fetchEquityNav, fetchCmbNav, fetchIcbcNav, fetchCmbNavHistory, fetchIcbcNavHistory, fetchEquityStageGains, fetchEquityHoldings, type NavResult, type StageGains, type EquityHoldingsResult } from '@/utils/equityApi'
+import { fetchMultipleIndexHistory } from '@/utils/indexApi'
+import { calcBenchmarkSeries, getFormulaIndexCodes, parseBenchmarkFormula, type BenchmarkComponent } from '@/utils/benchmark'
+import type { BenchmarkPoint } from '@/types'
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
@@ -23,6 +27,21 @@ const navFetchError = ref('')
 const navHistorySuccess = ref('')
 const stageGains = ref<StageGains | null>(null)
 const holdingsData = ref<EquityHoldingsResult | null>(null)
+
+const showProductModal = ref(false)
+const editingProduct = ref<typeof product.value | null>(null)
+
+const handleEdit = () => {
+  editingProduct.value = product.value
+  showProductModal.value = true
+}
+
+const handleSubmit = (data: { name: string; type: string; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string }) => {
+  if (editingProduct.value) {
+    updateProduct(editingProduct.value.id, data.name, data.type as any, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula)
+  }
+  showProductModal.value = false
+}
 
 const handleFetchStageGains = async () => {
   if (!product.value?.code || (product.value.type !== 'equity' && product.value.type !== 'fund')) return
@@ -137,7 +156,9 @@ const handleFetchNav = async () => {
         product.value.dcaAmount,
         product.value.dcaCycle,
         product.value.navSource,
-        (product.value as any).holdingTerm || ''
+        (product.value as any).holdingTerm || '',
+        (product.value as any).benchmarkEnabled || false,
+        (product.value as any).benchmarkFormula || ''
       )
     }
   } catch (e: any) {
@@ -346,6 +367,25 @@ const showModal = ref(false)
 const editingTransaction = ref<typeof transactions.value[0] | null>(null)
 const chartRef = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
+const benchmarkData = ref<BenchmarkPoint[]>([])
+
+const benchmarkComponents = computed<BenchmarkComponent[]>(() => {
+  if (!product.value?.benchmarkEnabled || !product.value?.benchmarkFormula) {
+    return []
+  }
+  return parseBenchmarkFormula(product.value.benchmarkFormula)
+})
+
+const hasBenchmark = computed(() => benchmarkComponents.value.length > 0)
+
+const benchmarkLegendName = computed(() => {
+  if (!hasBenchmark.value) return ''
+  const components = benchmarkComponents.value
+  const formulaStr = components
+    .map(c => `${c.weight.toFixed(2)}*${c.indexName}`)
+    .join('+')
+  return `比较基准(${formulaStr})`
+})
 const allocationChartRef = ref<HTMLDivElement>()
 const holdingsChartRef = ref<HTMLDivElement>()
 let allocationChart: echarts.ECharts | null = null
@@ -381,102 +421,135 @@ const renderHoldingsCharts = () => {
     if (allocationChartRef.value && data.assetAllocation) {
       allocationChart = echarts.init(allocationChartRef.value)
       const aa = data.assetAllocation
-      const allocData = [
-        { name: '股票', value: aa.stockRatio || 0 },
-        { name: '债券', value: aa.bondRatio || 0 },
-        { name: '现金', value: aa.cashRatio || 0 },
-      ]
-      // 计算"其他"占比
-      const total = allocData.reduce((s, d) => s + d.value, 0)
-      const other = Math.max(0, 100 - total)
-      if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)) })
       
-      allocationChart.setOption({
-        tooltip: {
-          trigger: 'axis',
-          axisPointer: { type: 'shadow' },
-          backgroundColor: 'rgba(255,255,255,0.95)',
-          borderColor: '#e5e7eb',
-          borderWidth: 1,
-          textStyle: { color: '#374151', fontSize: 12 },
-          formatter: (params: any) => {
-            let result = '<div style="font-weight:600;margin-bottom:4px">资产配置</div>'
-            params.forEach((item: any) => {
-              if (item.value > 0) {
-                result += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
-                  <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${item.color}"></span>
-                  <span>${item.seriesName}: <b>${item.value}%</b></span>
-                </div>`
-              }
-            })
-            return result
-          }
-        },
-        legend: {
-          show: true,
-          bottom: 0,
-          itemWidth: mobile ? 6 : 8,
-          itemHeight: mobile ? 6 : 8,
-          itemGap: mobile ? 4 : 12,
-          textStyle: { fontSize: mobile ? 8 : 10, color: '#6b7280' }
-        },
-        grid: { left: '0', right: '0', top: '10', bottom: mobile ? '30' : '40' },
-        xAxis: {
-          type: 'value',
-          max: 100,
-          axisLine: { show: false },
-          axisTick: { show: false },
-          axisLabel: { show: false },
-          splitLine: { show: false }
-        },
-        yAxis: {
-          type: 'category',
-          data: [''],
-          axisLine: { show: false },
-          axisTick: { show: false },
-          axisLabel: { show: false }
-        },
-        series: [{
-          type: 'bar',
-          barWidth: '90%',
-          barGap: '-100%',
-          data: [{ value: 100, itemStyle: { color: '#f3f4f6', borderRadius: [8, 8, 8, 8] } }],
-          stack: 'bg',
-          silent: true,
-          tooltip: { show: false }
-        }, ...allocData.map((item, index, arr) => {
-          const isFirst = index === 0
-          const isLast = index === arr.length - 1
-          const color = (ALLOC_COLORS as any)[item.name] || STOCK_COLORS[index % STOCK_COLORS.length]
-          return {
-            name: item.name,
+      // 兼容三种数据格式：
+      // 1. 新汇总格式(cashRatio + otherRatio 分开)
+      // 2. 旧汇总格式(cashAndOtherRatio 合并)
+      // 3. 单基金格式(cashRatio，其他通过残差计算)
+      const hasOtherRatio = aa.otherRatio !== null && aa.otherRatio !== undefined
+      const hasCashAndOther = aa.cashAndOtherRatio !== null && aa.cashAndOtherRatio !== undefined
+      
+      let allocData
+      if (hasOtherRatio) {
+        // 新汇总格式：已分开
+        allocData = [
+          { name: '股票', value: aa.stockRatio },
+          { name: '债券', value: aa.bondRatio },
+          { name: '现金', value: aa.cashRatio },
+          { name: '其他', value: aa.otherRatio },
+        ].filter(d => d.value !== null && d.value !== undefined)
+      } else if (hasCashAndOther) {
+        // 旧汇总格式：合并
+        allocData = [
+          { name: '股票', value: aa.stockRatio },
+          { name: '债券', value: aa.bondRatio },
+          { name: '现金及其他', value: aa.cashAndOtherRatio },
+        ].filter(d => d.value !== null && d.value !== undefined)
+      } else {
+        // 单基金格式
+        allocData = [
+          { name: '股票', value: aa.stockRatio },
+          { name: '债券', value: aa.bondRatio },
+          { name: '现金', value: aa.cashRatio },
+        ].filter(d => d.value !== null && d.value !== undefined)
+      }
+      
+      // 如果没有有效数据，跳过渲染
+      if (allocData.length > 0) {
+        // 仅单基金格式需要通过残差计算"其他"
+        if (!hasOtherRatio && !hasCashAndOther) {
+          const total = allocData.reduce((s, d) => s + d.value, 0)
+          const other = Math.max(0, 100 - total)
+          if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)) })
+        }
+      
+        allocationChart.setOption({
+          tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
+            backgroundColor: 'rgba(255,255,255,0.95)',
+            borderColor: '#e5e7eb',
+            borderWidth: 1,
+            textStyle: { color: '#374151', fontSize: 12 },
+            formatter: (params: any) => {
+              let result = '<div style="font-weight:600;margin-bottom:4px">资产配置</div>'
+              params.forEach((item: any) => {
+                if (item.value > 0) {
+                  result += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                    <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${item.color}"></span>
+                    <span>${item.seriesName}: <b>${item.value}%</b></span>
+                  </div>`
+                }
+              })
+              return result
+            }
+          },
+          legend: {
+            show: true,
+            bottom: 0,
+            itemWidth: mobile ? 6 : 8,
+            itemHeight: mobile ? 6 : 8,
+            itemGap: mobile ? 4 : 12,
+            textStyle: { fontSize: mobile ? 8 : 10, color: '#6b7280' }
+          },
+          grid: { left: '0', right: '0', top: '10', bottom: mobile ? '30' : '40' },
+          xAxis: {
+            type: 'value',
+            max: 100,
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: { show: false },
+            splitLine: { show: false }
+          },
+          yAxis: {
+            type: 'category',
+            data: [''],
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: { show: false }
+          },
+          series: [{
             type: 'bar',
-            stack: 'value',
             barWidth: '90%',
             barGap: '-100%',
-            itemStyle: {
-              color,
-              borderRadius: isFirst && isLast ? [8, 8, 8, 8]
-                : isFirst ? [8, 0, 0, 8]
-                : isLast ? [0, 8, 8, 0]
-                : [0, 0, 0, 0]
-            },
-            label: {
-              show: true,
-              position: 'inside',
-              fontSize: 11,
-              color: '#fff',
-              fontWeight: 600,
-              formatter: (params: any) => params.value >= 5 ? `${params.value}%` : ''
-            },
-            emphasis: {
-              focus: 'series',
-              itemStyle: { shadowBlur: 8, shadowOffsetY: 2, shadowColor: 'rgba(0,0,0,0.15)' }
-            },
-            data: [item.value]
-          }
-        })]
-      })
+            data: [{ value: 100, itemStyle: { color: '#f3f4f6', borderRadius: [8, 8, 8, 8] } }],
+            stack: 'bg',
+            silent: true,
+            tooltip: { show: false }
+          }, ...allocData.map((item, index, arr) => {
+            const isFirst = index === 0
+            const isLast = index === arr.length - 1
+            const color = (ALLOC_COLORS as any)[item.name] || STOCK_COLORS[index % STOCK_COLORS.length]
+            return {
+              name: item.name,
+              type: 'bar',
+              stack: 'value',
+              barWidth: '90%',
+              barGap: '-100%',
+              itemStyle: {
+                color,
+                borderRadius: isFirst && isLast ? [8, 8, 8, 8]
+                  : isFirst ? [8, 0, 0, 8]
+                  : isLast ? [0, 8, 8, 0]
+                  : [0, 0, 0, 0]
+              },
+              label: {
+                show: true,
+                position: 'inside',
+                fontSize: 11,
+                color: '#fff',
+                fontWeight: 600,
+                formatter: (params: any) => params.value >= 5 ? `${params.value}%` : ''
+              },
+              emphasis: {
+                focus: 'series',
+                itemStyle: { shadowBlur: 8, shadowOffsetY: 2, shadowColor: 'rgba(0,0,0,0.15)' }
+              },
+              data: [item.value]
+            }
+          })]
+        })
+      }
     }
     // 前十大重仓股分段条形图
     if (holdingsChartRef.value && data.stocks?.length) {
@@ -763,10 +836,17 @@ const updateChart = () => {
   }
   
   const navValues = navData.map(t => t.nav)
-  const minNav = Math.min(...navValues, position.value?.currentNav || 1)
-  const maxNav = Math.max(...navValues, position.value?.currentNav || 1)
+  // 包含比较基准值在 Y 轴范围内
+  const benchmarkSeriesData = getBenchmarkSeriesData(navData)
+  const benchmarkValues = benchmarkSeriesData.filter((v): v is number => v !== null)
+  const allValues = benchmarkValues.length > 0
+    ? [...navValues, ...benchmarkValues]
+    : navValues
+  const minNav = Math.min(...allValues, position.value?.currentNav || 1)
+  const maxNav = Math.max(...allValues, position.value?.currentNav || 1)
   const navSpread = maxNav - minNav
   const padding = navSpread * 0.1 || 0.02
+  const hasBenchmark = benchmarkSeriesData.length > 0
 
   // 构建净值日期索引，用于定位买入/卖出点
   const navDateIndex = new Map<string, number>()
@@ -827,21 +907,105 @@ const updateChart = () => {
     }
   }
   
+    const seriesList: any[] = [{
+      name: '净值',
+      type: 'line',
+      data: navData.map(t => t.nav),
+      smooth: true,
+      lineStyle: {
+        color: '#1e40af',
+        width: 2
+      },
+      itemStyle: {
+        color: '#1e40af'
+      },
+      symbol: 'circle',
+      symbolSize: navData.length > 60 ? 0 : 6,
+      markPoint: markPointData.length > 0 ? {
+        data: markPointData,
+        tooltip: {
+          formatter: (params: any) => {
+            const date = navData[params.data.xAxis]?.date || ''
+            const nav = params.data.yAxis
+            return `${params.name}<br/>${date}<br/>净值: ${nav}`
+          }
+        }
+      } : undefined
+    }]
+
+    if (hasBenchmark) {
+      seriesList.push({
+        name: benchmarkLegendName.value,
+        type: 'line',
+        data: benchmarkSeriesData,
+        smooth: true,
+        lineStyle: {
+          color: '#9ca3af',
+          width: 1.5,
+          type: 'dashed'
+        },
+        itemStyle: {
+          color: '#9ca3af'
+        },
+        symbol: 'none',
+        connectNulls: true
+      })
+    }
+    const startNav = navData[0]?.nav || 1
+    const getShortName = (name: string) => {
+      const match = name.match(/^(.*?)\(/)
+      return match ? match[1] : name
+    }
+    const tooltipFormatter = hasBenchmark
+      ? (params: any) => {
+          const idx = params[0].dataIndex
+          const fullDate = navData[idx]?.date || params[0].name
+          let result = `<div style="font-weight:600;margin-bottom:4px">${fullDate}</div>`
+          params.forEach((p: any) => {
+            if (p.value !== null && p.value !== undefined) {
+              const val = typeof p.value === 'number' ? p.value : parseFloat(p.value)
+              const shortName = getShortName(p.seriesName)
+              const ret = ((val - startNav) / startNav) * 100
+              const returnStr = ` <span style="color:${ret >= 0 ? '#ef4444' : '#22c55e'};font-size:11px">(${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%)</span>`
+              result += `<div><span style="color:${p.color}">●</span> ${shortName}: <b>${typeof p.value === 'number' ? p.value.toFixed(4) : p.value}</b>${returnStr}</div>`
+            }
+          })
+          return result
+        }
+      : (params: any) => {
+          const idx = params[0].dataIndex
+          const fullDate = navData[idx]?.date || params[0].name
+          const val = typeof params[0].value === 'number' ? params[0].value : parseFloat(params[0].value)
+          const ret = ((val - startNav) / startNav) * 100
+          const color = ret >= 0 ? '#ef4444' : '#22c55e'
+          return `<div style="font-weight:600;margin-bottom:4px">${fullDate}</div>
+                  <div><span style="color:${params[0].color}">●</span> 净值: <b>${val.toFixed(4)}</b></div>
+                  <div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(0,0,0,0.1)">
+                    <span style="color:${color}">相对起始: ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</span>
+                  </div>`
+        }
+
   chart.setOption({
     ...titleOption,
     tooltip: {
       trigger: 'axis',
-      formatter: (params: any) => {
-        const idx = params[0].dataIndex
-        const fullDate = navData[idx]?.date || params[0].name
-        return `${fullDate}<br/>净值: ${params[0].value}`
-      }
+      formatter: tooltipFormatter
     },
+    legend: hasBenchmark ? {
+      show: true,
+      top: 0,
+      right: 10,
+      itemWidth: 12,
+      itemHeight: 8,
+      itemGap: 15,
+      textStyle: { fontSize: 11, color: '#6b7280' },
+      data: ['净值', benchmarkLegendName.value]
+    } : undefined,
     grid: {
       left: 10,
       right: 10,
       bottom: 40,
-      top: 10,
+      top: hasBenchmark ? 30 : 10,
       containLabel: true
     },
     xAxis: {
@@ -913,30 +1077,7 @@ const updateChart = () => {
         show: true
       }
     },
-    series: [{
-      type: 'line',
-      data: navData.map(t => t.nav),
-      smooth: true,
-      lineStyle: {
-        color: '#1e40af',
-        width: 2
-      },
-      itemStyle: {
-        color: '#1e40af'
-      },
-      symbol: 'circle',
-      symbolSize: navData.length > 60 ? 0 : 6,
-      markPoint: markPointData.length > 0 ? {
-        data: markPointData,
-        tooltip: {
-          formatter: (params: any) => {
-            const date = navData[params.data.xAxis]?.date || ''
-            const nav = params.data.yAxis
-            return `${params.name}<br/>${date}<br/>净值: ${nav}`
-          }
-        }
-      } : undefined
-    }]
+    series: seriesList
   }, true)
 }
 
@@ -1023,22 +1164,44 @@ const initChart = () => {
     
     if (visibleData.length === 0) return
     
+    // 收集可见区间内的净值范围
     let min = Infinity
     let max = -Infinity
     for (const item of visibleData) {
       if (item.nav < min) min = item.nav
       if (item.nav > max) max = item.nav
     }
-    
+
+    // 同步重新归一化基准线，并将基准值纳入 Y 轴范围
+    const hasBenchmark = benchmarkData.value.length > 0
+    let newBenchmarkData: (number | null)[] = []
+    if (hasBenchmark) {
+      newBenchmarkData = getBenchmarkSeriesData(navData, startIdx)
+      // 只取可见区间内的基准值
+      const benchVals = newBenchmarkData
+        .slice(startIdx, endIdx + 1)
+        .filter((v): v is number => v !== null)
+      if (benchVals.length > 0) {
+        min = Math.min(min, ...benchVals)
+        max = Math.max(max, ...benchVals)
+      }
+    }
+
     const range = max - min
     const padding = range * 0.1 || 0.01
-    
-    chart!.setOption({
-      yAxis: {
-        min: Math.max(0, min - padding),
-        max: max + padding
-      }
-    })
+    const yAxisUpdate: any = {
+      min: Math.max(0, min - padding),
+      max: max + padding
+    }
+
+    if (hasBenchmark) {
+      chart!.setOption({
+        yAxis: yAxisUpdate,
+        series: [{}, { data: newBenchmarkData }]
+      })
+    } else {
+      chart!.setOption({ yAxis: yAxisUpdate })
+    }
     
     // 更新区间年化收益率显示
     updateRangeAnnualReturn(start, end)
@@ -1072,6 +1235,79 @@ const goBackToProducts = () => {
   })
 }
 
+// ==================== 比较基准数据加载 ====================
+async function loadBenchmarkData() {
+  if (!product.value?.benchmarkEnabled || !product.value?.benchmarkFormula) {
+    benchmarkData.value = []
+    return
+  }
+  try {
+    const indexCodes = getFormulaIndexCodes(product.value.benchmarkFormula)
+    if (indexCodes.length === 0) {
+      benchmarkData.value = []
+      return
+    }
+    const allIndexData = await fetchMultipleIndexHistory(indexCodes)
+    const navList = allNavTransactions.value
+    if (navList.length === 0) {
+      benchmarkData.value = []
+      return
+    }
+    const startDate = navList[0].timestamp
+    const startNav = navList[0].nav
+    benchmarkData.value = calcBenchmarkSeries(
+      product.value.benchmarkFormula,
+      allIndexData,
+      startDate,
+      startNav
+    )
+  } catch (e) {
+    console.error('加载基准数据失败:', e)
+    benchmarkData.value = []
+  }
+}
+
+// 构建基准值查找表：日期字符串 "YYYY-MM-DD" -> 基准净值
+const benchmarkValueMap = computed(() => {
+  const map = new Map<string, number>()
+  for (const point of benchmarkData.value) {
+    const d = new Date(point.date)
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    map.set(dateStr, point.value)
+  }
+  return map
+})
+
+// 将基准数据对齐到净值日期序列（前向填充），并按指定起点重归一化
+// startIdx: 重归一化的起始索引，默认0（区间起点）
+function getBenchmarkSeriesData(navData: { date: string; nav: number }[], startIdx: number = 0): (number | null)[] {
+  if (benchmarkData.value.length === 0 || navData.length === 0) return []
+  const map = benchmarkValueMap.value
+  let lastVal: number | null = null
+  const aligned = navData.map(t => {
+    const dateStr = t.date.replace(/\//g, '-')
+    const val = map.get(dateStr)
+    if (val !== undefined) {
+      lastVal = val
+      return val
+    }
+    return lastVal
+  })
+  // 从 startIdx 开始找第一个非空基准值作为重归一化基准
+  let ratioBase: number | null = null
+  for (let i = startIdx; i < aligned.length; i++) {
+    if (aligned[i] !== null) {
+      ratioBase = aligned[i]
+      break
+    }
+  }
+  if (ratioBase === null || ratioBase === 0) return []
+  const startNav = navData[startIdx].nav
+  return aligned.map(v =>
+    v === null ? null : parseFloat((startNav * (v / ratioBase)).toFixed(4))
+  )
+}
+
 onMounted(async () => {
   await initFinance()
   if (!product.value) {
@@ -1085,9 +1321,18 @@ onMounted(async () => {
     handleFetchStageGains()
     handleFetchHoldings()
   }
+  // 加载比较基准数据
+  if (product.value.benchmarkEnabled) {
+    await loadBenchmarkData()
+    updateChart()
+  }
 })
 
 watch([navRange, filteredNavTransactions], () => {
+  updateChart()
+})
+
+watch(benchmarkData, () => {
   updateChart()
 })
 
@@ -1117,6 +1362,13 @@ onUnmounted(() => {
         <div class="flex-1 min-w-0">
           <div class="flex items-center space-x-3">
             <h2 class="text-xl font-semibold text-apple-text truncate">{{ product.name }}</h2>
+            <button
+              @click.stop="handleEdit"
+              class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors flex-shrink-0"
+              title="编辑产品"
+            >
+              <Edit class="w-4 h-4" />
+            </button>
             <span v-if="product.code" class="text-xs font-mono bg-black/5 text-apple-secondary px-2 py-0.5 rounded-full flex-shrink-0">
               {{ product.code }}
             </span>
@@ -1174,6 +1426,9 @@ onUnmounted(() => {
             <h3 class="text-lg font-semibold text-apple-text">持仓概览</h3>
             <span class="text-xs text-apple-secondary bg-black/5 px-2 py-0.5 rounded-full">
               持有 {{ position?.holdingDays || 0 }} 天
+            </span>
+            <span class="text-xs text-apple-secondary bg-black/5 px-2 py-0.5 rounded-full">
+              {{ (position?.totalShares || 0).toFixed(2) }} 份
             </span>
           </div>
           <component 
@@ -1600,6 +1855,13 @@ onUnmounted(() => {
       :edit-transaction="editingTransaction"
       @close="showModal = false"
       @submit="handleSubmitTransaction"
+    />
+    
+    <ProductModal 
+      :visible="showProductModal"
+      :edit-product="editingProduct"
+      @close="showProductModal = false"
+      @submit="handleSubmit"
     />
   </div>
 </template>

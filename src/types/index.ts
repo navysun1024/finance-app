@@ -9,7 +9,19 @@ export interface Product {
   dcaCycle: string
   navSource: NavSource
   holdingTerm: string
+  benchmarkEnabled: boolean
+  benchmarkFormula: string
   createdAt: number
+}
+
+export interface IndexPoint {
+  date: string   // "2024-01-15"
+  value: number  // 指数收盘价
+}
+
+export interface BenchmarkPoint {
+  date: number   // timestamp
+  value: number  // 基准净值（已按产品起始净值缩放）
 }
 
 export type ProductType = 'equity' | 'fixed_income' | 'fund'
