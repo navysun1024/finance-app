@@ -927,6 +927,11 @@ const summaryStats = computed(() => {
   const totalProfit = positions.reduce((sum, p) => sum + (p!.profit || 0), 0)
   const profitRate = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0
   
+  const totalDailyProfit = filteredProducts.value.reduce((sum, product) => {
+    const dailyProfit = getDailyProfit(product)
+    return sum + (dailyProfit ?? 0)
+  }, 0)
+  
   // 计算加权平均年化收益率（按市值加权）
   let weightedAnnualRate = 0
   let totalWeight = 0
@@ -957,6 +962,7 @@ const summaryStats = computed(() => {
     totalMarketValue,
     totalCost,
     totalProfit,
+    totalDailyProfit,
     profitRate,
     annualRate,
     portfolioAnnualRate
@@ -1255,9 +1261,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
-        <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-          {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
-        </p>
+        <div class="flex items-end justify-between">
+          <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
+          </p>
+          <p v-if="pageSettings.showProfitAmount" class="text-[11px] ml-2" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
+            {{ summaryStats.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalDailyProfit) }} 今日
+          </p>
+        </div>
       </div>
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
@@ -1284,9 +1295,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
-        <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-          {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
-        </p>
+        <div class="flex items-end justify-between">
+          <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
+          </p>
+          <p v-if="pageSettings.showProfitAmount" class="text-[11px] ml-2" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
+            {{ summaryStats.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalDailyProfit) }} 今日
+          </p>
+        </div>
       </div>
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
