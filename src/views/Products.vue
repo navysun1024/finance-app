@@ -52,7 +52,7 @@ const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 const filterStatus = ref<ProductStatus | 'all'>('holding')
 
-const SORT_KEYS = ['name', 'marketValue', 'annualRate', 'profitRate', 'profit', 'holdingDays', 'dailyReturn', 'stageGains1m', 'stageGains3m', 'stageGainsYtd', 'fiAnnual1m', 'fiAnnual3m', 'fiAnnual1y', 'holder'] as const
+const SORT_KEYS = ['name', 'marketValue', 'annualRate', 'profitRate', 'profit', 'holdingDays', 'dailyReturn', 'dailyProfit', 'stageGains1m', 'stageGains3m', 'stageGainsYtd', 'fiAnnual1m', 'fiAnnual3m', 'fiAnnual1y', 'holder'] as const
 const sortPrefix = `sort_${props.type || 'all'}`
 const sortKey = ref<typeof SORT_KEYS[number]>(
   (localStorage.getItem(`${sortPrefix}_key`) as typeof SORT_KEYS[number]) || 'marketValue'
@@ -619,6 +619,9 @@ const filteredProducts = computed(() => {
       case 'dailyReturn':
         comparison = (getDailyReturn(a.code)?.dailyReturn ?? -999) - (getDailyReturn(b.code)?.dailyReturn ?? -999)
         break
+      case 'dailyProfit':
+        comparison = (getDailyProfit(a) ?? -999999) - (getDailyProfit(b) ?? -999999)
+        break
       case 'stageGains1m':
         comparison = (getStageGains(a.code)?.['1m'] || 0) - (getStageGains(b.code)?.['1m'] || 0)
         break
@@ -1129,13 +1132,6 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
-                class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider select-none"
-              >
-                <div class="flex items-center space-x-1">
-                  <span>状态</span>
-                </div>
-              </th>
-              <th 
                 v-if="props.type !== 'equity'"
                 class="px-2 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('holder')"
@@ -1284,8 +1280,19 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 @click="handleSort('dailyReturn')"
               >
                 <div class="flex items-center justify-end space-x-1">
-                  <span>当日</span>
+                  <span>当日涨幅</span>
                   <ChevronsUpDown v-if="sortKey !== 'dailyReturn'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <th 
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('dailyProfit')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>当日收益</span>
+                  <ChevronsUpDown v-if="sortKey !== 'dailyProfit'" class="w-3 h-3 text-apple-secondary/40" />
                   <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
@@ -1302,7 +1309,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             >
               <td class="px-2 py-3">
                 <div>
-                  <h3 class="text-[14px] font-semibold text-apple-text truncate sm:truncate-none sm:max-w-none max-w-[140px]">{{ product.name }}</h3>
+                  <div class="flex items-center gap-1.5">
+                    <h3 class="text-[14px] font-semibold text-apple-text truncate sm:truncate-none sm:max-w-none max-w-[140px]">{{ product.name }}</h3>
+                    <span 
+                      v-if="productStatusMap.get(product.id)"
+                      class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0"
+                      :style="{ backgroundColor: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color + '15', color: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color }"
+                    >
+                      {{ PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.label }}
+                    </span>
+                  </div>
                   <div class="flex items-center space-x-2 mt-1">
                     <span 
                       v-if="!props.type"
@@ -1320,16 +1336,6 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                   </div>
                 </div>
-              </td>
-              <td class="px-2 py-3 whitespace-nowrap">
-                <span 
-                  v-if="productStatusMap.get(product.id)"
-                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
-                  :style="{ backgroundColor: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color + '15', color: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color }"
-                >
-                  {{ PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.label }}
-                </span>
-                <span v-else class="text-[13px] text-apple-secondary">-</span>
               </td>
               <td v-if="props.type !== 'equity'" class="px-2 py-3 whitespace-nowrap">
                 <p class="text-[14px] text-apple-secondary">{{ product.holder || '-' }}</p>
@@ -1490,14 +1496,24 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   >
                     {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
                   </p>
-                  <div class="flex items-center justify-end space-x-1.5 mt-0.5">
-                    <span v-if="getDailyProfit(product) !== null" class="text-[11px]" :class="(getDailyProfit(product) ?? 0) >= 0 ? 'text-profit' : 'text-loss'">
-                      {{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
-                    </span>
+                  <div class="flex items-center justify-center mt-0.5">
                     <span class="text-[11px]" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
                       {{ getDailyReturn(product.code)?.date || '' }}
                     </span>
                   </div>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
+              </td>
+              <td class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getDailyProfit(product) !== null">
+                  <p
+                    class="text-[14px] font-semibold"
+                    :class="(getDailyProfit(product) ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
+                  >
+                    {{ (getDailyProfit(product) ?? 0) >= 0 ? '+' : '' }}{{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
+                  </p>
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>
