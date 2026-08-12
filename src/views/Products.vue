@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOff, Scale } from 'lucide-vue-next'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOff, Scale, X, TrendingUp, TrendingDown } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
 import ProductListItem from '@/components/ProductListItem.vue'
 import { useFinance } from '@/composables/useFinance'
@@ -8,9 +8,10 @@ import { useCompare } from '@/composables/useCompare'
 import { useRouter, useRoute } from 'vue-router'
 import type { ProductType, ProductStatus, Product } from '@/types'
 import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
-import { formatCurrency, formatCurrency1 } from '@/utils/format'
+import { formatCurrency, formatCurrency1, formatPercent, getDateOnly } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
 import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult } from '@/utils/equityApi'
+import * as echarts from 'echarts'
 
 const props = defineProps<{
   type?: ProductType
@@ -18,9 +19,424 @@ const props = defineProps<{
 
 const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
 
-const { toggleCompare, isInCompare } = useCompare()
+const { toggleCompare, isInCompare, compareType, compareIds, switchType, MAX_COMPARE } = useCompare()
 
-// 根据产品类型推断对比类型
+// ==================== 对比面板状态 ====================
+const showComparePanel = ref(false)
+
+// 对比区间选择
+type RangeType = '1m' | '3m' | '1y' | 'all' | 'custom'
+const compareRangeType = ref<RangeType>('1y')
+const compareCustomStart = ref('')
+const compareCustomEnd = ref('')
+
+const rangeOptions = [
+  { value: '1m', label: '近1月', days: 30 },
+  { value: '3m', label: '近3月', days: 90 },
+  { value: '1y', label: '近1年', days: 365 },
+  { value: 'all', label: '全部', days: 0 },
+  { value: 'custom', label: '自定义', days: 0 }
+] as const
+
+const compareDateBounds = computed<{ start: number; end: number } | null>(() => {
+  if (compareRangeType.value === 'all') return null
+  if (compareRangeType.value === 'custom') {
+    const start = compareCustomStart.value ? new Date(compareCustomStart.value + 'T00:00:00').getTime() : 0
+    const end = compareCustomEnd.value ? new Date(compareCustomEnd.value + 'T23:59:59').getTime() : Date.now()
+    return { start, end }
+  }
+  const opt = rangeOptions.find(o => o.value === compareRangeType.value)
+  if (!opt || opt.days === 0) return null
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - opt.days)
+  cutoff.setHours(0, 0, 0, 0)
+  return { start: cutoff.getTime(), end: Date.now() }
+})
+
+// 对比产品过滤
+const STOCK_COLORS = [
+  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+  '#3ba272', '#fc8452', '#9a60b4'
+]
+
+const compareAvailableProducts = computed(() => {
+  return products.value.filter(p => {
+    if (compareType.value === 'equity') {
+      return p.type === 'equity' || p.type === 'fund'
+    }
+    return p.type === 'fixed_income'
+  })
+})
+
+const getCompareProductColor = (productId: string) => {
+  const idx = compareIds.value.indexOf(productId)
+  return STOCK_COLORS[idx % STOCK_COLORS.length]
+}
+
+// 对比类型相关计算
+const compareIsEquityType = computed(() => compareType.value === 'equity')
+
+const compareAvailableTypes = computed(() => {
+  return props.type === 'equity' 
+    ? [{ value: 'equity', label: '权益' }]
+    : props.type === 'fixed_income'
+      ? [{ value: 'fixed_income', label: '固收' }]
+      : [{ value: 'equity', label: '权益' }, { value: 'fixed_income', label: '固收' }]
+})
+
+// ==================== 收益率计算逻辑 ====================
+interface NavPoint {
+  date: number
+  nav: number
+}
+
+interface RangeReturn {
+  totalReturn: number | null
+  annualReturn: number | null
+}
+
+interface CompareItem {
+  product: Product
+  color: string
+  navSeries: NavPoint[]
+  r1m: RangeReturn
+  r3m: RangeReturn
+  r6m: RangeReturn
+  r1y: RangeReturn
+  rInception: RangeReturn
+  inceptionDays: number
+  hasData: boolean
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function getAllNavSeries(productId: string): NavPoint[] {
+  return transactions.value
+    .filter(t => t.productId === productId && t.type === 'nav_update')
+    .map(t => ({ date: getDateOnly(t.date), nav: t.price }))
+    .sort((a, b) => a.date - b.date)
+}
+
+function getProductNavSeries(productId: string, bounds: { start: number; end: number } | null): NavPoint[] {
+  return getAllNavSeries(productId).filter(p => !bounds || (p.date >= bounds.start && p.date <= bounds.end))
+}
+
+function calcRangeReturn(allNavSeries: NavPoint[], cutoff: number | null): RangeReturn {
+  const empty: RangeReturn = { totalReturn: null, annualReturn: null }
+  if (allNavSeries.length < 2) return empty
+  const endNav = allNavSeries[allNavSeries.length - 1]
+  let startNav: NavPoint | null = null
+  if (cutoff !== null) {
+    for (let i = allNavSeries.length - 1; i >= 0; i--) {
+      if (allNavSeries[i].date <= cutoff) {
+        startNav = allNavSeries[i]
+        break
+      }
+    }
+  } else {
+    startNav = allNavSeries[0]
+  }
+  if (!startNav) return empty
+  const days = (endNav.date - startNav.date) / DAY_MS
+  if (startNav.nav <= 0 || days < 1) return empty
+  const ratio = endNav.nav / startNav.nav
+  return {
+    totalReturn: (ratio - 1) * 100,
+    annualReturn: (Math.pow(ratio, 365 / days) - 1) * 100
+  }
+}
+
+function getCompareInceptionDays(allNavSeries: NavPoint[]): number {
+  if (allNavSeries.length < 2) return 0
+  return Math.floor((allNavSeries[allNavSeries.length - 1].date - allNavSeries[0].date) / DAY_MS)
+}
+
+const compareData = computed<CompareItem[]>(() => {
+  const now = Date.now()
+  return compareIds.value.map(id => {
+    const product = products.value.find(p => p.id === id)
+    if (!product) return null
+    const color = getCompareProductColor(id)
+    const allNavSeries = getAllNavSeries(id)
+    const navSeries = getProductNavSeries(id, compareDateBounds.value)
+    return {
+      product,
+      color,
+      navSeries,
+      r1m: calcRangeReturn(allNavSeries, now - 30 * DAY_MS),
+      r3m: calcRangeReturn(allNavSeries, now - 90 * DAY_MS),
+      r6m: calcRangeReturn(allNavSeries, now - 180 * DAY_MS),
+      r1y: calcRangeReturn(allNavSeries, now - 365 * DAY_MS),
+      rInception: calcRangeReturn(allNavSeries, null),
+      inceptionDays: getCompareInceptionDays(allNavSeries),
+      hasData: navSeries.length >= 2
+    }
+  }).filter(Boolean) as CompareItem[]
+})
+
+const getCompareReturnValue = (range: RangeReturn): number | null => {
+  return compareIsEquityType.value ? range.totalReturn : range.annualReturn
+}
+
+// ==================== 对比表格排序 ====================
+type CompareSortKey = 'name' | 'r1m' | 'r3m' | 'r6m' | 'r1y' | 'rInception' | 'inceptionDays'
+const compareSortKey = ref<CompareSortKey>('r1y')
+const compareSortOrder = ref<'asc' | 'desc'>('desc')
+
+const getCompareSortValue = (item: CompareItem, key: CompareSortKey): number | string => {
+  if (key === 'name') return item.product.name
+  if (key === 'inceptionDays') return item.inceptionDays
+  const range = (item as any)[key] as RangeReturn | undefined
+  if (!range) return -Infinity
+  return (compareIsEquityType.value ? range.totalReturn : range.annualReturn) ?? -Infinity
+}
+
+const sortedCompareData = computed(() => {
+  const list = [...compareData.value]
+  list.sort((a, b) => {
+    const aVal = getCompareSortValue(a, compareSortKey.value)
+    const bVal = getCompareSortValue(b, compareSortKey.value)
+    if (compareSortKey.value === 'name') {
+      return compareSortOrder.value === 'asc'
+        ? (aVal as string).localeCompare(bVal as string, 'zh-CN')
+        : (bVal as string).localeCompare(aVal as string, 'zh-CN')
+    }
+    return compareSortOrder.value === 'asc'
+      ? (aVal as number) - (bVal as number)
+      : (bVal as number) - (aVal as number)
+  })
+  return list
+})
+
+const handleCompareSort = (key: CompareSortKey) => {
+  if (compareSortKey.value === key) {
+    compareSortOrder.value = compareSortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    compareSortKey.value = key
+    compareSortOrder.value = 'desc'
+  }
+}
+
+const getCompareSortIcon = (key: CompareSortKey) => {
+  if (compareSortKey.value !== key) return ChevronsUpDown
+  return compareSortOrder.value === 'asc' ? ArrowUp : ArrowDown
+}
+
+// ==================== ECharts 净值走势图 ====================
+const compareChartRef = ref<HTMLDivElement>()
+let compareChart: echarts.ECharts | null = null
+let zoomStartValue: number | null = null
+let zoomEndValue: number | null = null
+
+const initCompareChart = () => {
+  if (!compareChartRef.value) return
+  compareChart = echarts.init(compareChartRef.value)
+  compareChart.on('datazoom', () => {
+    const opt = compareChart?.getOption() as any
+    const dz = opt?.dataZoom?.[0]
+    if (dz) {
+      zoomStartValue = dz.startValue ?? null
+      zoomEndValue = dz.endValue ?? null
+      updateCompareChart()
+    }
+  })
+  updateCompareChart()
+}
+
+const updateCompareChart = () => {
+  if (!compareChart) return
+  const items = compareData.value.filter(item => item.hasData)
+
+  if (items.length === 0) {
+    compareChart.clear()
+    return
+  }
+
+  const allDatesSet = new Set<number>()
+  for (const item of items) {
+    for (const point of item.navSeries) {
+      allDatesSet.add(point.date)
+    }
+  }
+  const sortedDates = Array.from(allDatesSet).sort((a, b) => a - b)
+
+  const series = items.map(item => {
+    const navMap = new Map<number, number>()
+    for (const point of item.navSeries) {
+      navMap.set(point.date, point.nav)
+    }
+    let firstNav: number
+    if (zoomStartValue !== null) {
+      const firstInRange = item.navSeries.find(p => p.date >= zoomStartValue!)
+      firstNav = firstInRange ? firstInRange.nav : item.navSeries[0].nav
+    } else {
+      firstNav = item.navSeries[0].nav
+    }
+    let lastNav: number | null = null
+
+    const data: { value: [number, number]; originalNav: number }[] = []
+    for (const date of sortedDates) {
+      const nav = navMap.get(date)
+      if (nav !== undefined) {
+        lastNav = nav
+        const normalized = (nav / firstNav) * 100
+        data.push({ value: [date, parseFloat(normalized.toFixed(4))], originalNav: nav })
+      } else if (lastNav !== null) {
+        const normalized = (lastNav / firstNav) * 100
+        data.push({ value: [date, parseFloat(normalized.toFixed(4))], originalNav: lastNav })
+      }
+    }
+
+    return {
+      name: item.product.name,
+      type: 'line',
+      data,
+      smooth: false,
+      showSymbol: false,
+      symbol: 'circle',
+      symbolSize: 6,
+      lineStyle: { color: item.color, width: 2 },
+      itemStyle: { color: item.color },
+      emphasis: { focus: 'series' }
+    }
+  })
+
+  let minVal = Infinity
+  let maxVal = -Infinity
+  for (const s of series) {
+    for (const point of s.data) {
+      if (zoomStartValue !== null && point.value[0] < zoomStartValue) continue
+      if (zoomEndValue !== null && point.value[0] > zoomEndValue) continue
+      if (point.value[1] < minVal) minVal = point.value[1]
+      if (point.value[1] > maxVal) maxVal = point.value[1]
+    }
+  }
+  const padding = (maxVal - minVal) * 0.1 || 5
+
+  compareChart.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.95)',
+      borderColor: '#e5e7eb',
+      borderWidth: 1,
+      textStyle: { color: '#374151', fontSize: 12 },
+      formatter: (params: any) => {
+        if (!params || params.length === 0) return ''
+        const date = new Date(params[0].value[0]).toLocaleDateString('zh-CN')
+        let result = `<div style="font-weight:600;margin-bottom:4px">${date}</div>`
+        params.forEach((p: any) => {
+          const normalized = p.value[1]
+          const originalNav = p.data?.originalNav
+          const changePct = normalized - 100
+          const changeColor = changePct >= 0 ? '#ef4444' : '#22c55e'
+          result += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color}"></span>
+            <span style="flex:1">${p.seriesName}</span>
+            <span style="font-weight:600">${normalized.toFixed(2)}</span>
+            <span style="color:${changeColor};font-size:11px;margin-left:4px">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</span>
+            ${originalNav !== undefined ? `<span style="color:#9ca3af;font-size:11px;margin-left:6px">净值 ${originalNav.toFixed(4)}</span>` : ''}
+          </div>`
+        })
+        return result
+      }
+    },
+    legend: {
+      show: true,
+      bottom: 30,
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 16,
+      textStyle: { fontSize: 12, color: '#374151' }
+    },
+    grid: {
+      left: 10,
+      right: 10,
+      top: 20,
+      bottom: 80,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'time',
+      axisLabel: {
+        fontSize: 11,
+        color: '#6b7280',
+        hideOverlap: true
+      },
+      axisLine: { show: true, lineStyle: { color: '#e5e7eb' } },
+      axisTick: { show: false },
+      splitLine: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      min: Math.floor(minVal - padding),
+      max: Math.ceil(maxVal + padding),
+      axisLabel: {
+        fontSize: 11,
+        color: '#6b7280',
+        formatter: (value: number) => value.toFixed(0)
+      },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: true, lineStyle: { color: '#f3f4f6', type: 'dashed' } }
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        startValue: zoomStartValue ?? undefined,
+        endValue: zoomEndValue ?? undefined,
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: false
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        startValue: zoomStartValue ?? undefined,
+        endValue: zoomEndValue ?? undefined,
+        height: 20,
+        bottom: 8,
+        borderColor: 'transparent',
+        backgroundColor: 'rgba(0,0,0,0.05)',
+        fillerColor: 'rgba(30, 64, 175, 0.2)',
+        handleStyle: { color: '#1e40af' },
+        textStyle: { fontSize: 10 }
+      }
+    ],
+    series
+  }, true)
+}
+
+const handleCompareResize = () => {
+  compareChart?.resize()
+}
+
+// 对比面板操作方法
+const handleToggleCompareProduct = (productId: string) => {
+  toggleCompare(productId, compareType.value)
+}
+
+const handleSwitchCompareType = (type: 'equity' | 'fixed_income') => {
+  switchType(type)
+}
+
+const getCompareReturnClass = (value: number | null) => {
+  if (value === null) return 'text-apple-secondary'
+  return value >= 0 ? 'text-profit' : 'text-loss'
+}
+
+const formatCompareReturn = (value: number | null) => {
+  if (value === null) return '数据不足'
+  return formatPercent(value)
+}
+
+const getCompareProductTypeLabel = (type: string) => {
+  if (type === 'fund') return '基金'
+  if (type === 'equity') return '权益'
+  return '固收'
+}
+
 const getCompareType = (product: Product): 'equity' | 'fixed_income' => {
   return (product.type === 'equity' || product.type === 'fund') ? 'equity' : 'fixed_income'
 }
@@ -709,6 +1125,13 @@ onMounted(() => {
   if (props.type === 'equity') {
     fetchAllAggregatedHoldings(true)
   }
+  window.addEventListener('resize', handleCompareResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleCompareResize)
+  compareChart?.dispose()
+  compareChart = null
 })
 
 watch(() => products.value, () => {
@@ -728,6 +1151,25 @@ watch(filterType, (val) => {
   const query = { ...route.query, type: val === 'all' ? undefined : val }
   router.replace({ query })
 })
+
+// 对比面板 watch - 处理图表初始化和更新
+watch([compareIds, compareRangeType, compareCustomStart, compareCustomEnd, showComparePanel], async () => {
+  await nextTick()
+  zoomStartValue = null
+  zoomEndValue = null
+  if (!showComparePanel.value || compareIds.value.length === 0) {
+    if (compareChart) {
+      compareChart.dispose()
+      compareChart = null
+    }
+    return
+  }
+  if (!compareChart && compareChartRef.value) {
+    initCompareChart()
+  } else if (compareChart) {
+    updateCompareChart()
+  }
+}, { deep: true })
 
 const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string }) => {
   if (editingProduct.value) {
@@ -776,6 +1218,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         >
           <Plus class="w-4 h-4" />
           <span>新增产品</span>
+        </button>
+        <!-- 对比按钮 -->
+        <button 
+          v-if="compareIds.length > 0"
+          @click="showComparePanel = true"
+          class="flex items-center space-x-2 px-4 py-2.5 text-[14px] rounded-xl border border-primary-500 text-primary-500 hover:bg-primary-50 transition-colors"
+        >
+          <Scale class="w-4 h-4" />
+          <span>对比</span>
+          <span class="px-1.5 py-0.5 bg-primary-500 text-white rounded-full text-[11px] font-medium">{{ compareIds.length }}</span>
         </button>
       </div>
       <!-- 批量更新结果提示 -->
@@ -1496,7 +1948,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   >
                     {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
                   </p>
-                  <div class="flex items-center justify-center mt-0.5">
+                  <div class="flex items-center justify-end mt-0.5">
                     <span class="text-[11px]" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
                       {{ getDailyReturn(product.code)?.date || '' }}
                     </span>
@@ -1564,5 +2016,219 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       @close="showModal = false"
       @submit="handleSubmit"
     />
+
+    <!-- 对比面板（侧滑） -->
+    <Teleport to="body">
+      <Transition name="slide">
+        <div 
+          v-if="showComparePanel" 
+          class="fixed inset-0 z-50 flex justify-end"
+          @click.self="showComparePanel = false"
+        >
+          <!-- 遮罩 -->
+          <div class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+          
+          <!-- 面板内容 -->
+          <div class="relative w-full max-w-2xl bg-white dark:bg-apple-bg h-full shadow-2xl flex flex-col overflow-hidden">
+            <!-- 面板头部 -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-black/5">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-primary-500 flex items-center justify-center">
+                  <Scale class="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 class="text-lg font-semibold text-apple-text">产品对比</h2>
+                  <p class="text-xs text-apple-secondary">对比多只产品的区间收益率与净值走势</p>
+                </div>
+              </div>
+              <button 
+                @click="showComparePanel = false"
+                class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 transition-colors"
+              >
+                <X class="w-5 h-5 text-apple-secondary" />
+              </button>
+            </div>
+
+            <!-- 面板主体（可滚动） -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-4">
+              <!-- 控制栏 -->
+              <div v-if="compareAvailableTypes.length > 1" class="glass-card p-4 space-y-4 relative z-30">
+                <!-- 类型切换 -->
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-apple-secondary">类型:</span>
+                  <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
+                    <button
+                      v-for="t in compareAvailableTypes"
+                      :key="t.value"
+                      @click="handleSwitchCompareType(t.value as 'equity' | 'fixed_income')"
+                      :class="[
+                        'px-3.5 py-1.5 text-xs rounded-full transition-all duration-200',
+                        compareType === t.value
+                          ? 'bg-white text-apple-text shadow-sm font-medium'
+                          : 'text-apple-secondary hover:text-apple-text'
+                      ]"
+                    >
+                      {{ t.label }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 空状态 -->
+              <div v-if="compareIds.length === 0" class="glass-card p-12 text-center">
+                <Scale class="w-12 h-12 text-apple-secondary/30 mx-auto mb-3" />
+                <p class="text-apple-text text-base font-medium">未选择对比产品</p>
+                <p class="text-apple-secondary text-sm mt-2">请在产品列表中点击对比图标添加产品</p>
+              </div>
+
+              <template v-else>
+                <!-- 区间收益率对比表格 -->
+                <div class="glass-card overflow-hidden">
+                  <div class="px-5 py-4 border-b border-apple-border/30">
+                    <h3 class="text-base font-semibold text-apple-text">区间收益率对比</h3>
+                    <p class="text-xs text-apple-secondary mt-0.5">
+                      {{ compareIsEquityType ? '实际收益率（非年化）' : '年化收益率' }} · 各区间与成立天数
+                    </p>
+                  </div>
+                  <div class="overflow-x-auto">
+                    <table class="w-full apple-table" style="table-layout: fixed;">
+                      <thead>
+                        <tr>
+                          <th class="px-4 py-2.5 w-[180px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('name')">
+                            <div class="flex items-center justify-center space-x-1"><span>产品</span><component :is="getCompareSortIcon('name')" class="w-4 h-4" :class="compareSortKey === 'name' ? 'text-primary-500' : ''" /></div>
+                          </th>
+                          <th class="px-4 py-2.5 w-[80px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('r1m')">
+                            <div class="flex items-center justify-center space-x-1"><span>近1月</span><component :is="getCompareSortIcon('r1m')" class="w-4 h-4" :class="compareSortKey === 'r1m' ? 'text-primary-500' : ''" /></div>
+                          </th>
+                          <th class="px-4 py-2.5 w-[80px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('r3m')">
+                            <div class="flex items-center justify-center space-x-1"><span>近3月</span><component :is="getCompareSortIcon('r3m')" class="w-4 h-4" :class="compareSortKey === 'r3m' ? 'text-primary-500' : ''" /></div>
+                          </th>
+                          <th class="px-4 py-2.5 w-[80px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('r6m')">
+                            <div class="flex items-center justify-center space-x-1"><span>近6月</span><component :is="getCompareSortIcon('r6m')" class="w-4 h-4" :class="compareSortKey === 'r6m' ? 'text-primary-500' : ''" /></div>
+                          </th>
+                          <th class="px-4 py-2.5 w-[80px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('r1y')">
+                            <div class="flex items-center justify-center space-x-1"><span>近1年</span><component :is="getCompareSortIcon('r1y')" class="w-4 h-4" :class="compareSortKey === 'r1y' ? 'text-primary-500' : ''" /></div>
+                          </th>
+                          <th class="px-4 py-2.5 w-[100px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('rInception')">
+                            <div class="flex items-center justify-center space-x-1"><span>成立以来</span><component :is="getCompareSortIcon('rInception')" class="w-4 h-4" :class="compareSortKey === 'rInception' ? 'text-primary-500' : ''" /></div>
+                          </th>
+                          <th class="px-4 py-2.5 w-[100px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('inceptionDays')">
+                            <div class="flex items-center justify-center space-x-1"><span>成立天数</span><component :is="getCompareSortIcon('inceptionDays')" class="w-4 h-4" :class="compareSortKey === 'inceptionDays' ? 'text-primary-500' : ''" /></div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-apple-border/50 whitespace-nowrap">
+                        <tr v-for="item in sortedCompareData" :key="item.product.id">
+                          <td class="px-4 py-3 w-[180px] text-center">
+                            <div class="flex items-center justify-center space-x-2">
+                              <span class="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ backgroundColor: item.color }"></span>
+                              <div class="min-w-0 flex-1">
+                                <p class="text-sm text-apple-text font-medium truncate" :title="item.product.name">{{ item.product.name }}</p>
+                                <p class="text-xs text-apple-secondary truncate">{{ getCompareProductTypeLabel(item.product.type) }}<span v-if="item.product.code"> · {{ item.product.code }}</span></p>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="px-4 py-3 w-[80px] text-sm text-center font-semibold" :class="getCompareReturnClass(getCompareReturnValue(item.r1m))">
+                            {{ formatCompareReturn(getCompareReturnValue(item.r1m)) }}
+                          </td>
+                          <td class="px-4 py-3 w-[80px] text-sm text-center font-semibold" :class="getCompareReturnClass(getCompareReturnValue(item.r3m))">
+                            {{ formatCompareReturn(getCompareReturnValue(item.r3m)) }}
+                          </td>
+                          <td class="px-4 py-3 w-[80px] text-sm text-center font-semibold" :class="getCompareReturnClass(getCompareReturnValue(item.r6m))">
+                            {{ formatCompareReturn(getCompareReturnValue(item.r6m)) }}
+                          </td>
+                          <td class="px-4 py-3 w-[80px] text-sm text-center font-semibold" :class="getCompareReturnClass(getCompareReturnValue(item.r1y))">
+                            {{ formatCompareReturn(getCompareReturnValue(item.r1y)) }}
+                          </td>
+                          <td class="px-4 py-3 w-[100px] text-sm text-center font-semibold" :class="getCompareReturnClass(getCompareReturnValue(item.rInception))">
+                            {{ formatCompareReturn(getCompareReturnValue(item.rInception)) }}
+                          </td>
+                          <td class="px-4 py-3 w-[100px] text-sm text-center text-apple-secondary">
+                            {{ item.inceptionDays > 0 ? item.inceptionDays + ' 天' : '—' }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- 净值曲线对比图 -->
+                <div class="glass-card p-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 class="text-base font-semibold text-apple-text">净值走势对比</h3>
+                      <p class="text-xs text-apple-secondary mt-0.5">归一化起点 = 100，支持滚轮缩放与拖动平移</p>
+                    </div>
+                    <div class="flex items-center space-x-1 text-xs text-apple-secondary">
+                      <component :is="compareData.length > 0 && (getCompareReturnValue(compareData[0].r1y) ?? 0) >= 0 ? TrendingUp : TrendingDown" class="w-4 h-4" />
+                      <span>{{ compareData.filter(d => d.hasData).length }} 只产品</span>
+                    </div>
+                  </div>
+                  <!-- 区间选择器 -->
+                  <div class="flex items-center flex-wrap gap-2 mb-3 pb-3 border-b border-apple-border/30">
+                    <span class="text-xs text-apple-secondary">区间:</span>
+                    <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
+                      <button
+                        v-for="opt in rangeOptions"
+                        :key="opt.value"
+                        @click="compareRangeType = opt.value"
+                        :class="[
+                          'px-2.5 py-1 text-xs rounded-full transition-all duration-200',
+                          compareRangeType === opt.value
+                            ? 'bg-white text-apple-text shadow-sm font-medium'
+                            : 'text-apple-secondary hover:text-apple-text'
+                        ]"
+                      >
+                        {{ opt.label }}
+                      </button>
+                    </div>
+                    <template v-if="compareRangeType === 'custom'">
+                      <input
+                        v-model="compareCustomStart"
+                        type="date"
+                        class="glass-input px-3 py-1 text-xs rounded-full outline-none"
+                      />
+                      <span class="text-apple-secondary text-xs">至</span>
+                      <input
+                        v-model="compareCustomEnd"
+                        type="date"
+                        class="glass-input px-3 py-1 text-xs rounded-full outline-none"
+                      />
+                    </template>
+                  </div>
+                  <div ref="compareChartRef" class="w-full" style="height: 380px;"></div>
+                  <div v-if="compareData.filter(d => d.hasData).length === 0" class="text-center py-12">
+                    <p class="text-apple-secondary text-sm">所选产品在当前区间内净值数据不足</p>
+                    <p class="text-apple-secondary text-xs mt-2 opacity-70">请尝试切换区间或在产品详情页补全历史净值</p>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.slide-enter-active,
+.slide-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.slide-enter-active .relative,
+.slide-leave-active .relative {
+  transition: transform 0.3s ease;
+}
+
+.slide-enter-from,
+.slide-leave-to {
+  opacity: 0;
+}
+
+.slide-enter-from .relative,
+.slide-leave-to .relative {
+  transform: translateX(100%);
+}
+</style>
