@@ -690,8 +690,18 @@ const getDailyReturn = (code: string | undefined): { dailyReturn: number | null;
 // 当日收益金额 = 持仓市值 × 当日收益率
 const getDailyProfit = (product: Product): number | null => {
   const pos = getPosition(product.id) as any
+  if (!pos || !pos.marketValue) return null
+  
+  // 定存产品：当日收益 = 本金 × 年利率 / 365
+  if (product.type === 'term_deposit') {
+    const annualRate = (product.interestRate || 0) / 100
+    // 本金：有交易记录用累计成本，否则用起存金额
+    const principal = pos.totalInvestment || product.minAmount || 0
+    return principal * annualRate / 365
+  }
+  
   const daily = getDailyReturn(product.code)
-  if (!pos || !pos.marketValue || !daily || daily.dailyReturn === null) return null
+  if (!daily || daily.dailyReturn === null) return null
   return pos.marketValue * daily.dailyReturn / 100
 }
 
@@ -1141,6 +1151,26 @@ const getTermDepositRemainingDays = (product: any): number => {
   const remainingDays = Math.max(0, totalDurationDays - elapsedDays)
   
   return remainingDays
+}
+
+// 格式化存款期限：超过1年显示年
+const formatDuration = (durationMonths: number): string => {
+  if (!durationMonths || durationMonths <= 0) return '-'
+  if (durationMonths >= 12) {
+    const years = Math.floor(durationMonths / 12)
+    const remainMonths = durationMonths % 12
+    if (remainMonths === 0) {
+      return `${years}年`
+    }
+    return `${years}年${remainMonths}个月`
+  }
+  return `${durationMonths}个月`
+}
+
+// 格式化到期日期
+const formatMaturityDate = (product: any): string => {
+  if (!product || !product.maturityDate) return '-'
+  return product.maturityDate
 }
 
 // 预计算所有产品的 position（只计算一次，避免模板中重复调用）
@@ -1639,7 +1669,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <!-- 桌面端表格布局 -->
     <div class="hidden md:block glass-card overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full apple-table">
+        <table :class="['w-full apple-table', { 'term-deposit-table': props.type === 'term_deposit' }]">
           <thead>
             <tr>
               <th 
@@ -1702,36 +1732,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
-              <!-- 定存产品特有列：期限 -->
-              <th 
-                v-if="props.type === 'term_deposit'"
-                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
-              >
-                <div class="flex items-center justify-end space-x-1">
-                  <span>期限</span>
-                </div>
-              </th>
-              <!-- 定存产品特有列：存款进度 -->
-              <th 
-                v-if="props.type === 'term_deposit'"
-                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider"
-              >
-                <div class="flex items-center justify-end space-x-1">
-                  <span>存款进度</span>
-                </div>
-              </th>
-              <th 
-                v-if="props.type === 'equity'"
-                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
-                @click="handleSort('profitRate')"
-              >
-                <div class="flex items-center justify-end space-x-1">
-                  <span>收益率</span>
-                  <ChevronsUpDown v-if="sortKey !== 'profitRate'" class="w-3 h-3 text-apple-secondary/40" />
-                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
-                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
-                </div>
-              </th>
+              <!-- 收益列 -->
               <th 
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('profit')"
@@ -1743,13 +1744,54 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
+              <!-- 定存产品特有列：期限 -->
               <th 
+                v-if="props.type === 'term_deposit'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>期限</span>
+                </div>
+              </th>
+              <!-- 定存产品特有列：到期日期 -->
+              <th 
+                v-if="props.type === 'term_deposit'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>到期</span>
+                </div>
+              </th>
+              <!-- 持有列 -->
+              <th 
+                v-if="props.type !== 'term_deposit'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('holdingDays')"
               >
                 <div class="flex items-center justify-end space-x-1">
                   <span>持有</span>
                   <ChevronsUpDown v-if="sortKey !== 'holdingDays'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <!-- 定存产品特有列：存款进度 -->
+              <th 
+                v-if="props.type === 'term_deposit'"
+                class="px-2 py-2.5 text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider"
+              >
+                <div class="flex items-center justify-center space-x-1">
+                  <span>存款进度</span>
+                </div>
+              </th>
+              <th 
+                v-if="props.type === 'equity'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('profitRate')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>收益率</span>
+                  <ChevronsUpDown v-if="sortKey !== 'profitRate'" class="w-3 h-3 text-apple-secondary/40" />
                   <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
@@ -1937,21 +1979,51 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
                 <p class="text-[14px] font-semibold text-amber-600">{{ (product.interestRate || 0).toFixed(2) }}%</p>
               </td>
+              <!-- 收益列 -->
+              <td class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getPosition(product.id) && pageSettings.showProfitAmount">
+                  <p 
+                    class="text-[14px] font-semibold"
+                    :class="(getPosition(product.id) as any).profit >= 0 ? 'text-profit' : 'text-loss'"
+                  >
+                    {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency1((getPosition(product.id) as any).profit) }}
+                  </p>
+                </template>
+                <template v-else-if="getPosition(product.id) && !pageSettings.showProfitAmount">
+                  <p class="text-[14px] font-semibold text-apple-secondary">****</p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
+              </td>
               <!-- 定存产品特有列：期限 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
-                <p class="text-[14px] font-semibold text-apple-text">{{ product.durationMonths || 0 }}个月</p>
+                <p class="text-[14px] font-semibold text-apple-text">{{ formatDuration(product.durationMonths || 0) }}</p>
+              </td>
+              <!-- 定存产品特有列：到期日期 -->
+              <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
+                <p class="text-[14px] font-semibold text-apple-text">{{ formatMaturityDate(product) }}</p>
+              </td>
+              <!-- 持有列 -->
+              <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
+                <template v-if="getPosition(product.id)">
+                  <p class="text-[14px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
               </td>
               <!-- 定存产品特有列：存款进度 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
                 <div class="flex flex-col items-end">
                   <div class="flex items-center gap-2 w-32">
+                    <span class="text-[12px] font-semibold text-apple-text w-10 text-right">{{ getTermDepositProgress(product).toFixed(1) }}%</span>
                     <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
                       <div 
                         class="h-full bg-amber-500 transition-all duration-300"
                         :style="{ width: getTermDepositProgress(product) + '%' }"
                       ></div>
                     </div>
-                    <span class="text-[12px] font-semibold text-apple-text w-10 text-right">{{ getTermDepositProgress(product).toFixed(1) }}%</span>
                   </div>
                   <p class="text-[10px] text-apple-secondary mt-0.5">
                     {{ getTermDepositProgress(product) >= 100 ? '已到期' : `剩余${getTermDepositRemainingDays(product)}天` }}
@@ -1969,30 +2041,6 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
                 <template v-else-if="getPosition(product.id) && !pageSettings.showProfitRate">
                   <p class="text-[14px] font-semibold text-apple-secondary">****</p>
-                </template>
-                <template v-else>
-                  <p class="text-[13px] text-apple-secondary">-</p>
-                </template>
-              </td>
-              <td class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getPosition(product.id) && pageSettings.showProfitAmount">
-                  <p 
-                    class="text-[14px] font-semibold"
-                    :class="(getPosition(product.id) as any).profit >= 0 ? 'text-profit' : 'text-loss'"
-                  >
-                    {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency1((getPosition(product.id) as any).profit) }}
-                  </p>
-                </template>
-                <template v-else-if="getPosition(product.id) && !pageSettings.showProfitAmount">
-                  <p class="text-[14px] font-semibold text-apple-secondary">****</p>
-                </template>
-                <template v-else>
-                  <p class="text-[13px] text-apple-secondary">-</p>
-                </template>
-              </td>
-              <td class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getPosition(product.id)">
-                  <p class="text-[14px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>
@@ -2369,5 +2417,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
 .slide-enter-from .relative,
 .slide-leave-to .relative {
   transform: translateX(100%);
+}
+
+/* 定存产品列表列间距调整 */
+.term-deposit-table th,
+.term-deposit-table td {
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
 }
 </style>
