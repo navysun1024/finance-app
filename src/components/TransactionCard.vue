@@ -8,6 +8,7 @@ import { useFinance } from '@/composables/useFinance'
 const props = defineProps<{
   transaction: Transaction
   changePercent?: string
+  hideProductName?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -112,35 +113,67 @@ const handleMouseUp = () => {
       @mouseup="handleMouseUp"
       @mouseleave="handleMouseUp"
     >
-      <div class="flex items-start justify-between mb-1.5">
-        <div>
-          <span class="text-[11px] text-apple-secondary">{{ formatDate(transaction.date) }}</span>
-          <p class="text-sm font-semibold text-apple-text mt-0.5 truncate max-w-[180px]">{{ getProductName }}</p>
+      <!-- 净值更新卡片：精简布局 -->
+      <template v-if="transaction.type === 'nav_update'">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-[11px] shrink-0 font-medium" :style="{ color: getTransactionTypeColor(transaction.type) }">{{ formatDate(transaction.date) }}</span>
+            <span v-if="transaction.note" class="text-[11px] text-apple-secondary truncate">{{ transaction.note }}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span 
+              class="apple-tag text-[10px] font-medium px-2 py-0.5"
+              :style="{ backgroundColor: getTransactionTypeColor(transaction.type) + '15', color: getTransactionTypeColor(transaction.type) }"
+            >
+              {{ getTransactionTypeLabel(transaction.type) }}
+            </span>
+          </div>
         </div>
-        <span 
-          class="apple-tag text-[10px] font-medium px-2 py-0.5"
-          :style="{ backgroundColor: getTransactionTypeColor(transaction.type) + '15', color: getTransactionTypeColor(transaction.type) }"
-        >
-          {{ getTransactionTypeLabel(transaction.type) }}
-        </span>
-      </div>
+        <div class="flex items-center justify-between mt-1.5">
+          <span class="text-[11px] text-apple-secondary">
+            <span>净值 {{ transaction.price.toFixed(4) }}</span>
+          </span>
+          <span 
+            v-if="changePercent" 
+            class="text-base font-semibold"
+            :class="changePercent.startsWith('+') ? 'text-profit' : 'text-loss'"
+          >
+            {{ changePercent }}
+          </span>
+          <span v-else class="text-base font-semibold text-apple-text">--</span>
+        </div>
+      </template>
       
-      <div class="flex items-center justify-between">
-        <span class="text-[11px] text-apple-secondary">
-          <span>单价 {{ transaction.price.toFixed(4) }}</span>
-          <span v-if="changePercent && transaction.type === 'nav_update'" class="mx-1.5">|</span>
-          <span v-if="changePercent && transaction.type === 'nav_update'" :class="changePercent.startsWith('+') ? 'text-profit' : 'text-loss'">{{ changePercent }}</span>
-          <span class="mx-1.5">|</span>
-          <span>份额 {{ transaction.shares.toFixed(3) }}</span>
-          <span v-if="transaction.fee > 0" class="mx-1.5">|</span>
-          <span v-if="transaction.fee > 0">手续费 {{ formatCurrency1(transaction.fee) }}</span>
-        </span>
-        <span :class="['text-base font-semibold', transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-amber-500']">
-          {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency1(transaction.amount) }}
-        </span>
-      </div>
+      <!-- 普通交易卡片：原有布局 -->
+      <template v-else>
+        <div class="flex items-start justify-between mb-1.5">
+          <div>
+            <span class="text-[11px] text-apple-secondary">{{ formatDate(transaction.date) }}</span>
+            <p v-if="!hideProductName" class="text-sm font-semibold text-apple-text mt-0.5 truncate max-w-[180px]">{{ getProductName }}</p>
+          </div>
+          <span 
+            class="apple-tag text-[10px] font-medium px-2 py-0.5"
+            :style="{ backgroundColor: getTransactionTypeColor(transaction.type) + '15', color: getTransactionTypeColor(transaction.type) }"
+          >
+            {{ getTransactionTypeLabel(transaction.type) }}
+          </span>
+        </div>
+        
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-apple-secondary">
+            <span>单价 {{ transaction.price.toFixed(4) }}</span>
+            <span class="mx-1.5">|</span>
+            <span>份额 {{ transaction.shares.toFixed(3) }}</span>
+            <span v-if="transaction.fee > 0" class="mx-1.5">|</span>
+            <span v-if="transaction.fee > 0">手续费 {{ formatCurrency1(transaction.fee) }}</span>
+          </span>
+          <span :class="['text-base font-semibold', transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-amber-500']">
+            {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency1(transaction.amount) }}
+          </span>
+        </div>
+      </template>
       
-      <div v-if="transaction.note" class="mt-1.5 text-[11px] text-apple-secondary truncate">
+      <div v-if="transaction.note && transaction.type !== 'nav_update'" class="mt-1.5 text-[11px] text-apple-secondary truncate">
         {{ transaction.note }}
       </div>
     </div>

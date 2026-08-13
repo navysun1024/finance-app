@@ -33,12 +33,13 @@ export interface BenchmarkPoint {
 
 export type ProductType = 'equity' | 'fixed_income' | 'fund' | 'term_deposit'
 
-export type ProductStatus = 'holding' | 'closed' | 'watchlist'
+export type ProductStatus = 'holding' | 'closed' | 'watchlist' | 'matured'
 
 export const PRODUCT_STATUS_OPTIONS: { value: ProductStatus; label: string; color: string }[] = [
   { value: 'holding', label: '持有', color: '#0071e3' },
   { value: 'closed', label: '清仓', color: '#8e8e93' },
-  { value: 'watchlist', label: '自选', color: '#34c759' }
+  { value: 'watchlist', label: '自选', color: '#34c759' },
+  { value: 'matured', label: '已到期', color: '#ff9500' }
 ]
 
 export type NavSource = 'tiantian' | 'cmb' | 'icbc' | ''

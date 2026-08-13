@@ -287,7 +287,7 @@ const handleSubmit = () => {
             </div>
             <div class="flex space-x-4">
               <div class="flex-1">
-                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">起存金额</label>
+                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">本金</label>
                 <input 
                   v-model.number="minAmount"
                   type="number" 

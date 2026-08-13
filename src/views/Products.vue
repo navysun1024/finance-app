@@ -462,9 +462,16 @@ const showModal = ref(false)
 const editingProduct = ref<typeof products.value[0] | null>(null)
 const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
-const filterStatus = ref<ProductStatus | 'all'>('holding')
+const filterStatus = ref<ProductStatus | 'all'>(props.type === 'term_deposit' ? 'holding' : 'holding')
 
-const SORT_KEYS = ['name', 'marketValue', 'annualRate', 'profitRate', 'profit', 'holdingDays', 'dailyReturn', 'dailyProfit', 'stageGains1m', 'stageGains3m', 'stageGainsYtd', 'fiAnnual1m', 'fiAnnual3m', 'fiAnnual1y', 'holder'] as const
+const filterStatusOptions = computed(() => {
+  if (props.type === 'term_deposit') {
+    return ['all', 'holding', 'matured'] as const
+  }
+  return ['all', 'holding', 'closed', 'watchlist'] as const
+})
+
+const SORT_KEYS = ['name', 'marketValue', 'annualRate', 'profitRate', 'profit', 'holdingDays', 'dailyReturn', 'dailyProfit', 'stageGains1m', 'stageGains3m', 'stageGainsYtd', 'fiAnnual1m', 'fiAnnual3m', 'fiAnnual1y', 'holder', 'durationMonths', 'maturityDate'] as const
 const sortPrefix = `sort_${props.type || 'all'}`
 const sortKey = ref<typeof SORT_KEYS[number]>(
   (localStorage.getItem(`${sortPrefix}_key`) as typeof SORT_KEYS[number]) || 'marketValue'
@@ -692,8 +699,15 @@ const getDailyProfit = (product: Product): number | null => {
   const pos = getPosition(product.id) as any
   if (!pos || !pos.marketValue) return null
   
-  // 定存产品：当日收益 = 本金 × 年利率 / 365
+  // 定存产品：当日收益 = 本金 × 年利率 / 365（到期后不再计算）
   if (product.type === 'term_deposit') {
+    // 判断是否到期
+    if (product.maturityDate) {
+      const maturityTime = new Date(product.maturityDate).getTime()
+      if (Date.now() > maturityTime) {
+        return 0 // 到期后当日收益为0
+      }
+    }
     const annualRate = (product.interestRate || 0) / 100
     // 本金：有交易记录用累计成本，否则用起存金额
     const principal = pos.totalInvestment || product.minAmount || 0
@@ -985,13 +999,17 @@ const productStatusMap = computed(() => {
     const pos = getPosition(product.id)
     const shares = pos?.totalShares ?? 0
     const hasBuy = (pos?.transactions ?? []).some(t => t.type === 'buy')
-    // 定期存款产品：即使没有交易记录，也视为持仓中
     if (product.type === 'term_deposit') {
-      if (shares > 0.01 || hasBuy) {
-        map.set(product.id, 'holding')
-      } else {
-        map.set(product.id, 'holding') // 定期存款默认持仓中
+      // 判断是否到期
+      if (product.maturityDate) {
+        const maturityTime = new Date(product.maturityDate).getTime()
+        if (Date.now() > maturityTime) {
+          map.set(product.id, 'matured')
+          continue
+        }
       }
+      // 未到期：定期存款产品即使没有交易记录，也视为持仓中
+      map.set(product.id, 'holding')
     } else if (shares > 0.01) {
       map.set(product.id, 'holding')
     } else if (hasBuy) {
@@ -1074,6 +1092,12 @@ const filteredProducts = computed(() => {
         break
       case 'fiAnnual1y':
         comparison = (getFixedIncomeAnnualRate(a.code)?.['1y'] || 0) - (getFixedIncomeAnnualRate(b.code)?.['1y'] || 0)
+        break
+      case 'durationMonths':
+        comparison = (a.durationMonths || 0) - (b.durationMonths || 0)
+        break
+      case 'maturityDate':
+        comparison = new Date(a.maturityDate || '1970-01-01').getTime() - new Date(b.maturityDate || '1970-01-01').getTime()
         break
     }
     return sortOrder.value === 'asc' ? comparison : -comparison
@@ -1623,7 +1647,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </select>
       <div class="flex rounded-xl overflow-hidden border border-apple-border/50 bg-white">
         <button
-          v-for="status in ['all', 'holding', 'closed', 'watchlist'] as const"
+          v-for="status in filterStatusOptions"
           :key="status"
           @click="filterStatus = status"
           class="px-3 py-2 text-[13px] font-medium transition-all"
@@ -1748,18 +1772,26 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <th 
                 v-if="props.type === 'term_deposit'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('durationMonths')"
               >
                 <div class="flex items-center justify-end space-x-1">
                   <span>期限</span>
+                  <ChevronsUpDown v-if="sortKey !== 'durationMonths'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <!-- 定存产品特有列：到期日期 -->
               <th 
                 v-if="props.type === 'term_deposit'"
-                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('maturityDate')"
               >
                 <div class="flex items-center justify-end space-x-1">
                   <span>到期</span>
+                  <ChevronsUpDown v-if="sortKey !== 'maturityDate'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
               <!-- 持有列 -->
@@ -1932,7 +1964,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <!-- 定存产品特有信息 -->
                     <template v-if="product.type === 'term_deposit'">
                       <span v-if="product.bankName" class="text-[11px] text-apple-secondary shrink-0">{{ product.bankName }}</span>
-                      <span v-if="product.minAmount" class="text-[11px] text-apple-secondary shrink-0">起存{{ product.minAmount.toLocaleString() }}元</span>
+                      <span v-if="product.minAmount" class="text-[11px] text-apple-secondary shrink-0">本金{{ product.minAmount.toLocaleString() }}元</span>
                     </template>
                     <!-- 其他产品类型信息 -->
                     <template v-else>
@@ -2003,6 +2035,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <!-- 定存产品特有列：到期日期 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
                 <p class="text-[14px] font-semibold text-apple-text">{{ formatMaturityDate(product) }}</p>
+                <p class="text-[10px] text-apple-secondary mt-0.5">
+                  {{ getTermDepositProgress(product) >= 100 ? '已到期' : `剩余${getTermDepositRemainingDays(product)}天` }}
+                </p>
               </td>
               <!-- 持有列 -->
               <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
@@ -2015,19 +2050,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </td>
               <!-- 定存产品特有列：存款进度 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
-                <div class="flex flex-col items-end">
-                  <div class="flex items-center gap-2 w-32">
-                    <span class="text-[12px] font-semibold text-apple-text w-10 text-right">{{ getTermDepositProgress(product).toFixed(1) }}%</span>
-                    <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
-                      <div 
-                        class="h-full bg-amber-500 transition-all duration-300"
-                        :style="{ width: getTermDepositProgress(product) + '%' }"
-                      ></div>
-                    </div>
+                <div class="flex items-center gap-2 w-32 justify-end">
+                  <span class="text-[12px] font-semibold text-apple-text w-10 text-right">{{ getTermDepositProgress(product).toFixed(1) }}%</span>
+                  <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
+                    <div 
+                      class="h-full bg-amber-500 transition-all duration-300"
+                      :style="{ width: getTermDepositProgress(product) + '%' }"
+                    ></div>
                   </div>
-                  <p class="text-[10px] text-apple-secondary mt-0.5">
-                    {{ getTermDepositProgress(product) >= 100 ? '已到期' : `剩余${getTermDepositRemainingDays(product)}天` }}
-                  </p>
                 </div>
               </td>
               <td v-if="props.type === 'equity'" class="px-2 py-3 text-right whitespace-nowrap">

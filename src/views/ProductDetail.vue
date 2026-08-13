@@ -1694,7 +1694,7 @@ onUnmounted(() => {
               <p class="text-[15px] font-semibold text-apple-text mt-1">{{ product.durationMonths }} 个月</p>
             </div>
             <div v-if="product.minAmount">
-              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">起存金额</p>
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">本金</p>
               <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(product.minAmount) }}</p>
             </div>
             <div v-if="product.interestMethod">
@@ -2055,6 +2055,7 @@ onUnmounted(() => {
             :key="transaction.id" 
             :transaction="transaction"
             :change-percent="transaction.type === 'nav_update' ? getNavChange(transaction) : undefined"
+            :hide-product-name="true"
             @edit="handleEditTransaction"
             @delete="handleDeleteTransaction"
           />
@@ -2158,6 +2159,9 @@ onUnmounted(() => {
     <TransactionModal 
       :visible="showModal"
       :products="product ? [product] : []"
+      :current-product="product || null"
+      :current-position="position || null"
+      :transactions="transactions"
       :edit-transaction="editingTransaction"
       @close="showModal = false"
       @submit="handleSubmitTransaction"

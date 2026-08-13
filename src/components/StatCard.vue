@@ -23,10 +23,12 @@ const iconBgColors: Record<string, string> = {
     <div class="flex items-start justify-between">
       <div class="flex-1 min-w-0">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1">{{ title }}</p>
-        <p class="text-[16px] sm:text-[20px] font-semibold text-apple-text tracking-tight truncate leading-tight">{{ value }}</p>
-        <p v-if="change !== undefined" :class="['text-[12px] mt-1 font-semibold tracking-tight', change >= 0 ? 'text-profit' : 'text-loss']">
-          {{ change >= 0 ? '+' : '' }}{{ change.toFixed(2) }}%
-        </p>
+        <div class="flex items-end gap-2">
+          <p class="text-[16px] sm:text-[20px] font-semibold text-apple-text tracking-tight truncate leading-tight">{{ value }}</p>
+          <p v-if="change !== undefined" :class="['text-[12px] font-semibold tracking-tight pb-0.5', change >= 0 ? 'text-profit' : 'text-loss']">
+            {{ change >= 0 ? '+' : '' }}{{ change.toFixed(2) }}%
+          </p>
+        </div>
       </div>
       <div :class="['w-10 h-10 rounded-apple flex items-center justify-center flex-shrink-0 ml-3', iconBgColors[color || 'blue']]">
         <component :is="icon" class="w-[18px] h-[18px]" />

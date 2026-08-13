@@ -37,6 +37,9 @@ const positionsByType = computed(() => {
     .map(opt => ({ type: opt.value, label: opt.label, color: opt.color, positions: map.get(opt.value)! }))
 })
 
+// 用于图表的分组（排除定期存款）
+const chartGroups = computed(() => positionsByType.value.filter(g => g.type !== 'term_deposit'))
+
 // 按产品类型分组的统计汇总
 const summaryByType = computed(() => {
   return positionsByType.value.map(group => {
@@ -135,7 +138,7 @@ const expandCalendarToFull = () => {
   // 使用 requestIdleCallback 在浏览器空闲时执行，避免阻塞主线程
   const run = () => {
     const fullHistory = getRawHistory(3650)
-    for (const group of positionsByType.value) {
+    for (const group of chartGroups.value) {
       if (calendarDataLoaded.value[group.type]) {
         calendarDataCache.value[group.type] = buildCalendarData(fullHistory, group.type)
       }
@@ -164,8 +167,8 @@ const switchToChart = (type: string) => {
 }
 
 const initCharts = () => {
-  // 初始化各类型的资产分布柱形图
-  for (const group of positionsByType.value) {
+  // 初始化各类型的资产分布柱形图（排除定期存款）
+  for (const group of chartGroups.value) {
     const el = typeChartRefs.value[group.type]
     if (el) {
       const chart = echarts.init(el)
@@ -173,8 +176,8 @@ const initCharts = () => {
       updateTypeBarChart(group.type, group.label, group.color, group.positions)
     }
   }
-  // 初始化各类型的收益趋势图
-  for (const group of positionsByType.value) {
+  // 初始化各类型的收益趋势图（排除定期存款）
+  for (const group of chartGroups.value) {
     const el = trendChartRefs.value[group.type]
     if (el) {
       const chart = echarts.init(el)
@@ -182,8 +185,8 @@ const initCharts = () => {
       updateTypeTrendChart(group.type, group.label, group.color, group.positions)
     }
   }
-  // 初始化各类型的市值趋势图
-  for (const group of positionsByType.value) {
+  // 初始化各类型的市值趋势图（排除定期存款）
+  for (const group of chartGroups.value) {
     const el = mvChartRefs.value[group.type]
     if (el) {
       const chart = echarts.init(el)
@@ -532,7 +535,7 @@ const updateMvChart = (type: string, _typeLabel: string, _color: string, positio
 }
 
 const updateAllTrendCharts = () => {
-  for (const group of positionsByType.value) {
+  for (const group of chartGroups.value) {
     updateTypeTrendChart(group.type, group.label, group.color, group.positions)
   }
 }
@@ -594,7 +597,7 @@ onMounted(async () => {
     initCharts()
     // 使用 requestIdleCallback 在浏览器空闲时异步加载日历数据
     const loadCalendarAsync = () => {
-      const types = positionsByType.value.map(g => g.type)
+      const types = chartGroups.value.map(g => g.type)
       let idx = 0
       const loadNext = () => {
         if (idx >= types.length) {
@@ -680,7 +683,7 @@ onUnmounted(() => {
     
     <!-- 资产分布图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in positionsByType" :key="group.type + '-dist'" class="glass-card p-5">
+      <div v-for="group in chartGroups" :key="group.type + '-dist'" class="glass-card p-5">
         <div class="flex items-center mb-4">
           <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
           <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}分布</h3>
@@ -694,7 +697,7 @@ onUnmounted(() => {
 
     <!-- 收益趋势图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in positionsByType" :key="group.type + '-trend'" class="glass-card p-5">
+      <div v-for="group in chartGroups" :key="group.type + '-trend'" class="glass-card p-5">
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center">
             <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
@@ -764,7 +767,7 @@ onUnmounted(() => {
     
     <!-- 累积市值趋势图 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in positionsByType" :key="group.type + '-mv'" class="glass-card p-5">
+      <div v-for="group in chartGroups" :key="group.type + '-mv'" class="glass-card p-5">
         <div class="flex items-center mb-4">
           <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
           <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}市值趋势</h3>

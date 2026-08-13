@@ -268,10 +268,19 @@ export function useFinance() {
  }
  }
  
- const holdingDays = startDate > 0 ? Math.max(1, Math.ceil((Date.now() - startDate) / (1000 * 60 * 60 * 24))) : 0;
+ // 判断是否到期
+ let maturityTime = 0;
+ if (product.maturityDate) {
+ maturityTime = new Date(product.maturityDate).getTime();
+ }
+ const isMatured = maturityTime > 0 && Date.now() > maturityTime;
+
+ // 到期后停止计算收益，使用到期日作为截止日期
+ const endDate = isMatured ? maturityTime : Date.now();
+ const holdingDays = startDate > 0 ? Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24))) : 0;
  const yearsElapsed = holdingDays / 365;
- const totalInterest = principal * interestRate * yearsElapsed; // 已产生的利息
- const marketValue = Math.round((principal + totalInterest) * 100) / 100; // 市值 = 本金 + 利息
+ const totalInterest = principal * interestRate * yearsElapsed; // 已产生的利息（到期后不再增加）
+ const marketValue = Math.round((principal + totalInterest) * 100) / 100; // 市值 = 本金 + 利息（固定）
  const profit = Math.round(totalInterest * 100) / 100 + totalDividend + realizedProfit;
  const profitRate = principal > 0 ? (totalInterest / principal) * 100 : 0;
  const annualRate = product.interestRate || 0;

@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Edit2, Trash2, ArrowRight, Scale } from 'lucide-vue-next'
 import type { Position, ProductStatus } from '@/types'
 import { DCA_CYCLE_OPTIONS, PRODUCT_STATUS_OPTIONS } from '@/types'
 import { formatCurrency1, formatPercent, formatDate } from '@/utils/format'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   position: Position
   status?: ProductStatus
   dailyReturn?: number | null
@@ -30,12 +31,72 @@ const emit = defineEmits<{
   click: [productId: string]
   compare: [productId: string]
 }>()
+
+// 定存产品：计算存款进度
+const termDepositProgress = computed(() => {
+  const product = props.position.product
+  if (product.type !== 'term_deposit') return 0
+  
+  const durationMonths = product.durationMonths || 0
+  if (durationMonths <= 0) return 0
+  
+  let startDate: number
+  if (product.maturityDate && durationMonths) {
+    const maturityDateMs = new Date(product.maturityDate).getTime()
+    const durationDays = durationMonths * 30
+    startDate = maturityDateMs - durationDays * 24 * 60 * 60 * 1000
+  } else {
+    startDate = product.createdAt || Date.now()
+  }
+  
+  const now = Date.now()
+  const totalDurationMs = durationMonths * 30 * 24 * 60 * 60 * 1000
+  const elapsedMs = Math.max(0, now - startDate)
+  
+  const progress = (elapsedMs / totalDurationMs) * 100
+  return Math.min(100, Math.max(0, progress))
+})
+
+// 定存产品：计算剩余天数
+const termDepositRemainingDays = computed(() => {
+  const product = props.position.product
+  if (product.type !== 'term_deposit') return 0
+  
+  const durationMonths = product.durationMonths || 0
+  if (durationMonths <= 0) return 0
+  
+  let startDate: number
+  if (product.maturityDate && durationMonths) {
+    const maturityDateMs = new Date(product.maturityDate).getTime()
+    const durationDays = durationMonths * 30
+    startDate = maturityDateMs - durationDays * 24 * 60 * 60 * 1000
+  } else {
+    startDate = product.createdAt || Date.now()
+  }
+  
+  const now = Date.now()
+  const totalDurationDays = durationMonths * 30
+  const elapsedDays = Math.floor((now - startDate) / (24 * 60 * 60 * 1000))
+  return Math.max(0, totalDurationDays - elapsedDays)
+})
+
+// 格式化存款期限
+const formatDuration = (durationMonths: number): string => {
+  if (!durationMonths || durationMonths <= 0) return '-'
+  if (durationMonths >= 12) {
+    const years = Math.floor(durationMonths / 12)
+    const remainMonths = durationMonths % 12
+    if (remainMonths === 0) return `${years}年`
+    return `${years}年${remainMonths}个月`
+  }
+  return `${durationMonths}个月`
+}
 </script>
 
 <template>
   <div 
-    @click="emit('click', position.productId)"
-    class="glass-card p-3 cursor-pointer active:scale-[0.99] transition-transform"
+    @click="position.product.type !== 'term_deposit' && emit('click', position.productId)"
+    :class="['glass-card p-3 active:scale-[0.99] transition-transform', position.product.type !== 'term_deposit' ? 'cursor-pointer' : '']"
   >
     <div class="flex items-start justify-between">
       <div class="flex-1 min-w-0">
@@ -56,11 +117,17 @@ const emit = defineEmits<{
           >
             {{ PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.label }}
           </span>
+          <span 
+            v-if="position.product.type === 'term_deposit' && position.product.durationMonths"
+            class="ml-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-500/10 text-amber-600"
+          >
+            {{ formatDuration(position.product.durationMonths) }}
+          </span>
         </div>
         <p class="text-[11px] text-apple-secondary">
           <template v-if="position.product.type === 'term_deposit'">
             <span v-if="position.product.bankName">{{ position.product.bankName }}</span>
-            <span v-if="position.product.minAmount" class="ml-1">起存{{ position.product.minAmount.toLocaleString() }}元</span>
+            <span v-if="position.product.minAmount" class="ml-1">本金{{ position.product.minAmount.toLocaleString() }}元</span>
           </template>
           <template v-else>
             {{ position.product.code || '暂无代码' }}
@@ -158,7 +225,8 @@ const emit = defineEmits<{
           </p>
         </div>
       </template>
-      <div class="flex-1 min-w-0 text-right">
+      <!-- 定存产品：不显示当日收益 -->
+      <div v-if="position.product.type !== 'term_deposit'" class="flex-1 min-w-0 text-right">
         <p class="text-apple-secondary/70">当日收益</p>
         <p 
           class="text-sm font-semibold"
@@ -169,7 +237,29 @@ const emit = defineEmits<{
       </div>
     </div>
     
-    <div class="flex items-center justify-between mt-2 pt-2 border-t border-apple-border/20">
+    <!-- 定存产品：显示存款进度条和剩余天数 -->
+    <div v-if="position.product.type === 'term_deposit' && !isWatchlistMode" class="mt-2 pt-2 border-t border-apple-border/20">
+      <div class="w-full h-1.5 bg-apple-border/30 rounded-full overflow-hidden">
+        <div 
+          class="h-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-300"
+          :style="{ width: `${termDepositProgress}%` }"
+        />
+      </div>
+      <div class="flex items-center justify-between mt-1.5 text-[11px]">
+        <span class="text-apple-secondary">
+          存款进度
+          <span class="ml-1 text-amber-600 font-medium">{{ termDepositProgress.toFixed(1) }}%</span>
+        </span>
+        <span class="text-amber-600">
+          剩余 {{ termDepositRemainingDays }} 天
+        </span>
+        <span v-if="position.product.maturityDate" class="text-[10px] text-amber-500">
+          到期 {{ position.product.maturityDate }}
+        </span>
+      </div>
+    </div>
+    <!-- 非定存产品或自选模式：保持原有显示 -->
+    <div v-else class="flex items-center justify-between mt-2 pt-2 border-t border-apple-border/20">
       <span class="text-[10px] text-apple-secondary">
         <template v-if="isWatchlistMode">
           <span v-if="position.lastNavUpdateDate > 0" :class="navUpdatedToday ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
