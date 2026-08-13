@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { LayoutDashboard, PlusCircle, TrendingUp, DollarSign, Settings, LogOut, ChevronDown, Tag } from 'lucide-vue-next'
+import { LayoutDashboard, PlusCircle, TrendingUp, DollarSign, Settings, LogOut, ChevronDown, Tag, Landmark } from 'lucide-vue-next'
 import { getCurrentUser, logout } from '@/utils/storage'
 
 const router = useRouter()
@@ -12,6 +12,7 @@ const navItems = [
   { name: 'transactions', label: '记账', icon: PlusCircle },
   { name: 'equity', label: '权益', icon: TrendingUp },
   { name: 'fixed-income', label: '固收', icon: DollarSign },
+  { name: 'term-deposit', label: '定存', icon: Landmark },
   { name: 'settings', label: '设置', icon: Settings }
 ]
 

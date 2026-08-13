@@ -36,9 +36,9 @@ const handleEdit = () => {
   showProductModal.value = true
 }
 
-const handleSubmit = (data: { name: string; type: string; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string }) => {
+const handleSubmit = (data: { name: string; type: string; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type as any, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula)
+    updateProduct(editingProduct.value.id, data.name, data.type as any, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName)
   }
   showProductModal.value = false
 }
@@ -388,8 +388,10 @@ const benchmarkLegendName = computed(() => {
 })
 const allocationChartRef = ref<HTMLDivElement>()
 const holdingsChartRef = ref<HTMLDivElement>()
+const termDepositChartRef = ref<HTMLDivElement>()
 let allocationChart: echarts.ECharts | null = null
 let holdingsChart: echarts.ECharts | null = null
+let termDepositChart: echarts.ECharts | null = null
 
 const ALLOC_COLORS = {
   '股票': '#ef4444',
@@ -458,7 +460,7 @@ const renderHoldingsCharts = () => {
       if (allocData.length > 0) {
         // 仅单基金格式需要通过残差计算"其他"
         if (!hasOtherRatio && !hasCashAndOther) {
-          const total = allocData.reduce((s, d) => s + d.value, 0)
+          const total = allocData.reduce((s, d) => s + (d.value ?? 0), 0)
           const other = Math.max(0, 100 - total)
           if (other > 0.01) allocData.push({ name: '其他', value: parseFloat(other.toFixed(2)) })
         }
@@ -796,6 +798,192 @@ const inceptionDays = computed(() => {
   const earliestTimestamp = navList[0].timestamp
   return Math.floor((Date.now() - earliestTimestamp) / (24 * 60 * 60 * 1000))
 })
+
+// ==================== 定期存款相关计算 ====================
+const isTermDeposit = computed(() => product.value?.type === 'term_deposit')
+
+// 定期存款进度计算
+const termDepositProgress = computed(() => {
+  if (!isTermDeposit.value || !product.value) return null
+  const durationMonths = product.value.durationMonths || 0
+  if (durationMonths <= 0) return null
+  
+  const startDate = position.value?.transactions?.find(t => t.type === 'buy')?.date
+  if (!startDate) return null
+  
+  const totalDays = durationMonths * 30 // 简化计算
+  const elapsedDays = Math.floor((Date.now() - startDate) / (24 * 60 * 60 * 1000))
+  const progress = Math.min(100, (elapsedDays / totalDays) * 100)
+  const remainingDays = Math.max(0, totalDays - elapsedDays)
+  
+  return { progress, elapsedDays, totalDays, remainingDays }
+})
+
+// 定期存款收益预测
+const termDepositProjection = computed(() => {
+  if (!isTermDeposit.value || !product.value || !position.value) return null
+  
+  const principal = position.value.totalInvestment || 0
+  const interestRate = (product.value.interestRate || 0) / 100
+  const durationMonths = product.value.durationMonths || 0
+  
+  if (principal <= 0 || durationMonths <= 0) return null
+  
+  const totalInterest = principal * interestRate * (durationMonths / 12)
+  const maturityAmount = principal + totalInterest
+  
+  // 生成收益预测数据点
+  const points = []
+  const numPoints = 12
+  for (let i = 0; i <= numPoints; i++) {
+    const fraction = i / numPoints
+    const monthOffset = durationMonths * fraction
+    const value = principal + totalInterest * fraction
+    const date = new Date()
+    date.setMonth(date.getMonth() + monthOffset)
+    points.push({
+      date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`,
+      value: Math.round(value * 100) / 100
+    })
+  }
+  
+  return {
+    principal,
+    interestRate,
+    durationMonths,
+    totalInterest,
+    maturityAmount,
+    points
+  }
+})
+
+// 到期日期计算
+const maturityDateComputed = computed(() => {
+  if (!isTermDeposit.value || !product.value) return null
+  
+  // 如果用户手动设置了到期日，优先使用
+  if (product.value.maturityDate) {
+    return product.value.maturityDate
+  }
+  
+  // 否则根据买入日期+期限计算
+  const startDate = position.value?.transactions?.find(t => t.type === 'buy')?.date
+  if (!startDate) return null
+  
+  const durationMonths = product.value.durationMonths || 0
+  const maturity = new Date(startDate)
+  maturity.setMonth(maturity.getMonth() + durationMonths)
+  
+  return maturity.toISOString().split('T')[0]
+})
+
+// 到期倒计时
+const maturityCountdown = computed(() => {
+  if (!maturityDateComputed.value) return null
+  
+  const maturity = new Date(maturityDateComputed.value)
+  const now = new Date()
+  const diffTime = maturity.getTime() - now.getTime()
+  
+  if (diffTime <= 0) {
+    return { expired: true, days: 0 }
+  }
+  
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+  return { expired: false, days: diffDays }
+})
+
+// 渲染定期存款收益预测图表
+const renderTermDepositChart = () => {
+  if (!termDepositChartRef.value || !termDepositProjection.value) return
+  
+  if (termDepositChart) {
+    termDepositChart.dispose()
+    termDepositChart = null
+  }
+  
+  termDepositChart = echarts.init(termDepositChartRef.value)
+  
+  const projection = termDepositProjection.value
+  const data = projection.points.map(p => [p.date, p.value])
+  
+  termDepositChart.setOption({
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.95)',
+      borderColor: '#e5e7eb',
+      borderWidth: 1,
+      textStyle: { color: '#374151', fontSize: 12 },
+      formatter: (params: any) => {
+        const p = params[0]
+        const value = p.value[1]
+        const profit = value - projection.principal
+        return `<div style="font-weight:600;margin-bottom:4px">${p.value[0]}</div>
+                <div>本金: <b>${formatCurrency1(projection.principal)}</b></div>
+                <div>预计本息: <b>${formatCurrency1(value)}</b></div>
+                <div style="color:${profit >= 0 ? '#f59e0b' : '#22c55e'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(0,0,0,0.05)">
+                  累计收益: <b>${profit >= 0 ? '+' : ''}${formatCurrency1(profit)}</b>
+                </div>`
+      }
+    },
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    xAxis: {
+      type: 'category',
+      data: projection.points.map(p => p.date),
+      axisLabel: {
+        fontSize: 10,
+        interval: 'auto',
+        color: '#6b7280'
+      },
+      axisLine: { lineStyle: { color: '#e5e7eb' } },
+      axisTick: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: {
+        fontSize: 10,
+        color: '#6b7280',
+        formatter: (value: number) => formatCurrency1(value)
+      },
+      splitLine: { lineStyle: { color: '#f3f4f6' } }
+    },
+    series: [{
+      type: 'line',
+      data,
+      smooth: true,
+      lineStyle: {
+        color: '#f59e0b',
+        width: 2
+      },
+      itemStyle: { color: '#f59e0b' },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(245, 158, 11, 0.3)' },
+            { offset: 1, color: 'rgba(245, 158, 11, 0.05)' }
+          ]
+        }
+      },
+      symbol: 'circle',
+      symbolSize: 4,
+      markPoint: {
+        symbol: 'pin',
+        symbolSize: 40,
+        data: [
+          {
+            name: '到期',
+            coord: [projection.points[projection.points.length - 1].date, projection.maturityAmount],
+            value: '到期',
+            itemStyle: { color: '#f59e0b' }
+          }
+        ],
+        label: { color: '#fff', fontSize: 10 }
+      }
+    }]
+  })
+}
 
 // 计算每个净值的日涨跌幅
 const navChangeMap = computed(() => {
@@ -1217,6 +1405,7 @@ const handleResize = () => {
   chart?.resize()
   allocationChart?.resize()
   holdingsChart?.resize()
+  termDepositChart?.resize()
 }
 
 const goBackToProducts = () => {
@@ -1229,10 +1418,16 @@ const goBackToProducts = () => {
     router.push({ name: 'products', query })
     return
   }
-  router.push({ 
-    name: (product.value.type === 'equity' || product.value.type === 'fund') ? 'equity' : 'fixed-income',
-    query 
-  })
+  
+  const typeMap: Record<string, string> = {
+    'equity': 'equity',
+    'fund': 'equity',
+    'fixed_income': 'fixed-income',
+    'term_deposit': 'term-deposit'
+  }
+  
+  const routeName = typeMap[product.value.type] || 'products'
+  router.push({ name: routeName, query })
 }
 
 // ==================== 比较基准数据加载 ====================
@@ -1326,6 +1521,12 @@ onMounted(async () => {
     await loadBenchmarkData()
     updateChart()
   }
+  // 定期存款产品初始化收益预测图表
+  if (isTermDeposit.value) {
+    setTimeout(() => {
+      renderTermDepositChart()
+    }, 200)
+  }
 })
 
 watch([navRange, filteredNavTransactions], () => {
@@ -1340,11 +1541,20 @@ watch(holdingsData, () => {
   renderHoldingsCharts()
 })
 
+watch(termDepositProjection, () => {
+  if (isTermDeposit.value) {
+    setTimeout(() => {
+      renderTermDepositChart()
+    }, 100)
+  }
+})
+
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   chart?.dispose()
   allocationChart?.dispose()
   holdingsChart?.dispose()
+  termDepositChart?.dispose()
 })
 </script>
 
@@ -1459,6 +1669,102 @@ onUnmounted(() => {
               {{ formatPercent(position?.annualRate || 0) }}
             </p>
           </div>
+        </div>
+      </div>
+
+      <!-- 定期存款专属可视化 -->
+      <div v-if="isTermDeposit" class="space-y-4">
+        <!-- 定期存款属性卡片 -->
+        <div class="glass-card p-5">
+          <div class="flex items-center gap-2 mb-4">
+            <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="8" width="18" height="12" rx="2" /><path d="M7 8V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3" /><path d="M3 14h18" /><path d="M7 14v4" /><path d="M17 14v4" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-semibold text-apple-text">存款详情</h3>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <div v-if="product.interestRate">
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">年利率</p>
+              <p class="text-[15px] font-semibold text-amber-600 mt-1">{{ product.interestRate.toFixed(2) }}%</p>
+            </div>
+            <div v-if="product.durationMonths">
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">存款期限</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ product.durationMonths }} 个月</p>
+            </div>
+            <div v-if="product.minAmount">
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">起存金额</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(product.minAmount) }}</p>
+            </div>
+            <div v-if="product.interestMethod">
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">付息方式</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">
+                {{ product.interestMethod === 'maturity' ? '到期付息' : product.interestMethod === 'monthly' ? '按月付息' : '按季付息' }}
+              </p>
+            </div>
+            <div v-if="product.bankName">
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">存款银行</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ product.bankName }}</p>
+            </div>
+            <div v-if="maturityDateComputed">
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">到期日期</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ maturityDateComputed }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 存款进度条 + 到期倒计时 -->
+        <div v-if="termDepositProgress" class="glass-card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-apple-text">存款进度</h3>
+            <div v-if="maturityCountdown" class="flex items-center gap-2">
+              <span v-if="maturityCountdown.expired" class="text-sm text-apple-secondary">已到期</span>
+              <span v-else class="text-sm font-medium text-amber-600">
+                还有 {{ maturityCountdown.days }} 天到期
+              </span>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <div class="flex justify-between text-sm">
+              <span class="text-apple-secondary">已存 {{ termDepositProgress.elapsedDays }} 天</span>
+              <span class="text-apple-secondary">共 {{ termDepositProgress.totalDays }} 天</span>
+            </div>
+            <div class="relative h-3 bg-black/5 rounded-full overflow-hidden">
+              <div 
+                class="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-400 to-amber-600 rounded-full transition-all duration-500"
+                :style="{ width: `${termDepositProgress.progress}%` }"
+              ></div>
+            </div>
+            <div class="flex justify-between text-xs text-apple-secondary">
+              <span>起始日</span>
+              <span class="font-medium text-amber-600">{{ termDepositProgress.progress.toFixed(1) }}%</span>
+              <span>{{ maturityDateComputed }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 收益预测 -->
+        <div v-if="termDepositProjection" class="glass-card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-apple-text">收益预测</h3>
+            <span class="text-xs text-apple-secondary">基于 {{ product.interestRate?.toFixed(2) }}% 年利率</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">本金</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(termDepositProjection.principal) }}</p>
+            </div>
+            <div>
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">预计收益</p>
+              <p class="text-[15px] font-semibold text-amber-600 mt-1">{{ formatCurrency1(termDepositProjection.totalInterest) }}</p>
+            </div>
+            <div>
+              <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">到期本息</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(termDepositProjection.maturityAmount) }}</p>
+            </div>
+          </div>
+          <div ref="termDepositChartRef" class="w-full h-48"></div>
         </div>
       </div>
 

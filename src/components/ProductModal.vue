@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { X } from 'lucide-vue-next'
-import type { Product, ProductType, NavSource } from '@/types'
+import type { Product, ProductType, NavSource, InterestMethod } from '@/types'
 import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
-import { DCA_CYCLE_OPTIONS, NAV_SOURCE_OPTIONS } from '@/types'
+import { DCA_CYCLE_OPTIONS, NAV_SOURCE_OPTIONS, INTEREST_METHOD_OPTIONS, DURATION_OPTIONS } from '@/types'
 import { INDEX_DEFINITIONS } from '@/utils/indexApi'
 import { parseBenchmarkFormula, serializeBenchmarkFormula, type BenchmarkComponent } from '@/utils/benchmark'
 
@@ -15,7 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string }): void
+  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: InterestMethod | string; bankName: string }): void
 }>()
 
 const name = ref('')
@@ -29,6 +29,13 @@ const navSource = ref<NavSource>('')
 const holdingTerm = ref('')
 const benchmarkEnabled = ref(false)
 const benchmarkComponents = ref<BenchmarkComponent[]>([])
+// 定期存款特有字段
+const interestRate = ref(0)
+const durationMonths = ref(12)
+const minAmount = ref(0)
+const maturityDate = ref('')
+const interestMethod = ref<InterestMethod | string>('maturity')
+const bankName = ref('')
 
 // 持有期限常用预设选项
 const HOLDING_TERM_OPTIONS = [
@@ -65,6 +72,13 @@ watch(() => props.visible, (val) => {
     holdingTerm.value = (props.editProduct as any).holdingTerm || ''
     benchmarkEnabled.value = (props.editProduct as any).benchmarkEnabled || false
     benchmarkComponents.value = parseBenchmarkFormula((props.editProduct as any).benchmarkFormula || '')
+    // 定期存款特有字段
+    interestRate.value = (props.editProduct.interestRate as number) || 0
+    durationMonths.value = (props.editProduct.durationMonths as number) || 12
+    minAmount.value = (props.editProduct.minAmount as number) || 0
+    maturityDate.value = props.editProduct.maturityDate || ''
+    interestMethod.value = (props.editProduct.interestMethod as InterestMethod) || 'maturity'
+    bankName.value = props.editProduct.bankName || ''
   } else if (val) {
     name.value = ''
     type.value = props.defaultType || 'equity'
@@ -77,6 +91,13 @@ watch(() => props.visible, (val) => {
     holdingTerm.value = ''
     benchmarkEnabled.value = false
     benchmarkComponents.value = []
+    // 定期存款特有字段默认值
+    interestRate.value = 0
+    durationMonths.value = 12
+    minAmount.value = 0
+    maturityDate.value = ''
+    interestMethod.value = 'maturity'
+    bankName.value = ''
   }
 })
 
@@ -138,7 +159,13 @@ const handleSubmit = () => {
     navSource: navSource.value,
     holdingTerm: holdingTerm.value.trim(),
     benchmarkEnabled: benchmarkEnabled.value,
-    benchmarkFormula: benchmarkEnabled.value ? benchmarkFormulaPreview.value : ''
+    benchmarkFormula: benchmarkEnabled.value ? benchmarkFormulaPreview.value : '',
+    interestRate: interestRate.value,
+    durationMonths: durationMonths.value,
+    minAmount: minAmount.value,
+    maturityDate: maturityDate.value,
+    interestMethod: interestMethod.value,
+    bankName: bankName.value.trim()
   })
 }
 </script>
@@ -181,7 +208,7 @@ const handleSubmit = () => {
               </option>
             </select>
           </div>
-          <div>
+          <div v-if="type !== 'term_deposit'">
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
               产品代码
               <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（权益代码支持从天天基金网查询净值）</span>
@@ -193,7 +220,7 @@ const handleSubmit = () => {
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
           </div>
-          <div>
+          <div v-if="type !== 'term_deposit'">
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">净值查询源</label>
             <select 
               v-model="navSource"
@@ -232,7 +259,76 @@ const handleSubmit = () => {
               />
             </div>
           </div>
-          <div class="flex space-x-4">
+          <!-- 定期存款特有字段 -->
+          <div v-if="type === 'term_deposit'" class="space-y-4 border-t border-apple-border/30 pt-4">
+            <div class="flex space-x-4">
+              <div class="flex-1">
+                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">年利率(%)</label>
+                <input 
+                  v-model.number="interestRate"
+                  type="number" 
+                  min="0"
+                  step="0.01"
+                  placeholder="如: 3.50"
+                  class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+                />
+              </div>
+              <div class="flex-1">
+                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">存款期限</label>
+                <select 
+                  v-model.number="durationMonths"
+                  class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+                >
+                  <option v-for="opt in DURATION_OPTIONS" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div class="flex space-x-4">
+              <div class="flex-1">
+                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">起存金额</label>
+                <input 
+                  v-model.number="minAmount"
+                  type="number" 
+                  min="0"
+                  placeholder="0"
+                  class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+                />
+              </div>
+              <div class="flex-1">
+                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">付息方式</label>
+                <select 
+                  v-model="interestMethod"
+                  class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+                >
+                  <option v-for="opt in INTEREST_METHOD_OPTIONS" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div class="flex space-x-4">
+              <div class="flex-1">
+                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">到期日期</label>
+                <input 
+                  v-model="maturityDate"
+                  type="date" 
+                  class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+                />
+              </div>
+              <div class="flex-1">
+                <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">开户银行</label>
+                <input 
+                  v-model="bankName"
+                  type="text" 
+                  placeholder="如: 工商银行"
+                  class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+                />
+              </div>
+            </div>
+          </div>
+          <div v-if="type !== 'term_deposit'" class="flex space-x-4">
             <div class="flex-1">
               <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">定投金额</label>
               <input 
@@ -256,7 +352,7 @@ const handleSubmit = () => {
             </div>
           </div>
           <!-- 比较基准配置 -->
-          <div class="border-t border-apple-border/30 pt-4">
+          <div v-if="type !== 'term_deposit'" class="border-t border-apple-border/30 pt-4">
             <div class="flex items-center justify-between">
               <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider">比较基准</label>
               <button

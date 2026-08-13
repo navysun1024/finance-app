@@ -1,6 +1,6 @@
 import { ref, watch } from 'vue'
 
-export type CompareType = 'equity' | 'fixed_income'
+export type CompareType = 'equity' | 'fixed_income' | 'term_deposit'
 
 const STORAGE_KEY = 'compareList'
 const MAX_COMPARE = 8

@@ -39,7 +39,13 @@ export async function getProducts(): Promise<Product[]> {
           navSource: p.navSource || '',
           holdingTerm: p.holdingTerm || '',
           benchmarkEnabled: p.benchmarkEnabled === true || p.benchmarkEnabled === 1,
-          benchmarkFormula: p.benchmarkFormula || ''
+          benchmarkFormula: p.benchmarkFormula || '',
+          interestRate: typeof p.interestRate === 'number' ? p.interestRate : 0,
+          durationMonths: typeof p.durationMonths === 'number' ? p.durationMonths : 0,
+          minAmount: typeof p.minAmount === 'number' ? p.minAmount : 0,
+          maturityDate: p.maturityDate || '',
+          interestMethod: p.interestMethod || '',
+          bankName: p.bankName || ''
         }))
       : []
     logger.debug(`获取产品列表成功, 数量: ${normalized.length || 0}`)

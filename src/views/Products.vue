@@ -19,7 +19,7 @@ const props = defineProps<{
 
 const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
 
-const { toggleCompare, isInCompare, compareType, compareIds, switchType, MAX_COMPARE } = useCompare()
+const { toggleCompare, isInCompare, compareType, compareIds, switchType } = useCompare()
 
 // ==================== 对比面板状态 ====================
 const showComparePanel = ref(false)
@@ -59,15 +59,6 @@ const STOCK_COLORS = [
   '#3ba272', '#fc8452', '#9a60b4'
 ]
 
-const compareAvailableProducts = computed(() => {
-  return products.value.filter(p => {
-    if (compareType.value === 'equity') {
-      return p.type === 'equity' || p.type === 'fund'
-    }
-    return p.type === 'fixed_income'
-  })
-})
-
 const getCompareProductColor = (productId: string) => {
   const idx = compareIds.value.indexOf(productId)
   return STOCK_COLORS[idx % STOCK_COLORS.length]
@@ -77,11 +68,18 @@ const getCompareProductColor = (productId: string) => {
 const compareIsEquityType = computed(() => compareType.value === 'equity')
 
 const compareAvailableTypes = computed(() => {
-  return props.type === 'equity' 
-    ? [{ value: 'equity', label: '权益' }]
-    : props.type === 'fixed_income'
-      ? [{ value: 'fixed_income', label: '固收' }]
-      : [{ value: 'equity', label: '权益' }, { value: 'fixed_income', label: '固收' }]
+  if (props.type === 'equity') {
+    return [{ value: 'equity', label: '权益' }]
+  } else if (props.type === 'fixed_income') {
+    return [{ value: 'fixed_income', label: '固收' }]
+  } else if (props.type === 'term_deposit') {
+    return [{ value: 'term_deposit', label: '定存' }]
+  }
+  return [
+    { value: 'equity', label: '权益' },
+    { value: 'fixed_income', label: '固收' },
+    { value: 'term_deposit', label: '定存' }
+  ]
 })
 
 // ==================== 收益率计算逻辑 ====================
@@ -412,12 +410,7 @@ const handleCompareResize = () => {
   compareChart?.resize()
 }
 
-// 对比面板操作方法
-const handleToggleCompareProduct = (productId: string) => {
-  toggleCompare(productId, compareType.value)
-}
-
-const handleSwitchCompareType = (type: 'equity' | 'fixed_income') => {
+const handleSwitchCompareType = (type: 'equity' | 'fixed_income' | 'term_deposit') => {
   switchType(type)
 }
 
@@ -434,11 +427,14 @@ const formatCompareReturn = (value: number | null) => {
 const getCompareProductTypeLabel = (type: string) => {
   if (type === 'fund') return '基金'
   if (type === 'equity') return '权益'
+  if (type === 'term_deposit') return '定存'
   return '固收'
 }
 
-const getCompareType = (product: Product): 'equity' | 'fixed_income' => {
-  return (product.type === 'equity' || product.type === 'fund') ? 'equity' : 'fixed_income'
+const getCompareType = (product: Product): 'equity' | 'fixed_income' | 'term_deposit' => {
+  if (product.type === 'equity' || product.type === 'fund') return 'equity'
+  if (product.type === 'term_deposit') return 'term_deposit'
+  return 'fixed_income'
 }
 
 const handleToggleCompare = (product: Product) => {
@@ -979,7 +975,14 @@ const productStatusMap = computed(() => {
     const pos = getPosition(product.id)
     const shares = pos?.totalShares ?? 0
     const hasBuy = (pos?.transactions ?? []).some(t => t.type === 'buy')
-    if (shares > 0.01) {
+    // 定期存款产品：即使没有交易记录，也视为持仓中
+    if (product.type === 'term_deposit') {
+      if (shares > 0.01 || hasBuy) {
+        map.set(product.id, 'holding')
+      } else {
+        map.set(product.id, 'holding') // 定期存款默认持仓中
+      }
+    } else if (shares > 0.01) {
       map.set(product.id, 'holding')
     } else if (hasBuy) {
       map.set(product.id, 'closed')
@@ -1089,6 +1092,57 @@ const getDcaLabel = (dcaAmount: number, dcaCycle: string) => {
   return cycleOption ? `${dcaAmount}元/${cycleOption.label}` : ''
 }
 
+// 计算定期存款进度
+const getTermDepositProgress = (product: any): number => {
+  if (!product || product.type !== 'term_deposit') return 0
+  
+  const durationMonths = product.durationMonths || 0
+  if (durationMonths <= 0) return 0
+  
+  // 计算起始日期
+  let startDate: number
+  if (product.maturityDate && durationMonths) {
+    // 到期日期 - 存款期限 = 起始日期
+    const maturityDateMs = new Date(product.maturityDate).getTime()
+    const durationDays = durationMonths * 30
+    startDate = maturityDateMs - durationDays * 24 * 60 * 60 * 1000
+  } else {
+    startDate = product.createdAt || Date.now()
+  }
+  
+  const now = Date.now()
+  const totalDurationMs = durationMonths * 30 * 24 * 60 * 60 * 1000
+  const elapsedMs = Math.max(0, now - startDate)
+  
+  const progress = (elapsedMs / totalDurationMs) * 100
+  return Math.min(100, Math.max(0, progress))
+}
+
+// 计算定期存款剩余天数
+const getTermDepositRemainingDays = (product: any): number => {
+  if (!product || product.type !== 'term_deposit') return 0
+  
+  const durationMonths = product.durationMonths || 0
+  if (durationMonths <= 0) return 0
+  
+  // 计算起始日期
+  let startDate: number
+  if (product.maturityDate && durationMonths) {
+    const maturityDateMs = new Date(product.maturityDate).getTime()
+    const durationDays = durationMonths * 30
+    startDate = maturityDateMs - durationDays * 24 * 60 * 60 * 1000
+  } else {
+    startDate = product.createdAt || Date.now()
+  }
+  
+  const now = Date.now()
+  const totalDurationDays = durationMonths * 30
+  const elapsedDays = Math.floor((now - startDate) / (24 * 60 * 60 * 1000))
+  const remainingDays = Math.max(0, totalDurationDays - elapsedDays)
+  
+  return remainingDays
+}
+
 // 预计算所有产品的 position（只计算一次，避免模板中重复调用）
 const positionMap = computed(() => {
   const map = new Map<string, ReturnType<typeof calculatePosition>>()
@@ -1177,11 +1231,11 @@ watch([compareIds, compareRangeType, compareCustomStart, compareCustomEnd, showC
   }
 }, { deep: true })
 
-const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string }) => {
+const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula)
+    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName)
   } else {
-    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula)
+    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName)
   }
   showModal.value = false
 }
@@ -1193,7 +1247,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       <div>
         <div class="flex items-center space-x-2">
           <h2 class="apple-section-title">
-            {{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '产品' }}
+            {{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}
           </h2>
           <button
             v-if="props.type === 'equity' || props.type === 'fixed_income'"
@@ -1205,7 +1259,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             <EyeOff v-else class="w-4 h-4 text-apple-secondary" />
           </button>
         </div>
-        <p class="apple-section-subtitle mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="apple-section-subtitle mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
       </div>
       <div class="flex items-center gap-2">
         <!-- 批量更新净值按钮（权益和固收理财页面显示） -->
@@ -1227,7 +1281,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         </button>
         <!-- 对比按钮 -->
         <button 
-          v-if="compareIds.length > 0"
+          v-if="compareIds.length > 0 && props.type !== 'term_deposit'"
           @click="showComparePanel = true"
           class="flex items-center space-x-2 px-4 py-2.5 text-[14px] rounded-xl border border-primary-500 text-primary-500 hover:bg-primary-50 transition-colors"
         >
@@ -1463,16 +1517,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       
       <!-- 无持仓数据的基金提示 -->
-      <div v-if="showAggregatedHoldings && aggregatedHoldings?.noHoldingsFunds?.length > 0" class="px-5 py-3 border-t border-black/5 bg-orange-50/50">
+      <div v-if="showAggregatedHoldings && aggregatedHoldings?.noHoldingsFunds && aggregatedHoldings.noHoldingsFunds.length > 0" class="px-5 py-3 border-t border-black/5 bg-orange-50/50">
         <div class="flex items-center gap-2 mb-1.5">
           <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
           </svg>
-          <span class="text-[13px] font-medium text-orange-700">以下 {{ aggregatedHoldings.noHoldingsFunds.length }} 只基金暂无持仓数据</span>
+          <span class="text-[13px] font-medium text-orange-700">以下 {{ aggregatedHoldings?.noHoldingsFunds?.length || 0 }} 只基金暂无持仓数据</span>
         </div>
         <div class="flex flex-wrap gap-1.5">
           <span 
-            v-for="fund in aggregatedHoldings.noHoldingsFunds" 
+            v-for="fund in aggregatedHoldings?.noHoldingsFunds || []" 
             :key="fund.code"
             class="inline-flex items-center px-2 py-1 rounded-md bg-orange-100 text-orange-700 text-[11px] gap-1.5"
           >
@@ -1577,8 +1631,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         />
       </div>
       <div v-else class="glass-card p-8 text-center">
-        <p class="text-apple-text text-[16px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
-        <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="text-apple-text text-[16px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}数据</p>
+        <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
       </div>
     </div>
     
@@ -1633,6 +1687,37 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-3 h-3 text-apple-secondary/40" />
                   <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <!-- 定存产品特有列：年利率 -->
+              <th 
+                v-if="props.type === 'term_deposit'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                @click="handleSort('annualRate')"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>年利率</span>
+                  <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </div>
+              </th>
+              <!-- 定存产品特有列：期限 -->
+              <th 
+                v-if="props.type === 'term_deposit'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>期限</span>
+                </div>
+              </th>
+              <!-- 定存产品特有列：存款进度 -->
+              <th 
+                v-if="props.type === 'term_deposit'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider"
+              >
+                <div class="flex items-center justify-end space-x-1">
+                  <span>存款进度</span>
                 </div>
               </th>
               <th 
@@ -1744,6 +1829,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
+                v-if="props.type !== 'term_deposit'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('dailyReturn')"
               >
@@ -1755,6 +1841,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </th>
               <th 
+                v-if="props.type !== 'term_deposit'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
                 @click="handleSort('dailyProfit')"
               >
@@ -1772,8 +1859,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             <tr 
               v-for="product in filteredProducts" 
               :key="product.id" 
-              class="hover:bg-primary-50/30 cursor-pointer transition-colors"
-              @click="router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus, type: filterType } })"
+              class="hover:bg-primary-50/30 transition-colors"
+              :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
+              @click="product.type !== 'term_deposit' && router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus, type: filterType } })"
             >
               <td class="px-2 py-3">
                 <div>
@@ -1793,15 +1881,24 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                       class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0"
                       :class="{
                         'bg-primary-50 text-primary-500': product.type === 'equity' || product.type === 'fund',
-                        'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income'
+                        'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income',
+                        'bg-amber-50 text-amber-600': product.type === 'term_deposit'
                       }"
                     >
                       {{ getProductTypeLabel(product.type) }}
                     </span>
-                    <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0">代码: {{ product.code }}</span>
-                    <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-[11px] text-fixed-income shrink-0 bg-fixed-income/5 px-1.5 py-0.5 rounded">期限: {{ (product as any).holdingTerm }}</span>
-                    <span v-if="product.note" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.note">{{ product.note }}</span>
-                    <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
+                    <!-- 定存产品特有信息 -->
+                    <template v-if="product.type === 'term_deposit'">
+                      <span v-if="product.bankName" class="text-[11px] text-apple-secondary shrink-0">{{ product.bankName }}</span>
+                      <span v-if="product.minAmount" class="text-[11px] text-apple-secondary shrink-0">起存{{ product.minAmount.toLocaleString() }}元</span>
+                    </template>
+                    <!-- 其他产品类型信息 -->
+                    <template v-else>
+                      <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0">代码: {{ product.code }}</span>
+                      <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-[11px] text-fixed-income shrink-0 bg-fixed-income/5 px-1.5 py-0.5 rounded">期限: {{ (product as any).holdingTerm }}</span>
+                      <span v-if="product.note" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.note">{{ product.note }}</span>
+                      <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
+                    </template>
                   </div>
                 </div>
               </td>
@@ -1835,6 +1932,31 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
+              </td>
+              <!-- 定存产品特有列：年利率 -->
+              <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
+                <p class="text-[14px] font-semibold text-amber-600">{{ (product.interestRate || 0).toFixed(2) }}%</p>
+              </td>
+              <!-- 定存产品特有列：期限 -->
+              <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
+                <p class="text-[14px] font-semibold text-apple-text">{{ product.durationMonths || 0 }}个月</p>
+              </td>
+              <!-- 定存产品特有列：存款进度 -->
+              <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
+                <div class="flex flex-col items-end">
+                  <div class="flex items-center gap-2 w-32">
+                    <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
+                      <div 
+                        class="h-full bg-amber-500 transition-all duration-300"
+                        :style="{ width: getTermDepositProgress(product) + '%' }"
+                      ></div>
+                    </div>
+                    <span class="text-[12px] font-semibold text-apple-text w-10 text-right">{{ getTermDepositProgress(product).toFixed(1) }}%</span>
+                  </div>
+                  <p class="text-[10px] text-apple-secondary mt-0.5">
+                    {{ getTermDepositProgress(product) >= 100 ? '已到期' : `剩余${getTermDepositRemainingDays(product)}天` }}
+                  </p>
+                </div>
               </td>
               <td v-if="props.type === 'equity'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
@@ -1956,7 +2078,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                 </template>
               </td>
-              <td class="px-2 py-3 text-right whitespace-nowrap">
+              <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getDailyReturn(product.code)">
                   <p
                     class="text-[14px] font-semibold"
@@ -1974,7 +2096,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
-              <td class="px-2 py-3 text-right whitespace-nowrap">
+              <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getDailyProfit(product) !== null">
                   <p
                     class="text-[14px] font-semibold"
@@ -1990,6 +2112,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <td class="px-2 py-3 text-center whitespace-nowrap" @click.stop>
                 <div class="flex items-center justify-center space-x-0.5">
                   <button
+                    v-if="product.type !== 'term_deposit'"
                     @click="handleToggleCompare(product)"
                     :class="[
                       'w-7 h-7 flex items-center justify-center rounded-md transition-colors',
@@ -2020,8 +2143,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         </table>
       </div>
       <div v-if="filteredProducts.length === 0" class="p-10 text-center">
-        <p class="text-apple-text text-[17px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '产品' }}数据</p>
-        <p class="text-apple-secondary text-[14px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : '理财产品' }}</p>
+        <p class="text-apple-text text-[17px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}数据</p>
+        <p class="text-apple-secondary text-[14px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
       </div>
     </div>
     
@@ -2076,7 +2199,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <button
                       v-for="t in compareAvailableTypes"
                       :key="t.value"
-                      @click="handleSwitchCompareType(t.value as 'equity' | 'fixed_income')"
+                      @click="handleSwitchCompareType(t.value as 'equity' | 'fixed_income' | 'term_deposit')"
                       :class="[
                         'px-3.5 py-1.5 text-xs rounded-full transition-all duration-200',
                         compareType === t.value

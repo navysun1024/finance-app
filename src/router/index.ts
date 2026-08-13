@@ -15,6 +15,12 @@ const FixedIncomeProducts = defineComponent({
   }
 })
 
+const TermDepositProducts = defineComponent({
+  render() {
+    return h(Products, { type: 'term_deposit' })
+  }
+})
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -50,6 +56,12 @@ const router = createRouter({
       path: '/fixed-income',
       name: 'fixed-income',
       component: FixedIncomeProducts,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/term-deposit',
+      name: 'term-deposit',
+      component: TermDepositProducts,
       meta: { requiresAuth: true }
     },
     {

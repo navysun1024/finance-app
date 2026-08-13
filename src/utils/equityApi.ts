@@ -271,6 +271,8 @@ export interface EquityAssetAllocation {
   stockRatio: number | null   // 股票占净比 (%)
   bondRatio: number | null    // 债券占净比 (%)
   cashRatio: number | null    // 现金占净比 (%)
+  otherRatio?: number | null  // 其他占净比 (%) - 可选
+  cashAndOtherRatio?: number | null  // 现金及其他占净比 (%) - 可选（兼容旧格式）
   netAsset: number | null     // 净资产 (亿元)
   reportDate: string          // 报告期
 }

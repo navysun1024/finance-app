@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue';
-import type { Product, Transaction, Position, PortfolioSummary, ProductType, TransactionType } from '@/types';
+import type { Product, Transaction, Position, PortfolioSummary, ProductType, TransactionType, InterestMethod } from '@/types';
 import { getProducts, saveProducts, getTransactions, generateId, addTransactionToServer, updateTransactionOnServer, deleteTransactionFromServer } from '@/utils/storage';
 import { calculateXIRR } from '@/utils/xirr';
 export const PRODUCT_TYPE_OPTIONS: {
@@ -8,7 +8,8 @@ export const PRODUCT_TYPE_OPTIONS: {
  color: string;
 }[] = [
  { value: 'equity', label: '权益', color: '#3b82f6' },
- { value: 'fixed_income', label: '固收理财', color: '#8b5cf6' }
+ { value: 'fixed_income', label: '固收理财', color: '#8b5cf6' },
+ { value: 'term_deposit', label: '定期存款', color: '#f59e0b' }
 ];
 export const TRANSACTION_TYPE_OPTIONS: {
  value: TransactionType;
@@ -82,7 +83,7 @@ export function useFinance() {
  products.value = await getProducts();
  transactions.value = await getTransactions();
  };
- const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '') => {
+ const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '') => {
  const product: Product = {
  id: generateId(),
  name,
@@ -96,13 +97,19 @@ export function useFinance() {
  holdingTerm,
  benchmarkEnabled,
  benchmarkFormula,
- createdAt: Date.now()
+ createdAt: Date.now(),
+ interestRate,
+ durationMonths,
+ minAmount,
+ maturityDate,
+ interestMethod: interestMethod || undefined,
+ bankName
  };
  products.value.push(product);
  await saveProducts(products.value);
  return product;
  };
- const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '') => {
+ const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '') => {
  const index = products.value.findIndex(p => p.id === id);
  if (index !== -1) {
  products.value[index] = {
@@ -117,7 +124,13 @@ export function useFinance() {
  navSource: navSource as Product['navSource'],
  holdingTerm,
  benchmarkEnabled,
- benchmarkFormula
+ benchmarkFormula,
+ interestRate,
+ durationMonths,
+ minAmount,
+ maturityDate,
+ interestMethod: interestMethod || undefined,
+ bankName
  };
  await saveProducts(products.value);
  }
@@ -231,6 +244,57 @@ export function useFinance() {
  totalDividend += t.amount;
  }
  }
+
+ // 定期存款特殊计算
+ if (product.type === 'term_deposit') {
+ // 如果没有交易记录，使用起存金额作为默认本金
+ const hasTransactions = cumulativeCostBasis > 0;
+ const principal = hasTransactions ? cumulativeCostBasis : (product.minAmount || 0); // 本金
+ const interestRate = (product.interestRate || 0) / 100; // 年利率
+ 
+ // 计算起始日期：
+ // 1. 如果有交易记录，使用交易记录的首次买入日期
+ // 2. 如果没有交易记录，使用：到期日期 - 存款期限
+ // 3. 如果没有到期日期，使用创建日期
+ let startDate = firstBuyDate;
+ if (!hasTransactions) {
+ if (product.maturityDate && product.durationMonths) {
+ // 到期日期 - 存款期限 = 起始日期
+ const maturityDateMs = new Date(product.maturityDate).getTime();
+ const durationDays = product.durationMonths * 30; // 简化计算
+ startDate = maturityDateMs - durationDays * 24 * 60 * 60 * 1000;
+ } else {
+ startDate = product.createdAt || Date.now();
+ }
+ }
+ 
+ const holdingDays = startDate > 0 ? Math.max(1, Math.ceil((Date.now() - startDate) / (1000 * 60 * 60 * 24))) : 0;
+ const yearsElapsed = holdingDays / 365;
+ const totalInterest = principal * interestRate * yearsElapsed; // 已产生的利息
+ const marketValue = Math.round((principal + totalInterest) * 100) / 100; // 市值 = 本金 + 利息
+ const profit = Math.round(totalInterest * 100) / 100 + totalDividend + realizedProfit;
+ const profitRate = principal > 0 ? (totalInterest / principal) * 100 : 0;
+ const annualRate = product.interestRate || 0;
+ const currentNav = principal > 0 ? (principal + totalInterest) / principal : 1; // 相当于净值
+ const effectiveShares = hasTransactions ? cumulativeShares : 1;
+
+ return {
+ productId: product.id,
+ product,
+ totalInvestment: principal,
+ totalShares: effectiveShares,
+ avgCost: principal > 0 ? principal / effectiveShares : 0,
+ currentNav,
+ marketValue,
+ profit,
+ profitRate,
+ annualRate,
+ holdingDays,
+ lastNavUpdateDate: startDate,
+ transactions: productTransactions
+ };
+ }
+
  const marketValue = Math.round(remainingShares * currentNav);
  const unrealizedProfit = marketValue - (remainingShares * avgCost);
  const profit = unrealizedProfit + realizedProfit + totalDividend;

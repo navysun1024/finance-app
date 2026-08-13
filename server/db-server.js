@@ -99,6 +99,42 @@ db.run(`ALTER TABLE products ADD COLUMN benchmarkFormula TEXT DEFAULT ''`, (err)
   }
 })
 
+db.run(`ALTER TABLE products ADD COLUMN interestRate REAL DEFAULT 0`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN durationMonths INTEGER DEFAULT 0`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN minAmount REAL DEFAULT 0`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN maturityDate TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN interestMethod TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
+db.run(`ALTER TABLE products ADD COLUMN bankName TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
 db.run(`
   CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
@@ -577,7 +613,7 @@ app.post('/api/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -585,7 +621,7 @@ app.post('/api/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '')
           })
           
           stmt.finalize((err) => {
@@ -886,7 +922,7 @@ app.post('/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -894,7 +930,7 @@ app.post('/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt)
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '')
           })
           
           stmt.finalize((err) => {
@@ -1044,7 +1080,7 @@ app.post('/batch-import', authenticate, (req, res) => {
         return
       }
 
-      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       let productDone = 0
 
       products.forEach((product) => {
@@ -1060,7 +1096,7 @@ app.post('/batch-import', authenticate, (req, res) => {
           return
         }
 
-        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.holder || '', product.dcaAmount || 0, product.dcaCycle || '', product.navSource || '', product.holdingTerm || '', product.createdAt, (err) => {
+        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.holder || '', product.dcaAmount || 0, product.dcaCycle || '', product.navSource || '', product.holdingTerm || '', product.createdAt, product.interestRate || 0, product.durationMonths || 0, product.minAmount || 0, product.maturityDate || '', product.interestMethod || '', product.bankName || '', (err) => {
           if (err) {
             log(`批量导入 - 产品插入失败: ${product.name}, 错误: ${err.message}`, 'ERROR')
             db.run('ROLLBACK')

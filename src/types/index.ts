@@ -12,6 +12,13 @@ export interface Product {
   benchmarkEnabled: boolean
   benchmarkFormula: string
   createdAt: number
+  // 定期存款特有字段
+  interestRate?: number
+  durationMonths?: number
+  minAmount?: number
+  maturityDate?: string
+  interestMethod?: InterestMethod
+  bankName?: string
 }
 
 export interface IndexPoint {
@@ -24,7 +31,7 @@ export interface BenchmarkPoint {
   value: number  // 基准净值（已按产品起始净值缩放）
 }
 
-export type ProductType = 'equity' | 'fixed_income' | 'fund'
+export type ProductType = 'equity' | 'fixed_income' | 'fund' | 'term_deposit'
 
 export type ProductStatus = 'holding' | 'closed' | 'watchlist'
 
@@ -103,3 +110,21 @@ export interface TransactionTypeOption {
   label: string
   color: string
 }
+
+// 定期存款相关类型
+export type InterestMethod = 'maturity' | 'monthly' | 'quarterly'
+
+export const INTEREST_METHOD_OPTIONS: { value: InterestMethod; label: string }[] = [
+  { value: 'maturity', label: '到期付息' },
+  { value: 'monthly', label: '按月付息' },
+  { value: 'quarterly', label: '按季付息' }
+]
+
+export const DURATION_OPTIONS: { value: number; label: string }[] = [
+  { value: 3, label: '3个月' },
+  { value: 6, label: '6个月' },
+  { value: 12, label: '1年' },
+  { value: 24, label: '2年' },
+  { value: 36, label: '3年' },
+  { value: 60, label: '5年' }
+]
