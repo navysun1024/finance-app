@@ -1,18 +1,21 @@
 # 个人理财统计系统
 
-一个功能完善的个人投资收益率统计 Web 应用，支持基金、固收理财等多种产品类型的净值跟踪、收益计算和可视化展示。
+一个功能完善的个人投资收益率统计 Web 应用，支持权益（基金）、固收理财、定期存款三类产品的净值跟踪、收益计算、业绩比较基准与可视化展示。
 
 ## 功能特性
 
-- **多产品类型支持**：基金、固收理财
-- **自动净值更新**：定时从天天基金、招银理财等数据源获取最新净值
-- **XIRR 年化收益率计算**：基于实际现金流计算真实年化收益率
-- **可视化图表**：资产分布、收益趋势、净值走势、持仓分布等 ECharts 图表
-- **批量导入**：支持 Excel/JSON 格式批量导入产品和交易记录
-- **数据导出**：支持 JSON 和 Excel 格式导出数据
-- **用户认证**：注册/登录，bcrypt 密码哈希，会话过期，速率限制
-- **响应式设计**：Tailwind CSS 实现的移动端友好界面
-- **Docker 部署**：支持 Docker Compose 一键部署
+- **三类产品支持**：权益产品（公募基金 / 权益类理财）、固收理财产品、定期存款
+- **多种净值数据源**：天天基金（权益+固收）、招银理财 Puppeteer 爬虫、工银理财 Puppeteer 爬虫
+- **业绩比较基准**：支持自定义指数公式（如 `中证800*0.6 + 中证全债*0.4`），随净值走势叠加展示
+- **自动净值更新**：内置定时调度器（北京时间 10–13 点 / 16–23 点，每小时一次）+ 手动触发
+- **XIRR 年化收益率计算**：基于实际现金流（买入/卖出/分红）计算真实年化
+- **持仓穿透**：自动抓取基金股票持仓，按持有权益加权聚合展示
+- **限购信息自动同步**：从东方财富基金 F10 抓取并合并到产品备注
+- **可视化图表**：资产分布饼图、收益/市值趋势、净值走势（含基准对比）、阶段涨幅、持仓穿透柱图等 ECharts 图表
+- **批量导入 / 导出**：Excel/JSON 导入、JSON 备份、Excel 报表
+- **用户认证**：注册/登录、bcrypt 密码哈希、24h 会话、速率限制、多用户数据隔离
+- **响应式 UI**：Tailwind CSS，移动端+PC 端深度优化；支持深浅主题
+- **Docker 部署**：单容器内 Nginx + DB + 爬虫，Volume 数据持久化
 
 ## 技术栈
 
@@ -25,579 +28,368 @@
 | **Tailwind CSS** | 3.4.14 | 原子化样式框架 |
 | **ECharts** | 5.5.0 | 数据可视化图表 |
 | **Lucide Vue Next** | 0.31.0 | SVG 图标库 |
-| **XLSX** | 0.18.5 | Excel 文件生成 |
+| **XLSX** | 0.18.5 | Excel 文件生成/解析 |
 | **Express** | 5.2.1 | 后端 HTTP 框架 |
 | **SQLite3** | 6.0.1 | 后端数据库 |
-| **sql.js** | 1.14.1 | 浏览器端 SQLite |
-| **Puppeteer** | 25.1.0 | 招银理财网页爬虫 |
- | **bcryptjs** | 3.0.3 | 密码加密 |
- | **Axios** | 1.16.1 | HTTP 请求 |
- | **Node** | >= 22 | 运行环境（Puppeteer 25 要求） |
+| **sql.js** | 1.14.1 | 浏览器端 SQLite（保留模块） |
+| **Puppeteer** | 25.1.0 | 招银理财 / 工银理财 网页爬虫 |
+| **bcryptjs** | 3.0.3 | 密码加密 |
+| **Axios** | 1.16.1 | HTTP 请求 |
+| **Node** | >= 22 | 运行环境（Puppeteer 25 要求） |
+
+## 快速开始
+
+> **硬约束**：所有服务必须通过 [start.sh](file:///Users/haijun/Documents/Financial/app/start.sh) 启动，防止多进程并发导致净值更新冲突。
+
+### 开发环境（macOS / Linux）
+
+```bash
+# 1) 安装依赖
+npm install
+
+# 2) 一键启动（推荐）
+./start.sh start
+#    或重启
+./start.sh restart
+
+# 3) 查看状态
+./start.sh status
+```
+
+启动后访问：
+- 前端应用: http://localhost:5173
+- 数据库 API: http://localhost:3002
+- 爬虫服务:   http://localhost:3001
+
+### npm script（备选）
+
+```bash
+# 单独启动
+npm run start       # 数据库服务:3002 + 调度器
+npm run scraper     # 爬虫服务:3001 (招银/工银)
+npm run dev         # 前端开发服务器:5173
+```
+
+### 生产环境（Docker / 飞牛 NAS）
+
+```bash
+# 构建并启动（单容器含 Nginx + DB + 爬虫）
+docker compose up -d --build
+
+# 日志
+docker compose logs -f
+
+# 数据库备份 / 恢复
+docker cp finance-app:/app/data/finance.db ./finance-backup.db
+docker cp ./finance-backup.db finance-app:/app/data/finance.db
+docker compose restart
+```
+
+NAS 部署注意：
+- 飞牛默认 docker 镜像源可能 401，改 daemon.json 的 `registry-mirrors`
+- Puppeteer 25 需 Node 22，Dockerfile 已用 `node:22-alpine` + 系统 Chromium + `--no-sandbox`
 
 ## 项目结构
 
 ```
 ./
-├── src/                          # 前端源码
-│   ├── components/               # 通用组件
-│   │   ├── BatchImportModal.vue       # 批量导入弹窗
-│   │   ├── BottomSheet.vue            # 底部弹出面板（移动端友好）
-│   │   ├── Navbar.vue                 # 导航栏
-│   │   ├── ProductCard.vue            # 产品卡片（图表视图）
-│   │   ├── ProductListItem.vue        # 产品列表项（列表视图，含盈亏/编辑按钮）
-│   │   ├── ProductModal.vue           # 产品编辑弹窗（含定投设置）
-│   │   ├── ProfitCalendar.vue         # 收益日历（按日查看盈亏）
-│   │   ├── PullRefresh.vue            # 下拉刷新组件
-│   │   ├── StatCard.vue               # 统计卡片（资产/收益概览）
-│   │   ├── TransactionCard.vue        # 交易记录卡片（含编辑/删除操作）
-│   │   └── TransactionModal.vue       # 交易记录编辑弹窗
+├── src/                              # 前端源码
+│   ├── components/                   # 通用组件
+│   │   ├── BatchImportModal.vue            # 批量导入弹窗
+│   │   ├── BottomSheet.vue                 # 底部弹出面板（移动端友好）
+│   │   ├── Navbar.vue                      # 底部导航（移动端）
+│   │   ├── ProductCard.vue                 # 产品卡片（图表视图）
+│   │   ├── ProductListItem.vue             # 产品列表项（列表视图，含盈亏）
+│   │   ├── ProductModal.vue                # 产品编辑弹窗（含定投/基准/净值源）
+│   │   ├── ProfitCalendar.vue              # 收益日历
+│   │   ├── PullRefresh.vue                 # 下拉刷新组件
+│   │   ├── StatCard.vue                    # 统计卡片（资产/收益概览）
+│   │   ├── TransactionCard.vue             # 交易记录卡片（净值更新双行布局）
+│   │   └── TransactionModal.vue            # 交易记录编辑弹窗
 │   ├── composables/
-│   │   └── useFinance.ts         # 核心业务逻辑（持仓计算、收益统计）
+│   │   └── useFinance.ts             # 核心业务逻辑（状态 / 盈亏 / XIRR / 汇总）
 │   ├── router/
-│   │   └── index.ts              # Vue Router 路由配置
+│   │   └── index.ts                  # Vue Router 配置
 │   ├── types/
-│   │   └── index.ts              # TypeScript 类型定义
+│   │   └── index.ts                  # TS 类型定义（Product/Transaction/Position...）
 │   ├── utils/
-│   │   ├── database.ts           # 浏览器端 SQLite（sql.js）封装
-│   │   ├── excel.ts              # Excel 导出
-│   │   ├── format.ts             # 格式化工具（货币/百分比/日期）
-│   │   ├── fundApi.ts            # 基金净值获取（天天基金 + 招银爬虫）
-│   │   ├── importParser.ts       # 批量导入解析
-│   │   ├── logger.ts             # 前端日志工具
-│   │   ├── storage.ts            # 后端 API 封装（HTTP fetch）
-│   │   └── xirr.ts               # XIRR 年化收益率算法
-│   ├── views/                    # 页面视图
-│   │   ├── Dashboard.vue         # 仪表盘（资产概览、图表）
-│   │   ├── Login.vue             # 登录页
-│   │   ├── ProductDetail.vue     # 产品详情页（净值走势、持仓）
-│   │   ├── Products.vue          # 产品列表页（基金/固收）
-│   │   ├── Register.vue          # 注册页
-│   │   ├── Settings.vue          # 设置页（导入导出、调度器）
-│   │   └── Transactions.vue      # 交易记录页
-│   ├── App.vue                   # 根组件
-│   ├── main.ts                   # 入口文件
-│   └── style.css                 # 全局样式
-├── server/                       # 后端服务
-│   ├── db-server.js              # 数据库 API 服务（端口 3002）
-│   ├── scraper.mjs               # 爬虫服务（端口 3001）
-│   ├── nav_service.py            # Python 净值服务（辅助）
-│   └── fill_fund_nav.mjs         # 基金净值回填脚本
-├── data/                         # 数据目录
-│   └── finance.db                # SQLite 数据库文件
-├── logs/                         # 日志目录
-│   ├── db-server.log             # 数据库服务日志
-│   └── scraper.log               # 爬虫服务日志
-├── public/                       # 静态资源
-│   ├── favicon.svg               # 网页图标
-│   ├── sql-wasm-browser.js       # sql.js WASM 模块
-│   └── sql-wasm-browser.wasm
-├── docker-compose.yml            # Docker Compose 配置
-├── docker-entrypoint.sh          # Docker 入口脚本
-├── Dockerfile                    # Docker 镜像构建
-├── nginx.conf                    # Nginx 反向代理配置
-├── start.sh                      # 一键启动脚本
-├── vite.config.ts                # Vite 配置
-├── tailwind.config.js            # Tailwind CSS 配置
-├── tsconfig.json                 # TypeScript 配置
-├── package.json                  # 项目依赖
-└── index.html                    # HTML 入口
+│   │   ├── benchmark.ts              # 基准公式解析 + 多指数权重组合
+│   │   ├── database.ts               # 浏览器端 sql.js 封装（保留）
+│   │   ├── equityApi.ts              # 净值 / 阶段涨幅 / 持仓 / 限购 API 封装
+│   │   ├── excel.ts                  # Excel 导入/导出
+│   │   ├── format.ts                 # 货币 / 百分比 / 日期 格式化
+│   │   ├── importParser.ts           # 批量导入解析
+│   │   ├── indexApi.ts               # 指数历史数据（基准）前端封装
+│   │   ├── logger.ts                 # 统一日志工具
+│   │   ├── storage.ts                # 后端 API（HTTP fetch + Bearer Token）
+│   │   └── xirr.ts                   # XIRR 牛顿迭代算法
+│   ├── views/
+│   │   ├── Dashboard.vue             # 仪表盘（汇总卡 / 饼图 / 趋势图）
+│   │   ├── Login.vue                 # 登录
+│   │   ├── ProductDetail.vue         # 产品详情（净值走势+基准 / 阶段涨幅 / 交易）
+│   │   ├── Products.vue              # 产品列表（权益 / 固收 / 定存 / 全部 + 对比）
+│   │   ├── Register.vue              # 注册
+│   │   ├── Settings.vue              # 设置（导入导出 / 调度控制 / 清空）
+│   │   └── Transactions.vue          # 交易记录总览
+│   ├── App.vue
+│   ├── main.ts
+│   └── style.css
+├── server/
+│   ├── db-server.js                  # Express API 服务 + 净值调度器（:3002）
+│   ├── scraper.mjs                   # Puppeteer 爬虫（招银/工银 :3001）
+│   ├── nav_service.py                # Python 净值辅助服务（历史回填）
+│   └── fill_fund_nav.mjs             # 基金净值回填脚本
+├── data/
+│   └── finance.db                    # SQLite 数据库
+├── logs/
+│   ├── db-server.log                 # 数据库服务日志
+│   └── scraper.log                   # 爬虫服务日志
+├── public/                           # 静态资源（sql.js WASM、favicon）
+├── Dockerfile                        # Node:22-alpine + Chromium + Nginx 单容器构建
+├── docker-compose.yml                # 生产编排
+├── nginx.conf                        # 静态文件 + /api 反向代理
+├── docker-entrypoint.sh
+├── start.sh                          # macOS / Linux 开发环境一键启停
+├── vite.config.ts                    # Vite + 9 条 API 代理规则
+├── tailwind.config.js
+├── tsconfig.json
+├── package.json
+└── index.html
 ```
 
-## 核心模块
+## 产品类型
 
-### useFinance.ts — 核心业务逻辑
-
-整个应用的核心模块，基于 Vue 3 Composition API 管理所有金融业务逻辑和全局状态。**未使用 Vuex/Pinia**，所有状态通过 `ref` / `computed` 管理。
-
-**显示设置：** 每个页面（仪表盘、基金列表、固收列表）拥有独立的显示控制，通过 `dashboardSettings` / `fundSettings` / `fixedIncomeSettings` 管理，自动持久化到 `localStorage`。
-
-| 设置项 | 类型 | 说明 |
-|--------|------|------|
-| `showProfitAmount` | boolean | 显示盈亏金额 |
-| `showProfitRate` | boolean | 显示收益率 |
-| `showMarketValue` | boolean | 显示当前市值 |
-| `showCost` | boolean | 显示成本 |
-
-**状态属性：**
-- `products`: `Ref<Product[]>` — 产品列表
-- `transactions`: `Ref<Transaction[]>` — 交易记录列表
-- `isLoading`: `Ref<boolean>` — 数据加载状态
-- `portfolioSummary`: `ComputedRef<PortfolioSummary>` — 投资组合汇总（自动计算）
-
-**主要方法：**
-
-| 方法 | 说明 |
-|------|------|
-| `addProduct(name, type, code, note, holder)` | 添加新产品 |
-| `updateProduct(id, ...)` | 更新产品信息 |
-| `deleteProduct(id)` | 删除产品及其关联交易 |
-| `addTransaction(productId, type, date, amount, price, shares, fee, note)` | 添加交易记录 |
-| `getTransactionsByProductId(productId)` | 获取产品的交易记录 |
-| `calculatePosition(product)` | 计算产品的持仓信息（含 XIRR） |
-| `getProfitHistory(days)` | 计算指定天数的每日收益趋势（含单个产品细分） |
-| `getMarketValueHistory(days)` | 计算指定天数的每日市值变化（基于每日份额 x 净值） |
-| `getPositionById(productId)` | 根据产品 ID 获取单个持仓信息 |
-| `updateTransaction(id, ...)` | 更新单条交易记录 |
-| `deleteTransaction(id)` | 删除单条交易记录 |
-| `refresh()` | 从服务器重新加载所有数据 |
-
-### storage.ts — 后端 API 封装
-
-通过 HTTP `fetch` 调用后端 Express 服务（端口 3002），所有请求自动携带 `Authorization: Bearer <token>` 头。支持**全量覆盖**（批量保存）和**单条 CRUD**（增量操作）两种模式。
-
-**通用辅助函数：**
-
-| 函数 | 说明 |
-|------|------|
-| `generateId()` | 生成唯一 ID（时间戳 + 随机数 Base36） |
-| `getAuthHeaders()` | 获取认证请求头（自动携带 Token） |
-| `getCurrentUser()` | 获取当前登录用户名和 Token |
-| `logout()` | 登出（清除 Token 并跳转登录页） |
-
-**数据操作 API：**
-
-| 函数 | HTTP 方法 | 路径 | 说明 |
-|------|-----------|------|------|
-| `getProducts()` | GET | `/api/db/products` | 获取产品列表 |
-| `saveProducts(products)` | POST | `/api/db/products` | 全量保存产品列表（支持 ID 映射返回） |
-| `getTransactions()` | GET | `/api/db/transactions` | 获取交易记录 |
-| `saveTransactions(transactions)` | POST | `/api/db/transactions` | 全量保存交易记录 |
-| `addTransactionToServer(tx)` | POST | `/api/db/transactions/add` | 新增单条交易记录 |
-| `updateTransactionOnServer(tx)` | PUT | `/api/db/transactions/:id` | 更新单条交易记录 |
-| `deleteTransactionFromServer(id)` | DELETE | `/api/db/transactions/:id` | 删除单条交易记录 |
-| `batchImport(data)` | POST | `/api/db/batch-import` | 批量导入（产品排重 + 交易合并） |
-| `clearAllData()` | POST | `/api/db/products` + `/api/db/transactions` | 保存空数组清空数据 |
-| `exportData()` | GET | `/api/db/export` | 导出数据为 JSON（自动排除基金净值更新记录） |
-| `importData(jsonString)` | POST | `/api/db/import` | 导入 JSON 数据（含 ID 冲突自动映射） |
-| `register(username, password)` | POST | `/api/db/register` | 用户注册 |
-| `login(username, password)` | POST | `/api/db/login` | 用户登录 |
-
-### database.ts — 浏览器端数据库
-
-使用 `sql.js` 在浏览器中直接运行 SQLite，数据通过 Base64 序列化存储在 `localStorage` 中。当前为保留模块，主数据流通过后端 API（storage.ts）实现。
-
-### xirr.ts — XIRR 计算
-
-实现 XIRR（内部收益率）算法，基于牛顿迭代法求解现金流折现方程，用于计算投资的年化收益率。
-
-### format.ts — 格式化工具
-
-| 函数 | 输出示例 |
-|------|---------|
-| `formatCurrency(1234.5)` | `¥1,234.50` |
-| `formatCurrency1(1234.5)` | `¥1,234.50`（保留一位小数） |
-| `formatCurrencyInt(1234.5)` | `¥1,235`（取整） |
-| `formatPercent(12.34)` | `12.34%` |
-| `formatDate(timestamp)` | `2024-11-15` |
-
-## 数据类型
-
-### Product（产品）
-
-```typescript
-interface Product {
-  id: string;
-  name: string;        // 产品名称
-  type: ProductType;   // 'fund' | 'fixed_income'
-  code: string;       // 产品代码
-  note: string;        // 备注
-  holder: string;     // 持有人类别
-  dcaAmount: number;   // 定投金额（元），0 表示不定投
-  dcaCycle: string;    // 定投周期：'' | 'daily' | 'weekly' | 'biweekly' | 'monthly'
-  createdAt: number;   // 创建时间戳
-}
+```ts
+type ProductType =
+  | 'equity'        // 权益产品：公募基金 / 权益类理财
+  | 'fixed_income'  // 固收理财产品
+  | 'fund'          // 兼容旧数据，等同于 equity
+  | 'term_deposit'  // 定期存款：无代码、无净值详情页、按“本金×年利率/365”计日收益
 ```
 
-**定投周期选项：**
-| 值 | 说明 |
-|----|------|
-| `''` | 不定投 |
-| `'daily'` | 每日 |
-| `'weekly'` | 每周 |
-| `'biweekly'` | 每两周 |
-| `'monthly'` | 每月 |
+**产品关键字段**：
+- `navSource`（净值源）：`''`(不查询) / `tiantian`(天天基金) / `cmb`(招银) / `icbc`(工银)；固收产品按 `navSource` 选择对应爬虫，权益走天天基金
+- `benchmarkEnabled` / `benchmarkFormula`：是否启用业绩基准 + 基准公式，如 `000906*0.6+H11001*0.4`
+- `purchaseLimit`、`buyLimit` 等限购信息合并到 `note` 字段保存，格式如 `单日上限5万元` / `暂停申购` / `不限购`
 
-### Transaction（交易记录）
+## 外部数据获取方式与触发条件
 
-```typescript
-interface Transaction {
-  id: string;
-  productId: string;   // 关联产品 ID
-  type: TransactionType; // 'buy' | 'sell' | 'dividend' | 'nav_update'
-  date: number;        // 交易日期（时间戳）
-  amount: number;      // 交易金额
-  price: number;       // 交易价格/净值
-  shares: number;      // 交易份额
-  fee: number;         // 手续费
-  note: string;        // 备注
-}
-```
+> 这是本项目最核心的"动态数据"部分。所有外部请求会通过缓存层（SQLite `data_cache` 表 + 前端 indexApi.ts localStorage 缓存）去重。
 
-### Position（持仓信息）
+### 一、权益产品净值 + 限购（天天基金 / 东方财富）
 
-```typescript
-interface Position {
-  productId: string;
-  product: Product;
-  totalInvestment: number;   // 总投入
-  totalShares: number;       // 持有份额
-  avgCost: number;           // 平均成本
-  currentNav: number;        // 当前净值
-  marketValue: number;       // 当前市值
-  profit: number;            // 盈亏金额
-  profitRate: number;        // 收益率（%）
-  annualRate: number;        // 年化收益率（%）
-  holdingDays: number;       // 持有天数
-  lastNavUpdateDate: number; // 最后净值更新日期
-  transactions: Transaction[];
-}
-```
+| 数据项 | 获取端 | 触发条件 | 接口 / 代理路径 | 目标 URL | 缓存 |
+|---|---|---|---|---|---|
+| **历史净值曲线** | 前端 equityApi.ts [fetchEquityNav](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L27) | 详情页加载、净值走势刷新、回填历史 | `/api/pingzhongdata/pingzhongdata/{code}.js` | `https://fund.eastmoney.com/pingzhongdata/{code}.js` | 不落缓存，随调随取 |
+| **最新净值 + 名称 + 当日收益** | 后端 db-server.js `fetchTiantianNav`（调度时） | 定时调度、手动触发、产品列表页手动更新 | 后端直连 `fundgz.1234567.com.cn/{code}.js` | `http://fundgz.1234567.com.cn/js/{code}.js` | — |
+| **限购信息（暂停/单日上限/不限购）** | 后端 [fetchFundPurchaseLimit](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L1491) | 净值查询时**并行**触发；即使当日净值已存在也执行 | 后端直连 `fundf10.eastmoney.com/jbgk_{code}.html` | `http://fundf10.eastmoney.com/jbgk_{code}.html` | 结果合并到 `products.note` 持久化 |
+| **阶段涨幅（1w/1m/3m/6m/1y/2y/3y/ytd）** | 前端 equityApi.ts [fetchEquityStageGains](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L206) | 详情页阶段涨幅卡片加载、批量加载 | `/api/db/fund/stage-gains/:code` → 后端 `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jdzf` | `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jdzf&code={code}` | SQLite `data_cache`（`fund_stage_gains_{code}`，TTL 24h） |
+| **基金持仓（前十大重仓股 + 资产配置）** | 前端 equityApi.ts [fetchEquityHoldings](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L287) | 产品列表「持仓穿透」展开、详情页持仓 | `/api/db/fund/holdings/:code` → 后端 `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc` | `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code={code}&topline=10` | SQLite `data_cache`（`fund_holdings_{code}`，TTL 到下季季报发布后 30 天） |
+| **持仓穿透聚合（多只基金按持有权益加权）** | 前端 [fetchAggregatedHoldings](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L350) | 产品列表页持仓穿透展开 | `/api/db/equity/aggregated-holdings?funds=id1,id2`（后端组合，不直连外部） | — | 按基金组合哈希缓存 |
 
-## 数据库表结构
+### 二、固收理财产品净值（Puppeteer 爬虫）
 
-数据库使用 SQLite，文件位于 `data/finance.db`。共 4 张表：
+| 数据项 | 触发条件 | 爬虫服务路由 | 目标站点 / 页面 | 单请求超时 |
+|---|---|---|---|---|
+| **招银理财 最新净值** | 调度 / 手动 / 产品列表页更新（`navSource==='cmb'`） | `GET /api/scrape/cmb?code={code}` | `https://cfweb.paas.cmbchina.com/personal/prodvalue` （搜索→详情） | 3 分钟 |
+| **招银理财 历史净值（翻页）** | 详情页手动回填历史（`navSource==='cmb'`，调度不执行历史） | `GET /api/db/cmb/nav-history/{code}`（后端调爬虫 `cmb/history`） | 同上（点击"下一页"翻到指定页） | 10 分钟 |
+| **招银 批量净值** | 调度器批量（`navSource==='cmb'`） | `GET /api/scrape/cmb/batch?codes=a,b,c` | 同上 | 3 分钟 / 批 |
+| **工银理财 最新净值** | 调度 / 手动（`navSource==='icbc'`） | `GET /api/scrape/icbc?code={code}` | `https://wm.icbc.com.cn/netWorthDisclosure` （红按钮搜索区→新详情页） | 3 分钟 |
+| **工银理财 历史净值** | 详情页手动回填（`navSource==='icbc'`，调度不执行历史） | `GET /api/scrape/icbc/history?code={code}&maxPages=N` | 同上（详情页翻页） | 10 分钟 |
 
-### 1. users — 用户表
+**爬虫关键约定**：
+- 调度器**只跑最新净值**，不做历史 API 调用；历史回填必须由用户在详情页手动触发
+- CMB 历史页爬取采用 `elementHandle.evaluate(el => el.click())`，避免 puppeteer `click()` 在 headless 中卡住
 
-存储用户账户信息，用于认证系统。
+### 三、定期存款
 
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | TEXT | PRIMARY KEY | 用户唯一 ID |
-| username | TEXT | UNIQUE NOT NULL | 用户名 |
-| password | TEXT | NOT NULL | 密码哈希（bcrypt） |
-| createdAt | INTEGER | NOT NULL | 注册时间戳 |
+- 定存产品**无外部 API**；当日收益 = 本金 × 年利率 / 365，在前端 `useFinance.ts` 中直接计算
+- 定存产品**不展示详情页**；PC 与移动端列表点击均禁止跳转到 `ProductDetail`
 
-### 2. products — 产品表
+### 四、业绩比较基准指数（走势图对比）
 
-存储理财产品信息，每个用户可拥有多个产品。通过 `userId` 实现数据隔离。
+| 指数代码 | 数据来源 | 获取端 | 触发条件 | 目标 URL |
+|---|---|---|---|---|
+| **00xxxx 股票指数**（000906 中证800 / 000300 沪深300 / 000905 中证500 / 000923 公司债指数 等） | **腾讯 K 线 API**（原 push2his.eastmoney.com 已封锁） | 后端 [fetchFromTencent](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L2820) | 净值走势图加载时基准公式解析出该指数 | `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh{code},day,,,1000,qfq` |
+| **H 开头债券指数**（如 H11001 中证全债） | 中证指数官网 API | 后端 [fetchFromCsindex](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L2855) | 同上 | `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=H11001&startDate=10年前&endDate=今天` |
 
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | TEXT | PRIMARY KEY | 产品唯一 ID |
-| userId | TEXT | NOT NULL | 所属用户 ID（关联 users.id） |
-| name | TEXT | NOT NULL | 产品名称 |
-| type | TEXT | NOT NULL | 产品类型：`fund`（基金）/ `fixed_income`（固收理财） |
-| code | TEXT | DEFAULT '' | 产品代码（如基金代码 110044） |
-| note | TEXT | DEFAULT '' | 备注（含限购信息等自动追加内容） |
-| holder | TEXT | DEFAULT '' | 持有人姓名 |
-| dcaAmount | REAL | DEFAULT 0 | 定投金额（元） |
-| dcaCycle | TEXT | DEFAULT '' | 定投周期：`''` / `daily` / `weekly` / `biweekly` / `monthly` |
-| createdAt | INTEGER | NOT NULL | 创建时间戳 |
+**路由**：`GET /index/history?code=000906`（Vite 代理 `/api/db/index/history` → :3002）
 
-### 3. transactions — 交易记录表
+**缓存**：SQLite `data_cache`（`index_history_{code}`，TTL 4 小时）
 
-存储所有交易操作，通过 `productId` 关联产品。
+**curl 健壮性**（后端 `execCurlWithProxyFallback`）：
+1. 先以 `--noproxy '*'` 直连（避免 shell 残留的 https_proxy 干扰）
+2. 直连失败且系统存在 `https_proxy/http_proxy` 环境变量时，自动降级走代理
+3. 所有请求加 `-L` 跟随 302 重定向
 
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | TEXT | PRIMARY KEY | 交易唯一 ID |
-| userId | TEXT | NOT NULL | 所属用户 ID（关联 users.id） |
-| productId | TEXT | NOT NULL | 关联产品 ID（关联 products.id） |
-| type | TEXT | NOT NULL | 交易类型：`buy`（买入）/ `sell`（卖出）/ `dividend`（分红）/ `nav_update`（净值更新） |
-| date | INTEGER | NOT NULL | 交易日期时间戳 |
-| amount | REAL | NOT NULL | 交易金额 |
-| price | REAL | NOT NULL | 交易价格/净值 |
-| shares | REAL | NOT NULL | 交易份额 |
-| fee | REAL | DEFAULT 0 | 手续费 |
-| note | TEXT | DEFAULT '' | 备注（如数据来源、更新时间等） |
+## 净值定时调度器
 
-### 4. data_cache — 数据缓存表
+调度器内嵌在 [db-server.js L1198-L2033](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L1198-L2033)。
 
-缓存爬取的外部数据（如基金阶段涨幅、持仓信息），减少重复请求，加速页面加载。设有过期时间索引自动清理。
-
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| cache_key | TEXT | PRIMARY KEY | 缓存键（如 `fund_stage_gains_110044`） |
-| cache_data | TEXT | NOT NULL | 缓存数据（JSON 字符串） |
-| updated_at | INTEGER | NOT NULL | 更新时间戳 |
-| expires_at | INTEGER | NOT NULL | 过期时间戳（已创建索引 `idx_data_cache_expires`） |
-
-### 表关系
+### 触发条件与时间
 
 ```
-users (1) ──────< (N) products
-                      │
-                      │ (1)
-                      │
-                      ▼
-                  (N) transactions
-
-data_cache（独立表，无外键关联）
+10:00  11:00  12:00  13:00    ← 上午盘后
+16:00  17:00  18:00  19:00  20:00  21:00  22:00  23:00   ← 下午/晚间
 ```
 
-## 路由与页面
+按**北京时间**触发，即使用户部署在海外 Docker 容器里也通过 Asia/Shanghai 时区判断。每分钟 tick 检查是否命中到点。
 
-| 路径 | 名称 | 视图组件 | 需要认证 |
-|------|------|----------|----------|
-| `/login` | login | Login.vue | 否 |
-| `/register` | register | Register.vue | 否 |
-| `/` | dashboard | Dashboard.vue | 是 |
-| `/funds` | funds | Products.vue (type='fund') | 是 |
-| `/fixed-income` | fixed-income | Products.vue (type='fixed_income') | 是 |
-| `/products` | products | Products.vue | 是 |
-| `/products/:id` | product-detail | ProductDetail.vue | 是 |
-| `/transactions` | transactions | Transactions.vue | 是 |
-| `/settings` | settings | Settings.vue | 是 |
+### 并发约束
 
-**导航守卫逻辑：**
-- 未登录且访问需认证路由 → 重定向到 `/login`
-- 已登录且访问 `/login` 或 `/register` → 重定向到 Dashboard
+- **互斥锁**：`isNavUpdating` 标记 + 所有净值更新在同一 `updateAllNavs()` 串行入口；调度到点、手动 `run` API、短时间内重复点击均会被「正在更新」拦截
+- **同日重复拒绝**：`nav_update` 类型在 `transactions` 插入前以"午夜日期戳"查询，若存在则跳过；数据库层面 `(userId,productId,type,date)` 唯一约束兜底
+- **净值查询优先级**（同一用户内按产品）：天天基金(tiantian) → 招银(cmb) → 工银(icbc)，分别对应 3 分钟 + 10 分钟超时
+- **限购信息先于历史净值检查**：即使当日净值记录已存在，限购信息仍会更新到 products.note
 
-**页面功能：**
+### 净值记录细节
 
-| 页面 | 功能 |
-|------|------|
-| **Dashboard** | 资产分布图（饼图）、收益趋势图（折线）、市值走势图、统计卡片、按产品类型分组的持仓列表 |
-| **Products** | 产品列表（基金/固收分类），支持新增/编辑/删除/搜索/排序 |
-| **ProductDetail** | 产品详情、净值走势图、市值走势图、持仓信息、阶段涨幅、交易列表 |
-| **Transactions** | 交易记录列表，支持新增/编辑/删除/批量导入 |
-| **Settings** | 数据导出（Excel/JSON）、数据导入、清空数据、调度控制 |
+- 日期戳**强制转换为当日午夜 00:00**，保证产品列表筛选 / 走势 X 轴 / 对比页 X 轴边界一致
+- `nav_update` 交易备注中**只写时间戳**，不加"来源:xxx"等前缀
 
-## 净值获取
+### 调度器 API
 
-### 1. 公募基金 — 天天基金 API
+| 方法 | 路由 | 功能 |
+|---|---|---|
+| GET | `/api/nav-scheduler/status` | 启用状态 / 上次运行 / 下次运行 / 汇总统计 |
+| POST | `/api/nav-scheduler/run` | **手动触发一次**全量净值更新（含锁保护） |
+| POST | `/api/nav-scheduler/toggle` | 开 / 关 自动调度 |
 
-**适用产品类型：** `fund`
+也可在「设置」页 UI 操作。
 
-**请求链路：**
-```
-前端调用 /api/pingzhongdata/pingzhongdata/{fundCode}.js
-    ↓ Vite 代理
-https://fund.eastmoney.com/pingzhongdata/{fundCode}.js
-```
+## Vite 开发环境 API 代理
 
-解析返回的 JS 脚本，提取 `Data_netWorthTrend` 数组获取历史净值。
+[Vite 配置](file:///Users/haijun/Documents/Financial/app/vite.config.ts) 的 9 条代理规则：
 
-### 2. 招银理财产品 — Puppeteer 爬虫
-
-**适用产品类型：** `fixed_income`
-
-**请求链路：**
-```
-前端调用 /api/scrape/cmb?code={productCode}
-    ↓ Vite 代理
-http://localhost:3001/api/scrape/cmb?code={productCode}
-    ↓ Puppeteer 无头浏览器
-https://cfweb.paas.cmbchina.com/personal/prodvalue
-```
-
-**API 接口：**
-| 接口 | 方法 | 路径 | 参数 |
-|------|------|------|------|
-| 最新净值 | GET | `/api/scrape/cmb` | `code` |
-| 历史净值 | GET | `/api/scrape/cmb/history` | `code`, `days` |
-
-### 3. 后端定时净值调度器
-
-内置在 db-server.js 中，每天自动执行 4 次净值更新：
-- **调度时间**：09:30 / 12:00 / 15:00 / 20:00
-- **更新内容**：自动查询所有用户的基金和理财产品最新净值
-- **写入方式**：以 `nav_update` 交易类型写入数据库
+| 前端路径 | 目标 | 用途 |
+|---|---|---|
+| `/api/db/*` | `http://localhost:3002/*` | 数据库 / 调度 / 基金阶段涨幅 / 持仓 / 指数历史 |
+| `/api/scrape/*` | `http://localhost:3001/api/scrape/*` | 招银 / 工银 爬虫 |
+| `/api/fund/*` | `http://fundgz.1234567.com.cn/*` | 天天基金实时估值（保留） |
+| `/api/eastmoney/*` | `https://fund.eastmoney.com/*` | 东方财富基金数据 |
+| `/api/pingzhongdata/*` | `https://fund.eastmoney.com/*` | 基金历史净值 JS（权益详情页主要来源） |
+| `/api/fundf10/*` | `http://fundf10.eastmoney.com/*` | 基金 F10（阶段涨幅 / 持仓 / 限购） |
+| `/api/nav-scheduler/*` | `http://localhost:3002/*` | 净值调度器 API |
 
 ## 服务架构
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      Nginx (:80)                         │
-│              反向代理 + 静态文件服务                       │
-└─────────────┬─────────────────────┬─────────────────────┘
-              │                     │
-              ▼                     ▼
-┌─────────────────────┐  ┌─────────────────────┐
-│   Vite Dev (:5173)  │  │   DB Server (:3002) │
-│   前端开发服务器      │  │   Express API 服务   │
-└─────────────────────┘  └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │  Scraper (:3001)    │
-                         │  Puppeteer 爬虫服务  │
-                         └─────────────────────┘
-```
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| Nginx | 80 | 生产环境入口，反向代理 + 静态文件 |
-| Vite Dev | 5173 | 开发环境前端服务器 |
-| DB Server | 3002 | 后端 API，数据库操作，定时净值调度 |
-| Scraper | 3001 | Puppeteer 爬虫，抓取招银理财等净值 |
-
-## 快速开始
-
 ### 开发环境
 
-```bash
-# 安装依赖
-npm install
-
-# 启动前端开发服务器
-npm run dev
-
-# 启动前端 + 爬虫服务
-npm run dev:all
-
-# 单独启动爬虫服务
-npm run scraper
-
-# 启动数据库服务
-npm run start
+```
+                    +────────────────+
+                    │   Vite :5173   │
+                    │  前端 + 代理    │
+                    +──┬─────────┬───+
+                       │/api/db  │/api/scrape  +→ 东方财富/天天基金/腾讯/中证官网
+                       ▼         ▼              /→ fundgz.1234567.com.cn
+              +─────────────+  +───────────+   /→ fundf10 / fund.eastmoney
+              │ DB :3002    │  │ Scraper   │  /→ web.ifzq.gtimg.cn(腾讯)
+              │ SQLite+调度 │  │ :3001     │ /→ www.csindex.com.cn
+              +─────────────+  +──Puppeteer─+  → cfweb.paas.cmbchina.com
+                                            \  → wm.icbc.com.cn
 ```
 
-### 生产环境（Docker）
-
-#### 构建与启动
-
-```bash
-# 构建并启动
-docker compose up -d --build
-
-# 查看构建日志
-docker compose logs -f
-```
-
-访问 `http://NAS_IP:8080`
-
-#### Docker 架构
-
-采用**三阶段构建**，单个容器运行所有服务：
+### 生产环境（单容器）
 
 ```
-┌─────────────────────────────────────────┐
-│         finance-app 容器 (:8080)         │
-│                                         │
-│  ┌───────────────────────────────────┐  │
-│  │  Nginx (:80)                      │  │
-│  │  静态文件 + API 反向代理            │  │
-│  └──────┬──────────┬────────────────┘  │
-│         │          │                    │
-│         ▼          ▼                    │
-│  ┌────────────┐ ┌────────────┐         │
-│  │ DB Server  │ │  Scraper   │         │
-│  │  :3002     │ │  :3001     │         │
-│  └────────────┘ └────────────┘         │
-│                                         │
-│  /app/data  ← volume 持久化              │
-│  /app/logs  ← volume 持久化              │
-└─────────────────────────────────────────┘
+docker-host :8080 ──▶ Nginx (:80 inside)
+                        ├─ /        ──▶ 静态 build
+                        ├─ /api/db/ ──▶ DB Server :3002
+                        └─ /api/scrape/ ─▶ Scraper :3001
+   data/finance.db, logs/ 挂在 Volume 持久化
 ```
 
-#### 数据持久化
+## 数据库表结构（4 张）
 
-Docker Compose 使用命名卷持久化数据，容器重建不会丢失：
+### users — 用户
+| 字段 | 约束 | 说明 |
+|---|---|---|
+| id TEXT | PK | 用户唯一 ID |
+| username TEXT | UNIQUE NOT NULL | 用户名 |
+| password TEXT | NOT NULL | bcrypt 哈希 |
+| createdAt INTEGER | NOT NULL | 注册时间戳 |
 
-| Volume | 容器路径 | 说明 |
-|--------|---------|------|
-| finance-data | /app/data | SQLite 数据库 (finance.db) |
-| finance-logs | /app/logs | 服务日志文件 |
+### products — 产品
+| 字段 | 说明 |
+|---|---|
+| id / userId / name | 主键 / 用户归属 / 产品名 |
+| type | `equity` \| `fixed_income` \| `fund` \| `term_deposit` |
+| code | 产品代码；定存产品可为空 |
+| navSource | `''` \| `tiantian` \| `cmb` \| `icbc` |
+| note | 备注（**含限购信息自动追加行**） |
+| holder / dcaAmount / dcaCycle | 持有人 / 定投金额 / 定投周期 |
+| benchmarkEnabled / benchmarkFormula | 是否启用基准 / 基准公式（指数代码×权重代数和） |
+| createdAt | 创建时间 |
 
-#### 数据库备份与恢复
+### transactions — 交易
+| 字段 | 说明 |
+|---|---|
+| id / userId / productId | 主键 / 用户归属 / 产品 |
+| type | `buy` \| `sell` \| `dividend` \| `nav_update` |
+| date | **午夜时间戳**（用于去重与 X 轴一致） |
+| amount / price / shares / fee | 金额 / 价格(净值) / 份额 / 手续费 |
+| note | 备注；`nav_update` 只写时间戳 |
 
-```bash
-# 备份数据库到本地
-docker cp finance-app:/app/data/finance.db ./finance-backup.db
+### data_cache — 缓存
+| 字段 | 说明 |
+|---|---|
+| cache_key TEXT | PK，如 `index_history_000906` / `fund_holdings_110044` / `fund_stage_gains_110044` |
+| cache_data TEXT | JSON 字符串 |
+| updated_at / expires_at | 更新 / 过期时间戳；`idx_data_cache_expires` 索引 |
 
-# 用本地数据库覆盖容器中的
-docker cp ./data/finance.db finance-app:/app/data/finance.db
-docker compose restart
-```
+## 认证 & 数据安全
 
-#### 容器管理
+- **密码**：bcrypt 10 轮
+- **Token**：`HMAC-SHA256(userId + username + exp)`，Base64URL 编码，24h 有效；前端 localStorage 存储
+- **路由守卫**：未登录跳 `/login`，已登录不访问 `/login|/register`
+- **请求头**：所有 `/api/db/*` 自动带 `Authorization: Bearer`；401 自动登出
+- **速率限制**：登录 / 注册每 IP 每 15 分钟 ≤ 10 次
+- **数据隔离**：authenticate 中间件注入 `req.userId`，所有产品/交易/缓存查询均带 userId 过滤
+- **输入约束**：用户名 3–20 字母数字下划线；密码 ≥ 6 位；JSON body 限 10 MB
 
-```bash
-# 查看运行状态
-docker compose ps
+## 路由
 
-# 查看实时日志
-docker logs finance-app --tail 50 -f
+| 路径 | 视图 | 说明 |
+|---|---|---|
+| `/login` / `/register` | Login / Register | 不需要认证 |
+| `/` | Dashboard | 仪表盘汇总 |
+| `/funds` | Products (`type=equity`) | 权益产品列表 |
+| `/fixed-income` | Products (`type=fixed_income`) | 固收产品列表 |
+| `/term-deposit` | Products (`type=term_deposit`) | 定存产品列表 |
+| `/products` | Products (all) | 全部产品 |
+| `/products/:id` | ProductDetail | 产品详情（定存产品路由守卫禁止进入） |
+| `/transactions` | Transactions | 所有交易 |
+| `/settings` | Settings | 导入/导出/调度/清空 |
 
-# 重启服务
-docker compose restart
+**URL 状态持久化**：
+- 产品筛选状态（全部/持有/已清仓/自选）保存在 URL query `status` / `type`，浏览器前进后退保持一致
+- 列表排序键与排序方向保存在 `localStorage`，按页类型分离（equity/fixed_income/all）
 
-# 停止服务
-docker compose down
+## 关键前端 UI 约定
 
-# 更新应用
-docker compose down
-docker compose up -d --build
-```
+- 金额类数据统一 **1 位小数**
+- 汇总卡移动端：总市值独占 22px；持仓收益/总收益率/年化收益率/今日收益 4 列一行，tag 10px、数字 12px
+- PC 端概览与产品页统一 4 卡布局（市值 / 持仓收益+今日收益小字 / 持仓收益率 / 年化）
+- 权益阶段涨幅卡：`grid-cols-4` 固定 8 指标 2 行（1w/1m/3m/6m/1y/2y/3y/ytd）
+- 固收年化收益大卡：`grid-cols-3` 固定 5 指标 2 行（1m/3m/6m/1y/成立以来）
+- 净值走势图 X 轴 type=`time` 而非 category，与对比页完全对齐
+- 净值走势图时间范围默认"近 1 年"，支持 1w/1m/3m/6m/1y/2y/3y/全部；范围选择**按午夜时间戳**截断，保证开始日期整段显示
+- 移动端所有选择胶囊（净值区间、交易类型、交易日期）统一降尺寸（px-2 py-0.5、11px、min-h 28px）
+- 交易卡片编辑/删除：PC 端显示在右上角，移动端 `< md` 隐藏
+- 净值更新卡片：第一行蓝粗日期+备注+标签，第二行净值+涨跌幅；不显示无意义的份额 0.000 与 每日收益空值
+- 定存产品卡片：进度条下方一行显示「存款进度 X% · 剩余 X 天 · 到期 YYYY-MM-DD」，均匀分布
 
-#### 飞牛NAS 部署注意事项
+## 常见注意事项
 
-**1. Docker 镜像源 401 错误**
-
-飞牛NAS 默认的 `docker.fnnas.com` 镜像源可能返回 401 Unauthorized，需要替换：
-
-```bash
-cat > /etc/docker/daemon.json << 'EOF'
-{
-  "registry-mirrors": [
-    "https://docker.1ms.run",
-    "https://docker.xuanyuan.me"
-  ]
-}
-EOF
-
-systemctl restart docker
-```
-
-**2. npm 网络超时**
-
-Dockerfile 已内置 npm 重试配置（5 次重试，最长等待 2 分钟）和 npmmirror 国内镜像。
-
-**3. Puppeteer 依赖**
-
-Puppeteer 25 要求 Node >= 22，Dockerfile 使用 `node:22-alpine` 并配置系统 Chromium + `--no-sandbox` 模式。
-
-## API 代理配置
-
-| 前端路径 | 后端目标 | 说明 |
-|----------|----------|------|
-| `/api/db/*` | `localhost:3002/*` | 数据库 API |
-| `/api/scrape/*` | `localhost:3001/api/scrape/*` | 爬虫服务 |
-| `/api/fund/*` | `fundgz.1234567.com.cn/*` | 天天基金实时估值 |
-| `/api/eastmoney/*` | `fund.eastmoney.com/*` | 东方财富基金数据 |
-| `/api/pingzhongdata/*` | `fund.eastmoney.com/*` | 品种数据（历史净值） |
-| `/api/fundf10/*` | `fundf10.eastmoney.com/*` | 基金基本信息（含限购信息） |
-| `/api/nav-scheduler/*` | `localhost:3002/*` | 净值调度器 API |
-
-## 认证系统
-
-### Token 认证
-
-登录 / 注册成功后服务器返回 `{ token, userId, username }`，前端存储在 `localStorage`：
-
-- **登录流程：** 用户提交凭证 → 后端 bcrypt 验证密码 → 返回加密 Token → 存储到 `localStorage`
-- **路由守卫：** Vue Router 导航守卫检查 `localStorage` 是否有 Token，无则重定向到 `/login`
-- **API 请求：** 每次 HTTP 请求自动携带 `Authorization: Bearer <token>` 头
-- **过期处理：** 后端 `authenticate` 中间件验证 Token 有效期（24 小时）和签名，异常时返回 401；前端收到 401 后自动清除 Token 并跳转 `/login`
-- **登出：** 清除 `localStorage` 中的 Token 和用户名，重定向到登录页
-
-### 数据隔离
-
-每个用户的数据通过 `userId` 字段进行隔离。后端 `authenticate` 中间件从 Token 中解析 `userId`，所有产品和交易的 CRUD 操作都基于当前用户的 `userId` 过滤。前端类型定义中不包含 `userId`，由服务端自动管理。
-
-### 安全特性
-
-- **密码加密**：bcrypt 哈希（成本因子 10）
-- **会话管理**：24 小时过期，定期清理过期 Token
-- **速率限制**：每 IP 每 15 分钟最多 10 次登录/注册请求
-- **输入验证**：用户名 3-20 字符（字母/数字/下划线），密码至少 6 位
-- **请求体限制**：Express JSON body 最大 10MB
-
-### Token 结构
-
-Token 使用 `crypto.createHmac('sha256')` 签名，载荷包含 `userId`、`username` 和过期时间戳，Base64 URL 编码后发送给客户端。
-
-## 使用流程
-
-1. **注册账户** → 在登录页点击注册
-2. **登录** → 使用注册的账户登录
-3. **添加产品** → 在「产品」页面新增理财产品
-4. **记录交易** → 在「交易」页面添加买入、卖出等记录
-5. **更新净值** → 通过定时调度器自动更新或手动触发
-6. **查看收益** → 在「首页」查看资产分布和收益趋势
-7. **导出数据** → 在「设置」页导出 Excel 或备份 JSON
+1. **必须 `./start.sh` 启动**：避免多 db-server 并发，净值更新冲突
+2. **macOS 上 lsof 要加 `-nP`**：否则 DNS 反查会把脚本卡住
+3. **Docker 容器里记得装 curl**：`fetchFromEastmoney/Tencent/Csindex` 全部基于 `execSync('curl ...')`，缺 curl 直接 0 数据
+4. **指数代码匹配**：正则 `([A-Za-z]?\d{5,6})`，支持纯数字（000906）和字母+数字（H11001）
+5. **00xxxx 的东方财富 push2his API 现已全面封程序化请求**；代码已切到腾讯 K 线。请勿回退
+6. **SQLite 布尔值**：`benchmarkEnabled` 这类 0/1 整型需 `=== true || === 1` 双重判断
+7. **定存产品**：不提供详情页；`term_deposit` 在路由守卫和卡片点击层都禁止跳转
+8. **同一用户、同一日期、同一产品** 的 `nav_update` 只能有一条，DB 唯一约束兜底
+9. **VPN 关闭但 env 未清**：`https_proxy` 残留会让 curl 连本地也走代理；代码已 `--noproxy '*'` 保护
 
 ## 许可证
 

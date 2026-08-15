@@ -19,13 +19,13 @@ const props = defineProps<{
 
 const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
 
-const { toggleCompare, isInCompare, compareType, compareIds, switchType } = useCompare()
+const { toggleCompare, isInCompare, compareType, compareIds, switchType, clearCompare } = useCompare()
 
 // ==================== 对比面板状态 ====================
 const showComparePanel = ref(false)
 
 // 对比区间选择
-type RangeType = '1m' | '3m' | '1y' | 'all' | 'custom'
+type RangeType = '1m' | '3m' | '1y' | '3y' | 'all' | 'custom'
 const compareRangeType = ref<RangeType>('1y')
 const compareCustomStart = ref('')
 const compareCustomEnd = ref('')
@@ -34,6 +34,7 @@ const rangeOptions = [
   { value: '1m', label: '近1月', days: 30 },
   { value: '3m', label: '近3月', days: 90 },
   { value: '1y', label: '近1年', days: 365 },
+  { value: '3y', label: '近3年', days: 1095 },
   { value: 'all', label: '全部', days: 0 },
   { value: 'custom', label: '自定义', days: 0 }
 ] as const
@@ -439,6 +440,11 @@ const getCompareType = (product: Product): 'equity' | 'fixed_income' | 'term_dep
 
 const handleToggleCompare = (product: Product) => {
   toggleCompare(product.id, getCompareType(product))
+}
+
+const closeComparePanel = () => {
+  showComparePanel.value = false
+  clearCompare()
 }
 
 // 根据当前页面类型选择对应的显示设置
@@ -866,8 +872,26 @@ const setAggregatedHoldingsCache = (data: AggregatedHoldingsResult) => {
 
 const fetchAllAggregatedHoldings = async (force = false) => {
   if (props.type !== 'equity') return
-  
-  // 获取所有有 code 且有市值的权益产品
+
+  // 展示层排序：每只股票下属的基金按"该股票在该基金中的占比"降序
+  const sortFundsByRatio = (data: AggregatedHoldingsResult): AggregatedHoldingsResult => {
+    for (const stock of data.stocks) {
+      stock.funds = [...stock.funds].sort((a, b) => b.ratio - a.ratio)
+    }
+    return data
+  }
+
+  // 先尝试读取缓存（不依赖 products，解决刷新时 products 尚未加载导致无法显示缓存的问题）
+  if (!force) {
+    const cached = getAggregatedHoldingsCache()
+    if (cached) {
+      aggregatedHoldings.value = sortFundsByRatio(cached.data)
+      aggregatedHoldingsFromCache.value = true
+      return
+    }
+  }
+
+  // 无缓存或强制刷新时才需要最新的 products 数据
   const equityData = products.value
     .filter(p => (p.type === 'equity' || p.type === 'fund') && p.code)
     .map(p => {
@@ -875,25 +899,16 @@ const fetchAllAggregatedHoldings = async (force = false) => {
       return { code: p.code!, marketValue: pos?.marketValue || 0 }
     })
     .filter(f => f.marketValue > 0)
-  
+
   if (equityData.length === 0) return
-  
-  // 尝试读取缓存
-  if (!force) {
-    const cached = getAggregatedHoldingsCache()
-    if (cached) {
-      aggregatedHoldings.value = cached.data
-      aggregatedHoldingsFromCache.value = true
-      return
-    }
-  }
-  
+
   loadingAggregatedHoldings.value = true
   try {
     const result = await fetchAggregatedHoldings(equityData)
-    aggregatedHoldings.value = result
+    const sorted = sortFundsByRatio(result)
+    aggregatedHoldings.value = sorted
     aggregatedHoldingsFromCache.value = false
-    setAggregatedHoldingsCache(result)
+    setAggregatedHoldingsCache(sorted)
   } catch (e) {
     console.error('获取持仓汇总失败:', e)
   } finally {
@@ -1237,7 +1252,8 @@ onMounted(() => {
   isRestoringFromQuery = false
   fetchAllStageGains()
   if (props.type === 'equity') {
-    fetchAllAggregatedHoldings(true)
+    // 优先读缓存快速显示，后续 products 加载完成后 watch 会再触发
+    fetchAllAggregatedHoldings(false)
   }
   window.addEventListener('resize', handleCompareResize)
 })
@@ -1251,6 +1267,8 @@ onUnmounted(() => {
 watch(() => products.value, () => {
   if (props.type === 'equity') {
     fetchAllStageGains()
+    // products 数据加载完成后，若没有缓存则发起真实请求（无缓存时需要 products 数据）
+    fetchAllAggregatedHoldings(false)
   }
 })
 
@@ -1315,20 +1333,20 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         </div>
         <p class="apple-section-subtitle mt-1">共 {{ filteredProducts.length }} 个{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="-mx-3 px-3 sm:mx-0 sm:px-0 w-full sm:w-auto scroll-x items-center gap-2 sm:flex sm:items-center sm:gap-2 sm:overflow-visible">
         <!-- 批量更新净值按钮（权益和固收理财页面显示） -->
         <button 
           v-if="props.type === 'fixed_income' || props.type === 'equity'"
           @click="handleBatchUpdateNav"
           :disabled="loadingBatchNav"
-          class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px] disabled:opacity-50"
+          class="apple-btn-primary flex items-center space-x-2 px-4 py-2 text-[14px] disabled:opacity-50 touch-target min-h-[40px]"
         >
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loadingBatchNav }" />
           <span>{{ loadingBatchNav ? '更新中...' : '净值更新' }}</span>
         </button>
         <button 
           @click="handleAdd"
-          class="apple-btn-primary flex items-center space-x-2 px-5 py-2.5 text-[14px]"
+          class="apple-btn-primary flex items-center space-x-2 px-4 py-2 text-[14px] touch-target min-h-[40px]"
         >
           <Plus class="w-4 h-4" />
           <span>新增产品</span>
@@ -1337,7 +1355,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <button 
           v-if="compareIds.length > 0 && props.type !== 'term_deposit'"
           @click="showComparePanel = true"
-          class="flex items-center space-x-2 px-4 py-2.5 text-[14px] rounded-xl border border-primary-500 text-primary-500 hover:bg-primary-50 transition-colors"
+          class="flex items-center space-x-2 px-4 py-2 text-[14px] rounded-xl border border-primary-500 text-primary-500 hover:bg-primary-50 transition-colors touch-target min-h-[40px]"
         >
           <Scale class="w-4 h-4" />
           <span>对比</span>
@@ -1362,7 +1380,43 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     </div>
 
 <!-- 汇总统计卡片 -->
-    <div v-if="props.type === 'fixed_income'" class="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <!-- 移动端 固收：两行合并卡片（第一行：总市值；第二行：4项指标同一行） -->
+    <div v-if="props.type === 'fixed_income'" class="glass-card md:hidden">
+      <!-- 第一行：总市值 -->
+      <div class="mb-2.5">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
+        <p class="text-[22px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+      </div>
+      <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益） -->
+      <div class="grid grid-cols-4 gap-x-1.5 border-t border-black/5 pt-2.5">
+        <div class="min-w-0">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
+          </p>
+        </div>
+        <div class="min-w-0 text-left">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
+          </p>
+        </div>
+        <div class="min-w-0 text-left">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? '+' : '') + summaryStats.portfolioAnnualRate.toFixed(2) + '%' : '****' }}
+          </p>
+        </div>
+        <div class="min-w-0 text-left">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalDailyProfit) : '****' }}
+          </p>
+        </div>
+      </div>
+    </div>
+    <!-- PC端：4列卡片（年化收益率在最后） -->
+    <div class="hidden md:grid grid-cols-4 gap-3">
       <div class="glass-card p-4">
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
         <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
@@ -1373,7 +1427,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
           </p>
-          <p v-if="pageSettings.showProfitAmount" class="text-[11px] ml-2" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
+          <p v-if="pageSettings.showProfitAmount" class="text-[11px] ml-2 whitespace-nowrap" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
             {{ summaryStats.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalDailyProfit) }} 今日
           </p>
         </div>
@@ -1392,37 +1446,45 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
     </div>
     
-    <div v-else :class="['grid grid-cols-2 gap-3 md:grid-cols-4']">
-      <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
-        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+    <!-- 移动端 权益/定存：两行合并卡片（第一行：总市值；第二行：4项指标同一行） -->
+    <div v-if="props.type !== 'fixed_income'" class="glass-card md:hidden">
+      <!-- 第一行：总市值 -->
+      <div class="mb-2.5">
+        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
+        <p class="text-[22px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
       </div>
-      <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总成本</p>
-        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ pageSettings.showCost ? formatCurrency1(summaryStats.totalCost) : '****' }}</p>
-      </div>
-      <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
-        <div class="flex items-end justify-between">
-          <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+      <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益） -->
+      <div class="grid grid-cols-4 gap-x-1.5 border-t border-black/5 pt-2.5">
+        <div class="min-w-0">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
           </p>
-          <p v-if="pageSettings.showProfitAmount" class="text-[11px] ml-2" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
-            {{ summaryStats.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalDailyProfit) }} 今日
+        </div>
+        <div class="min-w-0 text-left">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
           </p>
         </div>
-      </div>
-      <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
-        <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-          {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
-        </p>
+        <div class="min-w-0 text-left">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? '+' : '') + summaryStats.portfolioAnnualRate.toFixed(2) + '%' : '****' }}
+          </p>
+        </div>
+        <div class="min-w-0 text-left">
+          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
+          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalDailyProfit) : '****' }}
+          </p>
+        </div>
       </div>
     </div>
 
     <!-- 持仓穿透汇总（仅权益页面显示） -->
     <div v-if="props.type === 'equity'" class="glass-card overflow-hidden">
-      <div class="p-5 border-b border-black/5 flex items-center justify-between">
+      <div class="p-3 md:p-5 border-b border-black/5 flex items-center justify-between">
         <div>
           <h3 class="text-[17px] font-semibold text-apple-text">持仓穿透</h3>
           <p class="text-[12px] text-apple-secondary mt-1">
@@ -1435,14 +1497,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             v-if="showAggregatedHoldings && aggregatedHoldings"
             @click="fetchAllAggregatedHoldings(true)"
             :disabled="loadingAggregatedHoldings"
-            class="text-[13px] text-apple-secondary hover:text-primary-500 disabled:opacity-50 transition-colors"
+            class="text-[13px] text-apple-secondary hover:text-primary-500 disabled:opacity-50 transition-colors touch-target"
             title="刷新数据"
           >
             <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loadingAggregatedHoldings }" />
           </button>
           <button
             @click="toggleAggregatedHoldings"
-            class="text-[13px] text-primary-500 hover:text-primary-700 font-medium"
+            class="text-[13px] text-primary-500 hover:text-primary-700 font-medium touch-target min-h-[36px]"
           >
             {{ showAggregatedHoldings ? '收起' : '展开' }}
           </button>
@@ -1450,8 +1512,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       
       <!-- 资产配置概览条（始终显示） -->
-      <div v-if="aggregatedHoldings?.assetAllocation" class="px-5 py-3 border-b border-black/5">
-        <div class="flex items-center gap-4 text-[12px] mb-2">
+      <div v-if="aggregatedHoldings?.assetAllocation" class="px-3 md:px-5 py-3 border-b border-black/5">
+        <div class="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 text-[12px] mb-2">
           <span class="flex items-center gap-1">
             <span class="w-2.5 h-2.5 rounded-full bg-primary-500"></span>
             <span class="text-apple-secondary">股票</span>
@@ -1486,8 +1548,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <p class="text-apple-secondary">加载中...</p>
       </div>
       
-      <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length > 0" class="overflow-x-auto">
-        <table class="w-full apple-table">
+      <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length > 0" class="-mx-3 md:mx-0 overflow-x-auto">
+        <table class="w-full apple-table min-w-[520px]">
           <thead>
             <tr>
               <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">名称</th>
@@ -1571,12 +1633,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       
       <!-- 无持仓数据的基金提示 -->
-      <div v-if="showAggregatedHoldings && aggregatedHoldings?.noHoldingsFunds && aggregatedHoldings.noHoldingsFunds.length > 0" class="px-5 py-3 border-t border-black/5 bg-orange-50/50">
+      <div v-if="showAggregatedHoldings && aggregatedHoldings?.noHoldingsFunds && aggregatedHoldings.noHoldingsFunds.length > 0" class="px-3 md:px-5 py-3 border-t border-black/5 bg-orange-50/50">
         <div class="flex items-center gap-2 mb-1.5">
           <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
           </svg>
-          <span class="text-[13px] font-medium text-orange-700">以下 {{ aggregatedHoldings?.noHoldingsFunds?.length || 0 }} 只基金暂无持仓数据</span>
+          <span class="text-[13px] font-medium text-orange-700">以下 {{ aggregatedHoldings?.noHoldingsFunds?.length || 0 }} 只基金暂无持仓数据（{{ aggregatedHoldings?.noHoldingsFunds?.map(f => f.code).join('、') || '' }}）</span>
         </div>
         <div class="flex flex-wrap gap-1.5">
           <span 
@@ -1595,7 +1657,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
       
       <!-- 收起状态：显示 Top 10 分布（股票 + 资产类别） -->
-      <div v-else-if="!showAggregatedHoldings && aggregatedHoldings" class="p-5">
+      <div v-else-if="!showAggregatedHoldings && aggregatedHoldings" class="p-3 md:p-5">
         <div class="flex flex-wrap gap-2">
           <span 
             v-for="(item, idx) in topDistributionItems" 
@@ -1619,14 +1681,14 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
             </svg>
-            <span>{{ aggregatedHoldings.noHoldingsFunds.length }} 只基金暂无持仓数据</span>
+            <span>{{ aggregatedHoldings.noHoldingsFunds.length }} 只基金暂无持仓数据（{{ aggregatedHoldings.noHoldingsFunds.map(f => f.code).join('、') }}）</span>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="flex flex-col sm:flex-row gap-3">
-      <div class="relative flex-1">
+    <div class="flex flex-col gap-3">
+      <div class="relative w-full">
         <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-apple-secondary" />
         <input 
           v-model="searchQuery"
@@ -1635,28 +1697,30 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           class="glass-input w-full pl-10 pr-4 py-2.5 rounded-apple outline-none text-[15px]"
         />
       </div>
-      <select 
-        v-if="!props.type"
-        v-model="filterType"
-        class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px]"
-      >
-        <option value="all">全部类型</option>
-        <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
-      <div class="flex rounded-xl overflow-hidden border border-apple-border/50 bg-white">
-        <button
-          v-for="status in filterStatusOptions"
-          :key="status"
-          @click="filterStatus = status"
-          class="px-3 py-2 text-[13px] font-medium transition-all"
-          :class="filterStatus === status 
-            ? 'bg-primary-500 text-white' 
-            : 'bg-transparent text-apple-secondary hover:text-apple-text'"
+      <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center gap-2 sm:flex sm:items-center sm:gap-2 sm:overflow-visible">
+        <select 
+          v-if="!props.type"
+          v-model="filterType"
+          class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px] flex-shrink-0 touch-target min-h-[44px]"
         >
-          {{ status === 'all' ? '全部' : PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.label }}
-        </button>
+          <option value="all">全部类型</option>
+          <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+        <div class="flex rounded-xl overflow-hidden border border-apple-border/50 bg-white flex-shrink-0">
+          <button
+            v-for="status in filterStatusOptions"
+            :key="status"
+            @click="filterStatus = status"
+            class="px-3 py-2 text-[13px] font-medium transition-all touch-target min-h-[40px]"
+            :class="filterStatus === status 
+              ? 'bg-primary-500 text-white' 
+              : 'bg-transparent text-apple-secondary hover:text-apple-text'"
+          >
+            {{ status === 'all' ? '全部' : PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.label }}
+          </button>
+        </div>
       </div>
     </div>
     
@@ -2240,7 +2304,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <div 
           v-if="showComparePanel" 
           class="fixed inset-0 z-50 flex justify-end"
-          @click.self="showComparePanel = false"
+          @click.self="closeComparePanel"
         >
           <!-- 遮罩 -->
           <div class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
@@ -2259,7 +2323,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </div>
               <button 
-                @click="showComparePanel = false"
+                @click="closeComparePanel"
                 class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 transition-colors"
               >
                 <X class="w-5 h-5 text-apple-secondary" />

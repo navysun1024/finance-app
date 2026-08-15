@@ -2367,8 +2367,8 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
 
 // ==================== 基金阶段涨幅 API ====================
 
-// 缓存有效期：1 小时
-const STAGE_GAINS_TTL = 60 * 60 * 1000
+// 缓存有效期：24 小时
+const STAGE_GAINS_TTL = 24 * 60 * 60 * 1000
 
 app.get('/fund/stage-gains/:code', async (req, res) => {
   try {
@@ -2774,43 +2774,70 @@ app.get('/cmb/nav-history/:code', async (req, res) => {
 
 // ==================== 指数历史数据 API ====================
 
-const INDEX_SECID_MAP = {
-  '000905': '1.000905',
-  '000906': '1.000906',
-  '000923': '1.000923',
-  '000300': '1.000300',
-}
-
+// 腾讯 API 支持的指数前缀（用于路由）
+const INDEX_TENCENT_CODES = new Set(['000905', '000906', '000923', '000300'])
 const INDEX_CSI_HCODES = new Set(['H11001'])
 
 const INDEX_CACHE_TTL = 4 * 60 * 60 * 1000 // 4小时
 
 /**
- * 从东方财富获取 00xxxx 类指数历史K线数据
- * klines 格式: "日期,开盘,收盘,最高,最低,成交量,..."
- * 收盘价在 index 2 (f53)
+ * 获取系统代理地址（优先检查 https_proxy，兼容大小写）
  */
-async function fetchFromEastmoney(indexCode, secid) {
-  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=5000`
+function getSystemProxy() {
+  return process.env.https_proxy || process.env.HTTPS_PROXY ||
+         process.env.http_proxy || process.env.HTTP_PROXY || ''
+}
+
+/**
+ * 执行 curl 命令，自动降级：直连失败时自动尝试走系统代理
+ * @param {string} baseUrl - 请求 URL
+ * @param {string} extraHeaders - 额外的 curl 头参数
+ * @param {number} maxTime - --max-time 值（秒）
+ * @param {number} execTimeout - execSync 超时（毫秒）
+ * @returns {string} curl 输出文本
+ */
+function execCurlWithProxyFallback(baseUrl, extraHeaders, maxTime, execTimeout) {
+  const proxy = getSystemProxy()
+  // 先尝试直连（--noproxy '*' 绕过系统代理环境变量）
+  const directCmd = `curl -sL --noproxy '*' --max-time ${maxTime} ${extraHeaders} '${baseUrl}'`
+  try {
+    return execSync(directCmd, { encoding: 'utf-8', timeout: execTimeout })
+  } catch (directErr) {
+    // 直连失败且系统代理可用时，尝试走代理
+    if (proxy) {
+      log(`[指数] 直连失败，尝试走代理 ${proxy}`)
+      const proxyCmd = `curl -sL --proxy '${proxy}' --max-time ${maxTime} ${extraHeaders} '${baseUrl}'`
+      return execSync(proxyCmd, { encoding: 'utf-8', timeout: execTimeout })
+    }
+    throw directErr
+  }
+}
+
+/**
+ * 从腾讯证券获取 00xxxx 类指数历史K线数据（东方财富 API 已全面封锁，改用腾讯）
+ * API 返回格式: {"code":0,"msg":"","data":{"sh{code}":{"day":[[date,open,close,high,low,volume],...]}}}
+ * 收盘价在 day 数组的 index 2
+ */
+async function fetchFromTencent(indexCode) {
+  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh${indexCode},day,,,1000,qfq`
+  const headers = `-H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' -H 'Referer: https://qt.gtimg.cn/'`
   let lastErr = null
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const curlCmd = `curl -s --max-time 15 -H 'Referer: https://quote.eastmoney.com/' -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' '${url}'`
-      const text = execSync(curlCmd, { encoding: 'utf-8', timeout: 20000 })
-      if (!text) throw new Error(`指数 ${indexCode} 东方财富空响应`)
+      const text = execCurlWithProxyFallback(url, headers, 15, 20000)
+      if (!text) throw new Error(`指数 ${indexCode} 腾讯空响应`)
       const parsed = JSON.parse(text)
-      const klines = parsed?.data?.klines
-      if (!klines || klines.length === 0) throw new Error(`指数 ${indexCode} 暂无K线数据`)
-      return klines.map(line => {
-        const parts = line.split(',')
-        return { date: parts[0], value: parseFloat(parts[2]) }
+      const dayData = parsed?.data?.[`sh${indexCode}`]?.day
+      if (!Array.isArray(dayData) || dayData.length === 0) throw new Error(`指数 ${indexCode} 腾讯无数据`)
+      return dayData.map(item => {
+        return { date: item[0], value: parseFloat(item[2]) }
       }).filter(p => !isNaN(p.value))
     } catch (err) {
       lastErr = err
       if (attempt < 2) await new Promise(r => setTimeout(r, 2000))
     }
   }
-  throw lastErr || new Error(`指数 ${indexCode} 东方财富获取失败`)
+  throw lastErr || new Error(`指数 ${indexCode} 腾讯获取失败`)
 }
 
 /**
@@ -2825,11 +2852,11 @@ async function fetchFromCsindex(indexCode) {
   const endDate = `${yyyy}${mm}${dd}`
   const startDate = `${yyyy - 10}${mm}${dd}`
   const url = `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=${indexCode}&startDate=${startDate}&endDate=${endDate}`
+  const headers = `-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' -H 'Referer: https://www.csindex.com.cn/'`
   let lastErr = null
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const curlCmd = `curl -s --max-time 20 -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' -H 'Referer: https://www.csindex.com.cn/' '${url}'`
-      const text = execSync(curlCmd, { encoding: 'utf-8', timeout: 25000 })
+      const text = execCurlWithProxyFallback(url, headers, 20, 25000)
       if (!text) throw new Error(`指数 ${indexCode} 中证官网空响应`)
       const parsed = JSON.parse(text)
       const rows = parsed?.data
@@ -2859,9 +2886,10 @@ async function fetchIndexHistoryServer(indexCode) {
   if (INDEX_CSI_HCODES.has(indexCode)) {
     return fetchFromCsindex(indexCode)
   }
-  const secid = INDEX_SECID_MAP[indexCode]
-  if (!secid) throw new Error(`不支持的指数代码: ${indexCode}`)
-  return fetchFromEastmoney(indexCode, secid)
+  if (INDEX_TENCENT_CODES.has(indexCode)) {
+    return fetchFromTencent(indexCode)
+  }
+  throw new Error(`不支持的指数代码: ${indexCode}`)
 }
 
 app.get('/index/history', async (req, res) => {

@@ -663,9 +663,10 @@ const navRangeOptions = [
   { label: '近3月', value: '3m', days: 90 },
   { label: '近6月', value: '6m', days: 180 },
   { label: '近1年', value: '1y', days: 365 },
+  { label: '近3年', value: '3y', days: 1095 },
   { label: '全部', value: 'all', days: 0 }
 ]
-const navRange = ref<string>('all')
+const navRange = ref<string>('1y')
 
 const getProductTypeLabel = (type: string) => {
   const normalized = type === 'fund' ? 'equity' : type
@@ -755,7 +756,9 @@ const fixedIncomeStageGains = computed(() => {
     '1m': 30,
     '3m': 90,
     '6m': 180,
-    '1y': 365
+    '1y': 365,
+    '2y': 730,
+    '3y': 1095
   }
   
   for (const [key, days] of Object.entries(timeRanges)) {
@@ -1045,6 +1048,44 @@ const updateChart = () => {
     t => (t.type === 'buy' || t.type === 'sell')
   )
 
+  // 美化调色：净值主色与渐变填充，基于终值相对初值的涨跌换色
+  const startNavVal = navData[0]?.nav || 1
+  const endNav = navData[navData.length - 1]?.nav || startNavVal
+  const isUp = endNav >= startNavVal
+  const lineColor = isUp ? '#ef4444' : '#16a34a'
+  const lineColorSoft = isUp ? 'rgba(239, 68, 68, ' : 'rgba(22, 163, 74, '
+  const areaGradient = new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: lineColorSoft + '0.35)' },
+    { offset: 1, color: lineColorSoft + '0.00)' }
+  ])
+  
+  const mobile = isMobile()
+  const navLabelFontSize = mobile ? 10 : 11
+  const navTickLabelFontSize = mobile ? 9 : 10
+  const legendFontSize = mobile ? 10 : 11
+  const sliderHeight = mobile ? 14 : 20
+  // 固收产品已移除右下角「区间年化/累计收益率」标题，不再需要为其预留空间。
+  // 横坐标与底部 dataZoom slider 的间距同步收紧。
+  const gridBottom = mobile ? (sliderHeight + 6) : (sliderHeight + 10)
+  const gridTop = hasBenchmark ? (mobile ? 24 : 30) : (mobile ? 6 : 10)
+
+  // 美化 tooltip 样式：apple 风格半透明玻璃卡片 + 坐标轴指示线
+  const axisPointerColor = isUp ? 'rgba(239, 68, 68, 0.25)' : 'rgba(22, 163, 74, 0.25)'
+  const crosshairLabelBg = isUp ? '#ef4444' : '#16a34a'
+
+  // 将 navData 日期 (YYYY-MM-DD / YYYY/MM/DD) 归一化为 Date 对象 timestamp，作为 time 轴 x 值
+  const toTimestamp = (dateStr: string): number => {
+    if (!dateStr) return Date.now()
+    const normalized = dateStr.includes('/') ? dateStr.replace(/\//g, '-') : dateStr
+    return new Date(normalized + 'T00:00:00').getTime()
+  }
+  const navTimestampByIndex = navData.map(t => toTimestamp(t.date))
+  const navSeriesData = navData.map(t => [toTimestamp(t.date), t.nav] as [number, number])
+  const benchmarkSeriesTimeData = benchmarkSeriesData.map((v, i) => (v === null || v === undefined)
+    ? null
+    : ([navTimestampByIndex[i], v] as [number, number])
+  )
+
   const markPointData = buySellTxs
     .map(tx => {
       const txDate = formatDate(tx.date)
@@ -1053,12 +1094,12 @@ const updateChart = () => {
       const isBuy = tx.type === 'buy'
       return {
         name: isBuy ? '买入' : '卖出',
-        xAxis: idx,
+        xAxis: navTimestampByIndex[idx],
         yAxis: navValues[idx],
         symbol: isBuy ? 'circle' : 'pin',
-        symbolSize: isBuy ? 8 : 12,
+        symbolSize: isBuy ? (mobile ? 7 : 8) : (mobile ? 10 : 12),
         symbolRotate: isBuy ? 0 : 180,
-        itemStyle: { color: isBuy ? '#ef4444' : '#3b82f6' },
+        itemStyle: { color: isBuy ? '#3b82f6' : '#ef4444', borderColor: '#fff', borderWidth: 1 },
         label: {
           show: false
         }
@@ -1066,56 +1107,57 @@ const updateChart = () => {
     })
     .filter(Boolean)
   
-  // 计算默认区间的年化收益率（仅固收产品）
+  // 固收产品不再在净值走势图中展示区间年化/累计收益率标题（原 titleOption 已删除）
   let titleOption: any = {}
-  if (product.value?.type === 'fixed_income' && navData.length >= 2) {
-    const startNav = navData[0].nav
-    const endNav = navData[navData.length - 1].nav
-    const startTimestamp = navData[0].timestamp
-    const endTimestamp = navData[navData.length - 1].timestamp
-    const days = (endTimestamp - startTimestamp) / (24 * 60 * 60 * 1000)
-    
-    if (days >= 1 && startNav > 0) {
-      const totalReturn = endNav / startNav
-      const annualReturn = (Math.pow(totalReturn, 365 / days) - 1) * 100
-      const totalReturnPct = (totalReturn - 1) * 100
-      const color = annualReturn >= 0 ? '#ef4444' : '#22c55e'
-      
-      titleOption = {
-        title: [{
-          text: `区间年化: ${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%`,
-          subtext: `累计: ${totalReturnPct >= 0 ? '+' : ''}${totalReturnPct.toFixed(2)}% · ${Math.floor(days)}天`,
-          left: 'right',
-          bottom: 60,
-          textAlign: 'right',
-          textStyle: { fontSize: 14, fontWeight: 600, color },
-          subtextStyle: { fontSize: 11, color: '#8e8e93' }
-        }]
-      }
-    }
-  }
   
     const seriesList: any[] = [{
       name: '净值',
       type: 'line',
-      data: navData.map(t => t.nav),
+      data: navSeriesData,
       smooth: true,
+      smoothMonotone: 'x',
+      sampling: 'lttb',
+      showSymbol: navData.length <= (mobile ? 40 : 60),
       lineStyle: {
-        color: '#1e40af',
-        width: 2
+        color: lineColor,
+        width: mobile ? 2 : 2.25,
+        shadowColor: lineColorSoft + '0.45)',
+        shadowBlur: 8,
+        shadowOffsetY: 2
       },
       itemStyle: {
-        color: '#1e40af'
+        color: lineColor,
+        borderColor: '#ffffff',
+        borderWidth: 1
       },
       symbol: 'circle',
-      symbolSize: navData.length > 60 ? 0 : 6,
+      symbolSize: navData.length > (mobile ? 40 : 60) ? 0 : (mobile ? 4 : 5),
+      areaStyle: {
+        color: areaGradient,
+        shadowColor: lineColorSoft + '0.15)',
+        shadowBlur: 20,
+        origin: 'auto'
+      },
+      emphasis: {
+        focus: 'series',
+        lineStyle: { width: mobile ? 2.5 : 3 },
+        itemStyle: {
+          borderWidth: 2,
+          shadowBlur: 10,
+          shadowColor: lineColorSoft + '0.6)'
+        }
+      },
       markPoint: markPointData.length > 0 ? {
         data: markPointData,
+        symbolKeepAspect: true,
         tooltip: {
           formatter: (params: any) => {
-            const date = navData[params.data.xAxis]?.date || ''
+            const ts = params.data.xAxis
+            const date = ts ? new Date(ts).toLocaleDateString('zh-CN') : ''
             const nav = params.data.yAxis
-            return `${params.name}<br/>${date}<br/>净值: ${nav}`
+            return `<div style="font-weight:600;margin-bottom:2px">${params.name}</div>
+                     <div style="color:#6b7280;font-size:11px">${date}</div>
+                     <div style="margin-top:4px">净值: <b>${typeof nav === 'number' ? nav.toFixed(4) : nav}</b></div>`
           }
         }
       } : undefined
@@ -1125,98 +1167,150 @@ const updateChart = () => {
       seriesList.push({
         name: benchmarkLegendName.value,
         type: 'line',
-        data: benchmarkSeriesData,
+        data: benchmarkSeriesTimeData,
         smooth: true,
+        smoothMonotone: 'x',
+        sampling: 'lttb',
+        showSymbol: false,
         lineStyle: {
-          color: '#9ca3af',
-          width: 1.5,
-          type: 'dashed'
+          color: '#94a3b8',
+          width: mobile ? 1.25 : 1.5,
+          type: 'dashed',
+          dashOffset: 4
         },
         itemStyle: {
-          color: '#9ca3af'
+          color: '#94a3b8'
         },
         symbol: 'none',
-        connectNulls: true
+        connectNulls: true,
+        emphasis: {
+          focus: 'series',
+          lineStyle: { width: 2 }
+        }
       })
     }
-    const startNav = navData[0]?.nav || 1
     const getShortName = (name: string) => {
       const match = name.match(/^(.*?)\(/)
       return match ? match[1] : name
     }
+    const formatTooltipDate = (v: any): string => {
+      if (v instanceof Date) return v.toLocaleDateString('zh-CN')
+      if (typeof v === 'number') return new Date(v).toLocaleDateString('zh-CN')
+      if (typeof v === 'string' && v.length === 10 && (v.includes('-') || v.includes('/'))) {
+        const [y, m, d] = v.split(v.includes('-') ? '-' : '/')
+        return `${parseInt(y, 10)}年${parseInt(m, 10)}月${parseInt(d, 10)}日`
+      }
+      return String(v)
+    }
     const tooltipFormatter = hasBenchmark
       ? (params: any) => {
-          const idx = params[0].dataIndex
-          const fullDate = navData[idx]?.date || params[0].name
-          let result = `<div style="font-weight:600;margin-bottom:4px">${fullDate}</div>`
+          const first = Array.isArray(params) ? params[0] : params
+          const ts = Array.isArray(first?.value) ? first.value[0] : first?.axisValue
+          const fullDate = formatTooltipDate(ts)
+          let result = `<div style="font-weight:600;margin-bottom:6px;color:#111827">${fullDate}</div>`
           params.forEach((p: any) => {
-            if (p.value !== null && p.value !== undefined) {
-              const val = typeof p.value === 'number' ? p.value : parseFloat(p.value)
+            const val = Array.isArray(p.value) ? p.value[1] : p.value
+            if (val !== null && val !== undefined) {
+              const num = typeof val === 'number' ? val : parseFloat(val)
               const shortName = getShortName(p.seriesName)
-              const ret = ((val - startNav) / startNav) * 100
-              const returnStr = ` <span style="color:${ret >= 0 ? '#ef4444' : '#22c55e'};font-size:11px">(${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%)</span>`
-              result += `<div><span style="color:${p.color}">●</span> ${shortName}: <b>${typeof p.value === 'number' ? p.value.toFixed(4) : p.value}</b>${returnStr}</div>`
+              const ret = ((num - startNavVal) / startNavVal) * 100
+              const returnColor = ret >= 0 ? '#ef4444' : '#16a34a'
+              const returnStr = ` <span style="color:${returnColor};font-size:${navTickLabelFontSize}px">(${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%)</span>`
+              result += `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0"><span style="display:inline-flex;align-items:center;gap:6px;color:#475569"><span style="color:${p.color};font-size:10px">●</span> ${shortName}:</span><span><b style="color:#0f172a">${num.toFixed(4)}</b>${returnStr}</span></div>`
             }
           })
           return result
         }
       : (params: any) => {
-          const idx = params[0].dataIndex
-          const fullDate = navData[idx]?.date || params[0].name
-          const val = typeof params[0].value === 'number' ? params[0].value : parseFloat(params[0].value)
-          const ret = ((val - startNav) / startNav) * 100
-          const color = ret >= 0 ? '#ef4444' : '#22c55e'
-          return `<div style="font-weight:600;margin-bottom:4px">${fullDate}</div>
-                  <div><span style="color:${params[0].color}">●</span> 净值: <b>${val.toFixed(4)}</b></div>
-                  <div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(0,0,0,0.1)">
-                    <span style="color:${color}">相对起始: ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</span>
+          const first = Array.isArray(params) ? params[0] : params
+          const ts = Array.isArray(first?.value) ? first.value[0] : first?.axisValue
+          const fullDate = formatTooltipDate(ts)
+          const val = Array.isArray(first?.value) ? first.value[1] : first.value
+          const num = typeof val === 'number' ? val : parseFloat(val)
+          const ret = ((num - startNavVal) / startNavVal) * 100
+          const color = ret >= 0 ? '#ef4444' : '#16a34a'
+          return `<div style="font-weight:600;margin-bottom:6px;color:#111827">${fullDate}</div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0"><span style="display:inline-flex;align-items:center;gap:6px;color:#475569"><span style="color:${first?.color ?? lineColor};font-size:10px">●</span> 净值:</span><b style="color:#0f172a">${num.toFixed(4)}</b></div>
+                  <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(15,23,42,0.08);display:flex;justify-content:space-between">
+                    <span style="color:#64748b">相对起始</span><b style="color:${color}">${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%</b>
                   </div>`
         }
 
   chart.setOption({
     ...titleOption,
+    backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
+      axisPointer: {
+        type: 'line',
+        lineStyle: {
+          color: axisPointerColor,
+          width: mobile ? 1 : 1.25,
+          type: 'solid'
+        },
+        label: {
+          show: !mobile,
+          backgroundColor: crosshairLabelBg,
+          color: '#fff',
+          fontSize: 10,
+          padding: [3, 6],
+          borderRadius: 6,
+          formatter: (params: any) => {
+            const v = params.value
+            if (typeof v === 'number') {
+              const d = new Date(v)
+              const mm = String(d.getMonth() + 1).padStart(2, '0')
+              const dd = String(d.getDate()).padStart(2, '0')
+              return `${mm}-${dd}`
+            }
+            return String(v)
+          }
+        },
+        snap: true
+      },
+      backgroundColor: 'rgba(255, 255, 255, 0.92)',
+      borderColor: 'rgba(15, 23, 42, 0.06)',
+      borderWidth: 1,
+      padding: mobile ? [8, 10] : [10, 12],
+      borderRadius: mobile ? 10 : 12,
+      extraCssText: `box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); backdrop-filter: saturate(180%) blur(10px); -webkit-backdrop-filter: saturate(180%) blur(10px); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', sans-serif; font-size: ${mobile ? 11 : 12}px; color: #0f172a;`,
+      textStyle: {
+        color: '#0f172a',
+        fontSize: mobile ? 11 : 12
+      },
       formatter: tooltipFormatter
     },
     legend: hasBenchmark ? {
       show: true,
       top: 0,
-      right: 10,
-      itemWidth: 12,
-      itemHeight: 8,
-      itemGap: 15,
-      textStyle: { fontSize: 11, color: '#6b7280' },
+      right: mobile ? 0 : 10,
+      itemWidth: mobile ? 10 : 12,
+      itemHeight: mobile ? 6 : 8,
+      itemGap: mobile ? 10 : 15,
+      textStyle: { fontSize: legendFontSize, color: '#64748b', fontWeight: 500 },
+      icon: 'roundRect',
       data: ['净值', benchmarkLegendName.value]
     } : undefined,
     grid: {
-      left: 10,
-      right: 10,
-      bottom: 40,
-      top: hasBenchmark ? 30 : 10,
+      left: mobile ? 4 : 10,
+      right: mobile ? 4 : 10,
+      bottom: gridBottom,
+      top: gridTop,
       containLabel: true
     },
     xAxis: {
-      type: 'category',
-      data: navData.map(t => {
-        const dateStr = t.date
-        if (dateStr.length === 10 && dateStr.includes('/')) {
-          const parts = dateStr.split('/')
-          return `${parts[0].substring(2)}-${parts[1]}-${parts[2]}`
-        }
-        return dateStr
-      }),
+      type: 'time',
       axisLabel: {
-        rotate: 0,
-        fontSize: 11,
-        interval: 'auto',
-        margin: 8
+        fontSize: navLabelFontSize,
+        color: '#6b7280',
+        hideOverlap: true
       },
-      axisTick: {
-        alignWithLabel: true
-      },
-      axisLine: {
-        show: true
+      axisLine: { show: true, lineStyle: { color: '#e5e7eb' } },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisPointer: {
+        show: true,
+        label: { show: !mobile }
       }
     },
     dataZoom: [
@@ -1225,25 +1319,53 @@ const updateChart = () => {
         xAxisIndex: 0,
         start: 0,
         end: 100,
-        zoomOnMouseWheel: true,
-        moveOnMouseMove: true,
-        moveOnMouseWheel: false
+        zoomOnMouseWheel: !mobile,
+        moveOnMouseMove: !mobile,
+        moveOnMouseWheel: false,
+        preventDefaultMouseMove: true
       },
       {
         type: 'slider',
         xAxisIndex: 0,
         start: 0,
         end: 100,
-        height: 20,
-        bottom: 2,
+        height: sliderHeight,
+        bottom: mobile ? 2 : 4,
+        show: true,
+        realtime: true,
+        brushSelect: false,
         borderColor: 'transparent',
-        backgroundColor: 'rgba(0,0,0,0.05)',
-        fillerColor: 'rgba(30, 64, 175, 0.2)',
-        handleStyle: {
-          color: '#1e40af'
+        backgroundColor: mobile ? 'rgba(15, 23, 42, 0.04)' : 'rgba(15, 23, 42, 0.05)',
+        fillerColor: lineColorSoft + (mobile ? '0.18)' : '0.22)'),
+        moveHandleIcon: 'path://M-3.5,0 C-3.5,-1.933 -1.933,-3.5 0,-3.5 C1.933,-3.5 3.5,-1.933 3.5,0 C3.5,1.933 1.933,3.5 0,3.5 C-1.933,3.5 -3.5,1.933 -3.5,0 Z M-8,0 L-1.5,0 M1.5,0 L8,0',
+        moveHandleStyle: {
+          color: lineColor,
+          borderColor: '#ffffff',
+          borderWidth: 1,
+          opacity: 1,
+          shadowColor: lineColorSoft + '0.5)',
+          shadowBlur: 6
         },
+        dataBackground: {
+          lineStyle: { color: 'rgba(148, 163, 184, 0.5)', width: 1 },
+          areaStyle: { color: 'rgba(148, 163, 184, 0.1)' }
+        },
+        selectedDataBackground: {
+          lineStyle: { color: lineColor, width: 1.5 },
+          areaStyle: { color: lineColorSoft + '0.25)' }
+        },
+        handleStyle: {
+          color: lineColor,
+          borderColor: '#ffffff',
+          borderWidth: 1.5,
+          shadowBlur: 4,
+          shadowColor: lineColorSoft + '0.4)'
+        },
+        handleIcon: 'path://M2,0 L2,20 M-2,0 L-2,20',
+        handleSize: mobile ? '80%' : '90%',
         textStyle: {
-          fontSize: 10
+          fontSize: navTickLabelFontSize,
+          color: '#64748b'
         }
       }
     ],
@@ -1251,18 +1373,30 @@ const updateChart = () => {
       type: 'value',
       min: Math.max(0, minNav - padding),
       max: maxNav + padding,
+      scale: true,
       axisLabel: {
-        fontSize: 11,
+        fontSize: navLabelFontSize,
         interval: 'auto',
         formatter: (value: number) => value.toFixed(4),
-        margin: 4
+        margin: mobile ? 3 : 4,
+        color: '#6b7280'
       },
-      splitNumber: 5,
+      splitNumber: mobile ? 4 : 5,
       axisLine: {
-        show: true
+        show: false
       },
       axisTick: {
-        show: true
+        show: false
+      },
+      splitLine: {
+        show: true,
+        lineStyle: {
+          color: '#f3f4f6',
+          type: 'dashed'
+        }
+      },
+      splitArea: {
+        show: false
       }
     },
     series: seriesList
@@ -1273,66 +1407,9 @@ const initChart = () => {
   if (!chartRef.value) return
   chart = echarts.init(chartRef.value)
   
-  // 计算区间年化收益率并更新显示（仅固收产品）
-  const updateRangeAnnualReturn = (start: number, end: number) => {
-    const isFixedIncome = product.value?.type === 'fixed_income'
-    if (!isFixedIncome) return
-    
-    const navData = filteredNavTransactions.value
-    if (navData.length < 2) {
-      chart!.setOption({ title: [{ text: '' }] })
-      return
-    }
-    
-    const startIdx = Math.floor((start / 100) * (navData.length - 1))
-    const endIdx = Math.ceil((end / 100) * (navData.length - 1))
-    const visibleData = navData.slice(startIdx, endIdx + 1)
-    
-    if (visibleData.length < 2) {
-      chart!.setOption({ title: [{ text: '' }] })
-      return
-    }
-    
-    const startNav = visibleData[0].nav
-    const endNav = visibleData[visibleData.length - 1].nav
-    const startTimestamp = visibleData[0].timestamp
-    const endTimestamp = visibleData[visibleData.length - 1].timestamp
-    
-    // 计算持有天数
-    const days = (endTimestamp - startTimestamp) / (24 * 60 * 60 * 1000)
-    
-    if (days < 1 || startNav <= 0) {
-      chart!.setOption({ title: [{ text: '' }] })
-      return
-    }
-    
-    // 计算年化收益率：((终值/初值)^(365/天数) - 1) * 100%
-    const totalReturn = endNav / startNav
-    const annualReturn = (Math.pow(totalReturn, 365 / days) - 1) * 100
-    const totalReturnPct = (totalReturn - 1) * 100
-    
-    const color = annualReturn >= 0 ? '#ef4444' : '#22c55e'
-    
-    chart!.setOption({
-      title: [
-        {
-          text: `区间年化: ${annualReturn >= 0 ? '+' : ''}${annualReturn.toFixed(2)}%`,
-          subtext: `累计: ${totalReturnPct >= 0 ? '+' : ''}${totalReturnPct.toFixed(2)}% · ${Math.floor(days)}天`,
-          left: 'right',
-          bottom: 60,
-          textAlign: 'right',
-          textStyle: {
-            fontSize: 14,
-            fontWeight: 600,
-            color
-          },
-          subtextStyle: {
-            fontSize: 11,
-            color: '#8e8e93'
-          }
-        }
-      ]
-    })
+  // 已移除：固收产品净值走势图中的区间年化/累计收益率标题（更新逻辑也同步停用）
+  const updateRangeAnnualReturn = (_start: number, _end: number) => {
+    // no-op
   }
   
   // 监听 dataZoom 事件，动态调整 y 轴范围和显示区间年化
@@ -1383,9 +1460,18 @@ const initChart = () => {
     }
 
     if (hasBenchmark) {
+      // x 轴已改用 time 类型，基准 series 数据格式需要为 [timestamp, value]
+      const toTs = (dateStr: string): number => {
+        if (!dateStr) return Date.now()
+        const normalized = dateStr.includes('/') ? dateStr.replace(/\//g, '-') : dateStr
+        return new Date(normalized + 'T00:00:00').getTime()
+      }
+      const benchmarkTimeData = newBenchmarkData.map((v, i) =>
+        v === null || v === undefined ? null : ([toTs(navData[i].date), v] as [number, number])
+      )
       chart!.setOption({
         yAxis: yAxisUpdate,
-        series: [{}, { data: newBenchmarkData }]
+        series: [{}, { data: benchmarkTimeData }]
       })
     } else {
       chart!.setOption({ yAxis: yAxisUpdate })
@@ -1594,12 +1680,12 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div class="flex items-center space-x-2 flex-wrap gap-2">
+      <div class="-mx-3 px-3 md:mx-0 md:px-0 w-full md:w-auto scroll-x items-center gap-2 md:flex md:items-center md:gap-2 md:overflow-visible">
         <button
           v-if="product.code && product.type !== 'equity' && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
-          class="apple-btn-primary text-sm"
+          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
         >
           <Calendar class="w-4 h-4" :class="{ 'animate-spin': fetchingNavHistory }" />
           <span>{{ fetchingNavHistory ? '查询中...' : '查询历史净值' }}</span>
@@ -1608,7 +1694,7 @@ onUnmounted(() => {
           v-if="product.code && (product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
           @click="handleBackfillNav"
           :disabled="backfillingNav"
-          class="apple-btn-primary text-sm"
+          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
         >
           <History class="w-4 h-4" :class="{ 'animate-spin': backfillingNav }" />
           <span>{{ backfillingNav ? '补全中...' : '补全历史净值' }}</span>
@@ -1617,7 +1703,7 @@ onUnmounted(() => {
           v-if="product.code"
           @click="handleFetchNav"
           :disabled="fetchingNav"
-          class="apple-btn-primary text-sm"
+          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
         >
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': fetchingNav }" />
           <span>{{ fetchingNav ? '查询中...' : '查询净值' }}</span>
@@ -1628,11 +1714,11 @@ onUnmounted(() => {
     <p v-if="navHistorySuccess" class="text-sm text-loss mt-2">{{ navHistorySuccess }}</p>
 
     <!-- 持仓概览 + 阶段涨幅/收益率 并排显示 -->
-    <div :class="(product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''">
+    <div :class="(product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6' : ''">
       <!-- 持仓概览 -->
-      <div v-if="position" class="glass-card p-6">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
+      <div v-if="position" class="glass-card md:p-6">
+        <div class="flex items-center justify-between mb-1.5 md:mb-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <h3 class="text-lg font-semibold text-apple-text">持仓概览</h3>
             <span class="text-xs text-apple-secondary bg-black/5 px-2 py-0.5 rounded-full">
               持有 {{ position?.holdingDays || 0 }} 天
@@ -1646,26 +1732,26 @@ onUnmounted(() => {
             :class="['w-5 h-5', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']"
           />
         </div>
-        <div :class="['grid gap-4', (product.type === 'equity' || product.type === 'fund') ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4']">
-          <div>
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">当前市值</p>
-            <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(position?.marketValue || 0) }}</p>
+        <div class="grid grid-cols-4 gap-2">
+          <div class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary truncate">当前市值</p>
+            <p class="text-[13px] font-semibold text-apple-text mt-0.5">{{ formatCurrency1(position?.marketValue || 0) }}</p>
           </div>
-          <div>
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">盈亏金额</p>
-            <p :class="['text-[15px] font-semibold mt-1', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
-              {{ formatCurrency1(position?.profit || 0) }}
+          <div class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary truncate">盈亏金额</p>
+            <p :class="['text-[13px] font-semibold mt-0.5', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+              {{ (position?.profit ?? 0) >= 0 ? '+' : '' }}{{ formatCurrency1(position?.profit || 0) }}
             </p>
           </div>
-          <div>
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">收益率</p>
-            <p :class="['text-[15px] font-semibold mt-1', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+          <div class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary truncate">收益率</p>
+            <p :class="['text-[13px] font-semibold mt-0.5', (position?.profitRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.profitRate || 0) }}
             </p>
           </div>
-          <div v-if="product.type !== 'equity' && product.type !== 'fund'">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">年化收益率</p>
-            <p :class="['text-[15px] font-semibold mt-1', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
+          <div v-if="product.type !== 'equity' && product.type !== 'fund'" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary truncate">年化收益率</p>
+            <p :class="['text-[13px] font-semibold mt-0.5', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.annualRate || 0) }}
             </p>
           </div>
@@ -1769,76 +1855,76 @@ onUnmounted(() => {
       </div>
 
       <!-- 阶段涨幅 (仅权益产品显示) -->
-      <div v-if="(product.type === 'equity' || product.type === 'fund') && stageGains" class="glass-card p-5">
-        <div class="flex items-center justify-between mb-2">
+      <div v-if="(product.type === 'equity' || product.type === 'fund') && stageGains" class="glass-card md:p-5">
+        <div class="flex items-center justify-between mb-1.5 md:mb-2">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
             @click="handleFetchStageGains"
             :disabled="fetchingStageGains"
-            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
+            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1 touch-target min-h-[36px]"
           >
             <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingStageGains }" />
             <span>{{ fetchingStageGains ? '刷新中...' : '刷新' }}</span>
           </button>
         </div>
-        <div class="grid grid-cols-4 md:grid-cols-4 gap-3">
-          <div v-if="stageGains['1w'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1周</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['1w'] >= 0 ? 'text-profit' : 'text-loss'">
+        <div class="grid grid-cols-4 gap-2">
+          <div v-if="stageGains['1w'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近1周</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains['1w'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['1w'] >= 0 ? '+' : '' }}{{ stageGains['1w'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="stageGains['1m'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1月</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['1m'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="stageGains['1m'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近1月</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains['1m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['1m'] >= 0 ? '+' : '' }}{{ stageGains['1m'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="stageGains['3m'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近3月</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['3m'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="stageGains['3m'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近3月</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains['3m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['3m'] >= 0 ? '+' : '' }}{{ stageGains['3m'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="stageGains['6m'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近6月</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['6m'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="stageGains['6m'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近6月</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains['6m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['6m'] >= 0 ? '+' : '' }}{{ stageGains['6m'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="stageGains['1y'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1年</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['1y'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="stageGains['1y'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近1年</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains['1y'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['1y'] >= 0 ? '+' : '' }}{{ stageGains['1y'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="stageGains['2y'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近2年</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['2y'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="stageGains['2y'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近2年</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains['2y'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['2y'] >= 0 ? '+' : '' }}{{ stageGains['2y'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="stageGains['3y'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近3年</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains['3y'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="stageGains['3y'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近3年</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains['3y'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains['3y'] >= 0 ? '+' : '' }}{{ stageGains['3y'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="stageGains.ytd !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">今年来</p>
-            <p class="text-sm font-semibold mt-1" :class="stageGains.ytd >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="stageGains.ytd !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">今年来</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="stageGains.ytd >= 0 ? 'text-profit' : 'text-loss'">
               {{ stageGains.ytd >= 0 ? '+' : '' }}{{ stageGains.ytd.toFixed(2) }}%
             </p>
           </div>
         </div>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !stageGains && !fetchingStageGains" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !stageGains && !fetchingStageGains" class="glass-card md:p-5">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
             @click="handleFetchStageGains"
             :disabled="fetchingStageGains"
-            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
+            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1 touch-target min-h-[36px]"
           >
             <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingStageGains }" />
             <span>加载</span>
@@ -1846,15 +1932,15 @@ onUnmounted(() => {
         </div>
         <p class="text-sm text-apple-secondary mt-2">点击加载查看权益阶段涨幅数据</p>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingStageGains" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingStageGains" class="glass-card md:p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">阶段涨幅</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
 
       <!-- 年化收益率统计 (仅固收产品显示) -->
-      <div v-if="product.type === 'fixed_income' && fixedIncomeStageGains" class="glass-card p-5">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2">
+      <div v-if="product.type === 'fixed_income' && fixedIncomeStageGains" class="glass-card md:p-5">
+        <div class="flex items-center justify-between mb-1.5 md:mb-2 flex-wrap gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <h3 class="text-lg font-semibold text-apple-text">年化收益率统计</h3>
             <span v-if="inceptionDays !== null" class="text-xs text-apple-secondary bg-black/5 px-2 py-0.5 rounded-full">
               成立 {{ inceptionDays }} 天
@@ -1862,34 +1948,34 @@ onUnmounted(() => {
           </div>
           <span class="text-xs text-apple-secondary">基于历史净值计算</span>
         </div>
-        <div class="grid grid-cols-5 md:grid-cols-5 gap-3">
-          <div v-if="fixedIncomeStageGains['1m'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1月</p>
-            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['1m'] >= 0 ? 'text-profit' : 'text-loss'">
+        <div class="grid grid-cols-4 gap-2">
+          <div v-if="fixedIncomeStageGains['1m'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近1月</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="fixedIncomeStageGains['1m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ fixedIncomeStageGains['1m'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['1m'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="fixedIncomeStageGains['3m'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近3月</p>
-            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['3m'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="fixedIncomeStageGains['3m'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近3月</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="fixedIncomeStageGains['3m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ fixedIncomeStageGains['3m'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['3m'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="fixedIncomeStageGains['6m'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近6月</p>
-            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['6m'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="fixedIncomeStageGains['6m'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近6月</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="fixedIncomeStageGains['6m'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ fixedIncomeStageGains['6m'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['6m'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="fixedIncomeStageGains['1y'] !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">近1年</p>
-            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains['1y'] >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="fixedIncomeStageGains['1y'] !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">近1年</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="fixedIncomeStageGains['1y'] >= 0 ? 'text-profit' : 'text-loss'">
               {{ fixedIncomeStageGains['1y'] >= 0 ? '+' : '' }}{{ fixedIncomeStageGains['1y'].toFixed(2) }}%
             </p>
           </div>
-          <div v-if="fixedIncomeStageGains.sinceInception !== undefined" class="text-center">
-            <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">成立以来</p>
-            <p class="text-sm font-semibold mt-1" :class="fixedIncomeStageGains.sinceInception >= 0 ? 'text-profit' : 'text-loss'">
+          <div v-if="fixedIncomeStageGains.sinceInception !== undefined" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+            <p class="text-[10px] font-medium text-apple-secondary uppercase tracking-wider truncate">成立以来</p>
+            <p class="text-[13px] font-semibold mt-0.5" :class="fixedIncomeStageGains.sinceInception >= 0 ? 'text-profit' : 'text-loss'">
               {{ fixedIncomeStageGains.sinceInception >= 0 ? '+' : '' }}{{ fixedIncomeStageGains.sinceInception.toFixed(2) }}%
             </p>
           </div>
@@ -1898,9 +1984,9 @@ onUnmounted(() => {
     </div>
     
     <!-- 持仓信息 + 净值走势 并排显示 -->
-    <div :class="(product.type === 'equity' || product.type === 'fund') ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch' : ''">
+    <div :class="(product.type === 'equity' || product.type === 'fund') ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 items-stretch' : ''">
       <!-- 持仓信息 (仅权益产品显示) -->
-      <div v-if="(product.type === 'equity' || product.type === 'fund') && holdingsData" class="glass-card p-5">
+      <div v-if="(product.type === 'equity' || product.type === 'fund') && holdingsData" class="glass-card md:p-5">
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <div class="flex items-center space-x-3">
@@ -1908,7 +1994,7 @@ onUnmounted(() => {
             <button
               @click="handleFetchHoldings"
               :disabled="fetchingHoldings"
-              class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
+              class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1 touch-target"
             >
               <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingHoldings }" />
               <span>{{ fetchingHoldings ? '刷新中...' : '刷新' }}</span>
@@ -1936,13 +2022,13 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !holdingsData && !fetchingHoldings" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !holdingsData && !fetchingHoldings" class="glass-card md:p-5">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <button
             @click="handleFetchHoldings"
             :disabled="fetchingHoldings"
-            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1"
+            class="text-sm text-primary-500 hover:text-primary-600 disabled:opacity-50 flex items-center space-x-1 touch-target min-h-[36px]"
           >
             <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': fetchingHoldings }" />
             <span>加载</span>
@@ -1950,58 +2036,60 @@ onUnmounted(() => {
         </div>
         <p class="text-sm text-apple-secondary mt-2">点击加载查看权益持仓信息</p>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingHoldings && !holdingsData" class="glass-card p-5">
+      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingHoldings && !holdingsData" class="glass-card md:p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">持仓信息</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
       
       <!-- 净值走势 -->
-      <div class="glass-card p-4 flex flex-col min-h-[260px] md:min-h-[340px]">
-        <div class="flex items-center justify-between mb-2">
-          <h3 class="text-lg font-semibold text-apple-text">净值走势</h3>
-          <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
-            <button
-              v-for="opt in navRangeOptions"
-              :key="opt.value"
-              @click="navRange = opt.value"
-              :class="[
-                'px-2.5 py-1 text-xs rounded-full transition-colors',
-                navRange === opt.value
-                  ? 'bg-white text-apple-text shadow-sm font-medium'
-                  : 'text-apple-secondary hover:text-apple-text'
-              ]"
-            >
-              {{ opt.label }}
-            </button>
+      <div class="glass-card md:p-4 flex flex-col min-h-[240px] md:min-h-[340px]">
+        <div class="flex flex-row items-center justify-between gap-2 md:gap-3 mb-2 md:mb-3 flex-nowrap">
+          <h3 class="text-lg font-semibold text-apple-text flex-shrink-0">净值走势</h3>
+          <div class="flex-1 min-w-0 flex justify-end">
+            <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-visible inline-flex">
+              <button
+                v-for="opt in navRangeOptions"
+                :key="opt.value"
+                @click="navRange = opt.value"
+                :class="[
+                  'px-2 py-0.5 text-[11px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-colors md:touch-target !min-h-[28px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
+                  navRange === opt.value
+                    ? 'bg-white text-apple-text shadow-sm font-medium'
+                    : 'text-apple-secondary hover:text-apple-text'
+                ]"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
           </div>
         </div>
-        <div ref="chartRef" class="flex-1 min-h-0 w-full"></div>
+        <div ref="chartRef" class="flex-1 min-h-[180px] md:min-h-0 w-full"></div>
       </div>
     </div>
     
     <div>
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center justify-between mb-3 md:mb-4">
         <h3 class="text-lg font-semibold text-apple-text">历史交易</h3>
         <button 
           @click="handleAddTransaction"
-          class="apple-btn-primary text-sm"
+          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
         >
           <Plus class="w-4 h-4" />
           <span>新增交易</span>
         </button>
       </div>
       <!-- 日期区间选择 + 交易类型筛选 -->
-      <div class="flex flex-wrap items-center gap-3 mb-3">
+      <div class="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-2 md:gap-3 mb-2 md:mb-3">
         <!-- 交易类型筛选 -->
-        <div class="flex items-center space-x-1">
-          <span class="text-xs text-apple-secondary">类型:</span>
-          <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
+        <div class="w-full sm:w-auto flex items-center space-x-2">
+          <span class="text-[11px] md:text-xs text-apple-secondary flex-shrink-0">类型:</span>
+          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-visible">
             <button
               v-for="opt in txTypeOptions"
               :key="opt.value"
               @click="txType = opt.value"
               :class="[
-                'px-2.5 py-1 text-xs rounded-full transition-all duration-300',
+                'px-2 py-0.5 text-[11px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[28px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
                 txType === opt.value
                   ? 'bg-white text-apple-text shadow-sm font-medium'
                   : 'text-apple-secondary hover:text-apple-text'
@@ -2013,15 +2101,15 @@ onUnmounted(() => {
         </div>
         
         <!-- 日期区间选择 -->
-        <div class="flex items-center space-x-1">
-          <span class="text-xs text-apple-secondary">区间:</span>
-          <div class="flex items-center space-x-1 bg-black/5 rounded-full p-0.5">
+        <div class="w-full sm:w-auto flex items-center space-x-2">
+          <span class="text-[11px] md:text-xs text-apple-secondary flex-shrink-0">区间:</span>
+          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-visible">
             <button
               v-for="opt in txDateRangeOptions"
               :key="opt.value"
               @click="txDateRange = opt.value"
               :class="[
-                'px-2.5 py-1 text-xs rounded-full transition-all duration-300',
+                'px-2 py-0.5 text-[11px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[28px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
                 txDateRange === opt.value
                   ? 'bg-white text-apple-text shadow-sm font-medium'
                   : 'text-apple-secondary hover:text-apple-text'
@@ -2032,20 +2120,20 @@ onUnmounted(() => {
           </div>
         </div>
         
-        <template v-if="txDateRange === 'custom'">
+        <div v-if="txDateRange === 'custom'" class="w-full sm:w-auto flex items-center space-x-2">
           <input
             v-model="txCustomStartDate"
             type="date"
-            class="glass-input px-3 py-1 text-xs rounded-full outline-none"
+            class="glass-input px-2.5 py-1.5 md:px-3 md:py-2 text-[11px] md:text-xs rounded-full outline-none md:touch-target !min-h-[32px] md:!min-h-[40px] flex-1 sm:flex-initial"
           />
-          <span class="text-apple-secondary text-xs">至</span>
+          <span class="text-apple-secondary text-[11px] md:text-xs flex-shrink-0">至</span>
           <input
             v-model="txCustomEndDate"
             type="date"
-            class="glass-input px-3 py-1 text-xs rounded-full outline-none"
+            class="glass-input px-2.5 py-1.5 md:px-3 md:py-2 text-[11px] md:text-xs rounded-full outline-none md:touch-target !min-h-[32px] md:!min-h-[40px] flex-1 sm:flex-initial"
           />
-        </template>
-        <span class="text-xs text-apple-secondary ml-auto">共 {{ sortedTransactions.length }} 条记录</span>
+        </div>
+        <span class="text-[11px] md:text-xs text-apple-secondary sm:ml-auto w-full sm:w-auto text-center sm:text-right">共 {{ sortedTransactions.length }} 条记录</span>
       </div>
       <!-- 移动端卡片布局 -->
       <div class="md:hidden space-y-2">

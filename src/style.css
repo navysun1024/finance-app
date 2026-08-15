@@ -187,6 +187,38 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* ====== Mobile: Horizontal Scroll Container ====== */
+
+.scroll-x {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+
+.scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+.scroll-x > * {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+}
+
+/* ====== Mobile: Unified glass-card padding ====== */
+
+@media (max-width: 639px) {
+  .glass-card {
+    padding: 12px !important;
+  }
+}
+
 /* Apple-style scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

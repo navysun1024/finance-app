@@ -78,7 +78,7 @@ onUnmounted(() => {
         <!-- User Menu -->
         <div class="flex items-center space-x-3">
           <span class="inline-flex items-center gap-1 text-[10px] text-primary-500 font-mono tracking-wide bg-primary-50 px-2 py-0.5 rounded-full font-medium">
-            <Tag class="w-2.5 h-2.5" />v1.4.2
+            <Tag class="w-2.5 h-2.5" />v1.4.3
           </span>
           <div ref="userMenuRef" class="relative">
             <button
@@ -126,21 +126,21 @@ onUnmounted(() => {
   </nav>
 
   <!-- Mobile Bottom Nav -->
-  <nav class="fixed bottom-0 left-0 right-0 z-50 glass-nav md:hidden safe-area-bottom">
-    <div class="flex items-center justify-around h-[52px]">
+  <nav class="fixed bottom-0 left-0 right-0 z-50 glass-nav md:hidden safe-area-bottom border-t border-black/5">
+    <div class="flex items-stretch justify-around h-[58px] pb-0.5">
       <button
         v-for="item in navItems"
         :key="item.name"
         @click="router.push({ name: item.name })"
         :class="[
-          'flex flex-col items-center justify-center flex-1 h-full transition-all duration-200',
+          'flex flex-col items-center justify-center flex-1 h-full touch-target transition-all duration-200 active:scale-95',
           isActive(item.name)
             ? 'text-primary-500'
             : 'text-apple-secondary'
         ]"
       >
-        <component :is="item.icon" :class="['w-[20px] h-[20px]', isActive(item.name) ? 'scale-105' : '']" />
-        <span class="text-[10px] mt-0.5 font-medium">{{ item.label }}</span>
+        <component :is="item.icon" :class="['w-[22px] h-[22px]', isActive(item.name) ? 'scale-105' : '']" />
+        <span class="text-[10px] mt-0.5 font-medium tracking-tight">{{ item.label }}</span>
       </button>
     </div>
   </nav>

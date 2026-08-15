@@ -1,23 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { Wallet, TrendingUp, PieChart, RefreshCw, BarChart, Calendar, Eye, EyeOff } from 'lucide-vue-next'
-import StatCard from '@/components/StatCard.vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import ProfitCalendar from '@/components/ProfitCalendar.vue'
 import PullRefresh from '@/components/PullRefresh.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { calculateXIRR } from '@/utils/xirr'
-import { formatCurrency, formatCurrencyInt, formatCurrency1, formatPercent } from '@/utils/format'
+import { formatCurrency, formatCurrencyInt, formatCurrency1 } from '@/utils/format'
 import * as echarts from 'echarts'
 
 const refreshRef = ref<InstanceType<typeof PullRefresh> | null>(null)
 
-const { portfolioSummary, getProfitHistory, getMarketValueHistory, transactions, refresh, dashboardSettings, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
+const { portfolioSummary, getProfitHistory, getMarketValueHistory, getTransactionsByProductId, transactions, refresh, dashboardSettings, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
 
 const typeChartRefs = ref<Record<string, HTMLDivElement>>({})
-const trendChartRefs = ref<Record<string, HTMLDivElement>>({})
 const mvChartRefs = ref<Record<string, HTMLDivElement>>({})
 const typeCharts = new Map<string, echarts.ECharts>()
-const trendCharts = new Map<string, echarts.ECharts>()
 const mvCharts = new Map<string, echarts.ECharts>()
 let initTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -41,11 +38,54 @@ const positionsByType = computed(() => {
 const chartGroups = computed(() => positionsByType.value.filter(g => g.type !== 'term_deposit'))
 
 // 按产品类型分组的统计汇总
+// 每个产品代码的当日涨跌幅（与 Products.vue 口径一致）
+const dailyReturnMap = computed(() => {
+  const map = new Map<string, { dailyReturn: number | null }>()
+  const positions = portfolioSummary.value.positions
+  for (const pos of positions) {
+    const product = pos.product
+    if (!product.code) continue
+    const navUpdates = getTransactionsByProductId(product.id)
+      .filter(t => t.type === 'nav_update')
+      .sort((a, b) => b.date - a.date)
+    if (navUpdates.length < 2) continue
+    const latest = navUpdates[0]
+    const prev = navUpdates[1]
+    const dailyReturn = prev.price > 0
+      ? Math.round(((latest.price - prev.price) / prev.price) * 10000) / 100
+      : null
+    map.set(product.code, { dailyReturn })
+  }
+  return map
+})
+
+// 单只持仓的当日收益（与 Products.vue getDailyProfit 口径一致）
+const calcDailyProfitForPosition = (pos: typeof portfolioSummary.value.positions[number]): number => {
+  const product = pos.product
+  if (!pos.marketValue) return 0
+
+  // 定存：当日收益 = 本金 × 年利率 / 365（到期后0）
+  if (product.type === 'term_deposit') {
+    if (product.maturityDate) {
+      const maturityTime = new Date(product.maturityDate).getTime()
+      if (Date.now() > maturityTime) return 0
+    }
+    const annualRate = (product.interestRate || 0) / 100
+    const principal = pos.totalInvestment || product.minAmount || 0
+    return principal * annualRate / 365
+  }
+
+  const daily = dailyReturnMap.value.get(product.code || '')
+  if (!daily || daily.dailyReturn === null) return 0
+  return pos.marketValue * daily.dailyReturn / 100
+}
+
 const summaryByType = computed(() => {
   return positionsByType.value.map(group => {
     const totalAssets = group.positions.reduce((sum, p) => sum + p.marketValue, 0)
     const totalInvestment = group.positions.reduce((sum, p) => sum + p.totalInvestment, 0)
     const totalProfit = group.positions.reduce((sum, p) => sum + p.profit, 0)
+    const totalDailyProfit = group.positions.reduce((sum, p) => sum + calcDailyProfitForPosition(p), 0)
     const totalProfitRate = totalInvestment > 0 ? (totalProfit / totalInvestment) * 100 : 0
     
     // 使用 XIRR 计算该类型所有产品的综合年化收益率
@@ -67,23 +107,12 @@ const summaryByType = computed(() => {
       totalAssets,
       totalInvestment,
       totalProfit,
+      totalDailyProfit,
       totalProfitRate,
       annualRate
     }
   })
 })
-
-const trendRangeOptions = [
-  { label: '近1月', value: '1m', days: 30 },
-  { label: '近3月', value: '3m', days: 90 },
-  { label: '近6月', value: '6m', days: 180 },
-  { label: '近1年', value: '1y', days: 365 },
-  { label: '全部', value: 'all', days: 0 }
-]
-const trendRanges = ref<Record<string, string>>({})
-
-// 收益趋势视图模式: 'chart' 或 'calendar'（默认日历）
-const trendViewMode = ref<Record<string, 'chart' | 'calendar'>>({})
 
 // 日历收益数据缓存（按类型懒加载，包含各产品明细）
 interface CalendarDayData {
@@ -151,21 +180,6 @@ const expandCalendarToFull = () => {
   }
 }
 
-// 切换到日历视图时触发
-const switchToCalendar = (type: string) => {
-  trendViewMode.value[type] = 'calendar'
-  nextTick(() => loadCalendarData(type))
-}
-
-// 切换到图表视图
-const switchToChart = (type: string) => {
-  trendViewMode.value[type] = 'chart'
-  nextTick(() => {
-    const chart = trendCharts.get(type)
-    if (chart) chart.resize()
-  })
-}
-
 const initCharts = () => {
   // 初始化各类型的资产分布柱形图（排除定期存款）
   for (const group of chartGroups.value) {
@@ -174,15 +188,6 @@ const initCharts = () => {
       const chart = echarts.init(el)
       typeCharts.set(group.type, chart)
       updateTypeBarChart(group.type, group.label, group.color, group.positions)
-    }
-  }
-  // 初始化各类型的收益趋势图（排除定期存款）
-  for (const group of chartGroups.value) {
-    const el = trendChartRefs.value[group.type]
-    if (el) {
-      const chart = echarts.init(el)
-      trendCharts.set(group.type, chart)
-      updateTypeTrendChart(group.type, group.label, group.color, group.positions)
     }
   }
   // 初始化各类型的市值趋势图（排除定期存款）
@@ -198,10 +203,6 @@ const initCharts = () => {
 
 const setChartRef = (type: string) => (el: any) => {
   if (el) typeChartRefs.value[type] = el as HTMLDivElement
-}
-
-const setTrendChartRef = (type: string) => (el: any) => {
-  if (el) trendChartRefs.value[type] = el as HTMLDivElement
 }
 
 const setMvChartRef = (type: string) => (el: any) => {
@@ -300,110 +301,6 @@ const updateTypeBarChart = (type: string, _typeLabel: string, _color: string, po
         color: '#374151'
       }
     }]
-  })
-}
-
-const updateTypeTrendChart = (type: string, _typeLabel: string, _color: string, positions: typeof portfolioSummary.value.positions) => {
-  const chart = trendCharts.get(type)
-  if (!chart) return
-
-  const rangeValue = trendRanges.value[type] || '1m'
-  const opt = trendRangeOptions.find(o => o.value === rangeValue)
-  const days = opt ? opt.days : 30
-  const history = days > 0 ? getRawHistory(days) : getRawHistory(3650)
-  const dates = history.map(h => {
-      const parts = h.date.split('-')
-      return `${parts[0].substring(2)}/${parts[1]}`
-    })
-
-  // 过滤掉持仓金额小于200元的产品
-  const filteredPositions = positions.filter(p => p.marketValue >= 200)
-  const productNames: string[] = []
-  for (const pos of filteredPositions) {
-    if (!productNames.includes(pos.product.name)) {
-      productNames.push(pos.product.name)
-    }
-  }
-
-  const colorMap = buildProductColorMap(filteredPositions)
-
-  const series = productNames.map((name, index) => {
-    const productColor = colorMap.get(name) || PRODUCT_COLORS[0]
-    const isLastSeries = index === productNames.length - 1
-    return {
-      name,
-      type: 'bar',
-      stack: 'total',
-      emphasis: { focus: 'series' },
-      itemStyle: { color: productColor },
-      data: history.map(h => {
-        const pp = h.productProfits.find(p => p.productName === name)
-        const value = pp ? pp.profit : 0
-        // 只对最上面的系列做圆角处理
-        if (isLastSeries) {
-          return {
-            value,
-            itemStyle: { borderRadius: value >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4] }
-          }
-        }
-        return value
-      })
-    }
-  })
-
-const mobile = isMobile()
-
-  chart.setOption({
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: (params: any) => {
-        let result = params[0].name + '<br/>'
-        let total = 0
-        for (const item of params) {
-          if (item.value !== 0) {
-            result += `${item.marker} ${item.seriesName}: ${item.value >= 0 ? '+' : ''}${item.value.toFixed(2)}元<br/>`
-            total += item.value
-          }
-        }
-        result += `合计: ${total >= 0 ? '+' : ''}${total.toFixed(2)}元`
-        return result
-      }
-    },
-    legend: {
-      data: productNames,
-      orient: 'horizontal',
-      bottom: 0,
-      left: 'center',
-      itemWidth: 6,
-      itemHeight: 6,
-      textStyle: { fontSize: mobile ? 8 : 10 },
-      formatter: (name: string) => name.length > 6 ? name.substring(0, 6) + '…' : name,
-      show: productNames.length > 1
-    },
-    grid: {
-      left: mobile ? 3 : 5,
-      right: mobile ? 5 : 10,
-      bottom: productNames.length > 1 ? (mobile ? 80 : 65) : (mobile ? 40 : 40),
-      top: mobile ? 3 : 5,
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: dates,
-      axisLabel: { rotate: 0, fontSize: mobile ? 8 : 10 }
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: {
-        fontSize: mobile ? 9 : 10,
-        formatter: (value: number) => {
-          if (Math.abs(value) >= 10000) return (value / 10000).toFixed(1) + '万'
-          return value.toString()
-        }
-      }
-    },
-    series
   })
 }
 
@@ -534,12 +431,6 @@ const updateMvChart = (type: string, _typeLabel: string, _color: string, positio
   })
 }
 
-const updateAllTrendCharts = () => {
-  for (const group of chartGroups.value) {
-    updateTypeTrendChart(group.type, group.label, group.color, group.positions)
-  }
-}
-
 // 根据产品类型获取对应的显示设置
 const getSettingsByType = (type: string) => {
   if (type === 'equity') return equitySettings
@@ -569,23 +460,16 @@ const handleRefresh = async () => {
   await nextTick()
   // 重新初始化图表
   for (const chart of typeCharts.values()) chart.dispose()
-  for (const chart of trendCharts.values()) chart.dispose()
   for (const chart of mvCharts.values()) chart.dispose()
   typeCharts.clear()
-  trendCharts.clear()
   mvCharts.clear()
   initCharts()
   // 通知刷新完成
   refreshRef.value?.onRefreshComplete()
 }
 
-watch(trendRanges, () => {
-  updateAllTrendCharts()
-}, { deep: true })
-
 const handleResize = () => {
   for (const chart of typeCharts.values()) chart.resize()
-  for (const chart of trendCharts.values()) chart.resize()
   for (const chart of mvCharts.values()) chart.resize()
 }
 
@@ -624,10 +508,8 @@ onUnmounted(() => {
   if (initTimer) clearTimeout(initTimer)
   window.removeEventListener('resize', handleResize)
   for (const chart of typeCharts.values()) chart.dispose()
-  for (const chart of trendCharts.values()) chart.dispose()
   for (const chart of mvCharts.values()) chart.dispose()
   typeCharts.clear()
-  trendCharts.clear()
   mvCharts.clear()
   // 清除所有原始收益历史缓存，释放内存
   rawHistoryCache.clear()
@@ -651,108 +533,109 @@ onUnmounted(() => {
           <EyeOff v-else class="w-4 h-4 text-apple-secondary" />
         </button>
       </div>
-      <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard 
-          title="总资产" 
-          :value="getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****'" 
-          :icon="Wallet" 
-          color="blue"
-        />
-        <StatCard 
-          title="累计投入" 
-          :value="getSettingsByType(group.type).value.showCost ? formatCurrency1(group.totalInvestment) : '****'" 
-          :icon="RefreshCw" 
-          color="yellow"
-        />
-        <StatCard 
-          title="总盈亏" 
-          :value="getSettingsByType(group.type).value.showProfitAmount ? formatCurrency1(group.totalProfit) : '****'"
-          :change="getSettingsByType(group.type).value.showProfitRate ? group.totalProfitRate : undefined"
-          :icon="TrendingUp" 
-          :color="group.totalProfit >= 0 ? 'green' : 'red'"
-        />
-        <StatCard 
-          title="年化收益率" 
-          :value="getSettingsByType(group.type).value.showProfitRate ? formatPercent(group.annualRate) : '****'"
-          :change="undefined"
-          :icon="PieChart" 
-          :color="group.annualRate >= 0 ? 'green' : 'red'"
-        />
+      <!-- 移动端：两行合并卡片（第一行：总市值；第二行：4项指标同一行，与产品页一致） -->
+      <div class="glass-card md:hidden">
+        <!-- 第一行：总市值 -->
+        <div class="mb-2.5">
+          <p class="text-[11px] text-apple-secondary uppercase font-medium">总市值</p>
+          <p class="text-[22px] font-semibold text-apple-text tracking-tight leading-tight">
+            {{ getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****' }}
+          </p>
+        </div>
+        <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益，与产品页完全一致） -->
+        <div class="grid grid-cols-4 gap-x-1.5 border-t border-black/5 pt-2.5">
+          <div class="min-w-0">
+            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
+            <p
+              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
+            >
+              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatCurrency1(group.totalProfit) : '****' }}
+            </p>
+          </div>
+          <div class="min-w-0 text-left">
+            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
+            <p
+              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              :class="getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
+            >
+              {{ getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? '+' : '') + group.totalProfitRate.toFixed(2) + '%' : '****' }}
+            </p>
+          </div>
+          <div class="min-w-0 text-left">
+            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
+            <p
+              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              :class="getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
+            >
+              {{ getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? '+' : '') + group.annualRate.toFixed(2) + '%' : '****' }}
+            </p>
+          </div>
+          <div class="min-w-0 text-left">
+            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
+            <p
+              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
+            >
+              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(group.totalDailyProfit) : '****' }}
+            </p>
+          </div>
+        </div>
+      </div>
+      <!-- PC 端：4 列卡片（年化收益率在最后，与产品页一致） -->
+      <div class="hidden md:grid grid-cols-4 gap-3">
+        <div class="glass-card p-4">
+          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
+          <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****' }}</p>
+        </div>
+        <div class="glass-card p-4">
+          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
+          <div class="flex items-end justify-between">
+            <p class="text-[20px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatCurrency1(group.totalProfit) : '****' }}
+            </p>
+            <p v-if="getSettingsByType(group.type).value.showProfitAmount" class="text-[11px] ml-2 whitespace-nowrap" :class="group.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
+              {{ group.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(group.totalDailyProfit) }} 今日
+            </p>
+          </div>
+        </div>
+        <div class="glass-card p-4">
+          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
+          <p class="text-[20px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? '+' : '') + group.totalProfitRate.toFixed(2) + '%' : '****' }}
+          </p>
+        </div>
+        <div class="glass-card p-4">
+          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>
+          <p class="text-[20px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? '+' : '') + group.annualRate.toFixed(2) + '%' : '****' }}
+          </p>
+        </div>
       </div>
     </div>
     
     <!-- 资产分布图 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in chartGroups" :key="group.type + '-dist'" class="glass-card p-5">
-        <div class="flex items-center mb-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+      <div v-for="group in chartGroups" :key="group.type + '-dist'" class="glass-card md:p-5">
+        <div class="flex items-center mb-3 md:mb-4">
           <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
           <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}分布</h3>
           <span class="ml-auto text-[12px] text-apple-secondary font-medium">
             合计 {{ formatCurrency1(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}
           </span>
         </div>
-        <div :ref="setChartRef(group.type)" class="h-52 sm:h-48 md:h-56"></div>
+        <div :ref="setChartRef(group.type)" class="h-44 md:h-56"></div>
       </div>
     </div>
 
-    <!-- 收益趋势图 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in chartGroups" :key="group.type + '-trend'" class="glass-card p-5">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center">
-            <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
-            <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}收益趋势</h3>
-          </div>
-          <div class="flex items-center space-x-2">
-            <!-- 时间区间选择（仅图表模式显示） -->
-            <div v-if="(trendViewMode[group.type] || 'calendar') === 'chart'" class="flex items-center space-x-0.5 bg-black/4 rounded-full p-0.5">
-              <button
-                v-for="opt in trendRangeOptions"
-                :key="opt.value"
-                @click="trendRanges[group.type] = opt.value"
-                :class="[
-                  'px-2.5 py-1 text-[11px] rounded-full transition-all duration-200 font-medium',
-                  (trendRanges[group.type] || '1m') === opt.value
-                    ? 'bg-white text-apple-text shadow-sm'
-                    : 'text-apple-secondary hover:text-apple-text'
-                ]"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-            <!-- 图表/日历切换按钮 -->
-            <div class="flex items-center space-x-0.5 bg-black/4 rounded-full p-0.5">
-              <button
-                @click="switchToChart(group.type)"
-                :class="[
-                  'p-1.5 rounded-full transition-all duration-200',
-                  (trendViewMode[group.type] || 'calendar') === 'chart'
-                    ? 'bg-white text-primary-500 shadow-sm'
-                    : 'text-apple-secondary hover:text-apple-text'
-                ]"
-                title="柱状图"
-              >
-                <BarChart class="w-3.5 h-3.5" />
-              </button>
-              <button
-                @click="switchToCalendar(group.type)"
-                :class="[
-                  'p-1.5 rounded-full transition-all duration-200',
-                  (trendViewMode[group.type] || 'calendar') === 'calendar'
-                    ? 'bg-white text-primary-500 shadow-sm'
-                    : 'text-apple-secondary hover:text-apple-text'
-                ]"
-                title="收益日历"
-              >
-                <Calendar class="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
+    <!-- 收益日历 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+      <div v-for="group in chartGroups" :key="group.type + '-calendar'" class="glass-card md:p-5">
+        <div class="flex items-center mb-1 md:mb-2">
+          <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
+          <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}收益日历</h3>
         </div>
-        <!-- 图表视图 -->
-        <div v-show="(trendViewMode[group.type] || 'calendar') === 'chart'" :ref="setTrendChartRef(group.type)" class="h-48 sm:h-56 md:h-64"></div>
-        <!-- 日历视图 -->
-        <div v-if="(trendViewMode[group.type] || 'calendar') === 'calendar'" class="h-52 sm:h-[210px] md:h-[210px] px-2 pb-2">
+        <div class="h-48 md:h-[210px] px-2 pb-2">
           <div v-if="!calendarDataLoaded[group.type]" class="flex items-center justify-center h-full">
             <span class="text-apple-secondary text-[13px]">加载中...</span>
           </div>
@@ -766,16 +649,16 @@ onUnmounted(() => {
     </div>
     
     <!-- 累积市值趋势图 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div v-for="group in chartGroups" :key="group.type + '-mv'" class="glass-card p-5">
-        <div class="flex items-center mb-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+      <div v-for="group in chartGroups" :key="group.type + '-mv'" class="glass-card md:p-5">
+        <div class="flex items-center mb-3 md:mb-4">
           <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
           <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}市值趋势</h3>
           <span class="ml-auto text-[12px] text-apple-secondary font-medium">
             近12个月
           </span>
         </div>
-        <div :ref="setMvChartRef(group.type)" class="h-52 sm:h-48 md:h-56"></div>
+        <div :ref="setMvChartRef(group.type)" class="h-44 md:h-56"></div>
       </div>
     </div>
 

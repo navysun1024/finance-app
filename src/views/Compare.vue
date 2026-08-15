@@ -71,7 +71,7 @@ const handleClickOutside = (e: MouseEvent) => {
 }
 
 // ==================== 区间选择 ====================
-type RangeType = '1m' | '3m' | '1y' | 'all' | 'custom'
+type RangeType = '1m' | '3m' | '1y' | '3y' | 'all' | 'custom'
 const rangeType = ref<RangeType>('1y')
 const customStart = ref('')
 const customEnd = ref('')
@@ -80,6 +80,7 @@ const rangeOptions = [
   { value: '1m', label: '近1月', days: 30 },
   { value: '3m', label: '近3月', days: 90 },
   { value: '1y', label: '近1年', days: 365 },
+  { value: '3y', label: '近3年', days: 1095 },
   { value: 'all', label: '全部', days: 0 },
   { value: 'custom', label: '自定义', days: 0 }
 ] as const
