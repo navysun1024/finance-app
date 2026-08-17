@@ -438,7 +438,7 @@ const handleSubmit = () => {
             <input 
               v-model="date"
               type="date" 
-              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none min-w-0 date-input-fix"
             />
           </div>
           <div v-if="showAmount">

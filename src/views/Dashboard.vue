@@ -537,44 +537,44 @@ onUnmounted(() => {
       <div class="glass-card md:hidden">
         <!-- 第一行：总市值 -->
         <div class="mb-2.5">
-          <p class="text-[11px] text-apple-secondary uppercase font-medium">总市值</p>
-          <p class="text-[22px] font-semibold text-apple-text tracking-tight leading-tight">
+          <p class="text-[12px] text-apple-secondary uppercase font-medium">总市值</p>
+          <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">
             {{ getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****' }}
           </p>
         </div>
         <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益，与产品页完全一致） -->
-        <div class="grid grid-cols-4 gap-x-1.5 border-t border-black/5 pt-2.5">
+        <div class="grid grid-cols-4 gap-x-2 border-t border-black/5 pt-2.5">
           <div class="min-w-0">
-            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
+            <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
             <p
-              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
               :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
             >
               {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatCurrency1(group.totalProfit) : '****' }}
             </p>
           </div>
           <div class="min-w-0 text-left">
-            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
+            <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
             <p
-              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
               :class="getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
             >
               {{ getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? '+' : '') + group.totalProfitRate.toFixed(2) + '%' : '****' }}
             </p>
           </div>
           <div class="min-w-0 text-left">
-            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
+            <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
             <p
-              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
               :class="getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
             >
               {{ getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? '+' : '') + group.annualRate.toFixed(2) + '%' : '****' }}
             </p>
           </div>
           <div class="min-w-0 text-left">
-            <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
+            <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
             <p
-              class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
+              class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
               :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
             >
               {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(group.totalDailyProfit) : '****' }}
@@ -585,29 +585,29 @@ onUnmounted(() => {
       <!-- PC 端：4 列卡片（年化收益率在最后，与产品页一致） -->
       <div class="hidden md:grid grid-cols-4 gap-3">
         <div class="glass-card p-4">
-          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
-          <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****' }}</p>
+          <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
+          <p class="text-[22px] font-semibold text-apple-text tracking-tight">{{ getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****' }}</p>
         </div>
         <div class="glass-card p-4">
-          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
+          <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
           <div class="flex items-end justify-between">
-            <p class="text-[20px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            <p class="text-[22px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
               {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatCurrency1(group.totalProfit) : '****' }}
             </p>
-            <p v-if="getSettingsByType(group.type).value.showProfitAmount" class="text-[11px] ml-2 whitespace-nowrap" :class="group.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
+            <p v-if="getSettingsByType(group.type).value.showProfitAmount" class="text-[12px] ml-2 whitespace-nowrap" :class="group.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
               {{ group.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(group.totalDailyProfit) }} 今日
             </p>
           </div>
         </div>
         <div class="glass-card p-4">
-          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
-          <p class="text-[20px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
+          <p class="text-[22px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? '+' : '') + group.totalProfitRate.toFixed(2) + '%' : '****' }}
           </p>
         </div>
         <div class="glass-card p-4">
-          <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>
-          <p class="text-[20px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>
+          <p class="text-[22px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ getSettingsByType(group.type).value.showProfitRate ? (group.annualRate >= 0 ? '+' : '') + group.annualRate.toFixed(2) + '%' : '****' }}
           </p>
         </div>

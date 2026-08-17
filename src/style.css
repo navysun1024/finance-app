@@ -146,6 +146,24 @@ body {
   color: var(--apple-text-secondary);
 }
 
+/* ====== iOS Date Input Fix ====== */
+/* iOS Safari 上 input[type="date"] 有固有的最小宽度，会撑破父容器 */
+input[type="date"].glass-input,
+.date-input-fix {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+input[type="date"].glass-input::-webkit-date-and-time-value {
+  text-align: left;
+  width: 100%;
+  min-width: 0;
+}
+
 /* ====== Apple-style Tables ====== */
 
 .apple-table {

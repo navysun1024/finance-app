@@ -454,6 +454,14 @@ const pageSettings = computed(() => {
 const router = useRouter()
 const route = useRoute()
 
+// 通过基金代码跳转到产品详情页
+const goToProductByCode = (code: string) => {
+  const product = products.value.find(p => p.code === code)
+  if (product) {
+    router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus.value, type: filterType.value } })
+  }
+}
+
 // 切换当前页面的所有显示控制
 const togglePageDisplay = () => {
   const current = pageSettings.value.showProfitAmount && pageSettings.value.showProfitRate && pageSettings.value.showMarketValue && pageSettings.value.showCost
@@ -925,18 +933,19 @@ const toggleAggregatedHoldings = () => {
   }
 }
 
-// 收起状态下 Top 10 分布（股票 + 资产类别混合排序）
+// 收起状态下 Top 10 分布：仅真实股票，排除「其他股票 / 现金 / 其他」等汇总项
 const topDistributionItems = computed(() => {
   if (!aggregatedHoldings.value) return []
   
   const items: { key: string; name: string; ratio: number; isAsset: boolean; bgClass: string }[] = []
   
-  // 添加股票
+  // 添加真实股票
   for (const stock of aggregatedHoldings.value.stocks) {
     items.push({ key: `stock-${stock.code}`, name: stock.name, ratio: stock.ratio, isAsset: false, bgClass: '' })
   }
   
-  // 添加资产类别
+  // 添加资产类别，但排除 其他股票(other_stocks)、现金(cash)、其他(other)
+  const excludedAssetTypes = new Set(['other_stocks', 'cash', 'other'])
   const assetBgMap: Record<string, string> = {
     cash: 'bg-amber-50',
     bond: 'bg-emerald-50',
@@ -944,6 +953,7 @@ const topDistributionItems = computed(() => {
     other: 'bg-slate-50'
   }
   for (const cat of aggregatedHoldings.value.assetCategories) {
+    if (excludedAssetTypes.has(cat.type)) continue
     items.push({ key: `asset-${cat.type}`, name: cat.name, ratio: cat.ratio, isAsset: true, bgClass: assetBgMap[cat.type] || '' })
   }
   
@@ -1384,32 +1394,32 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <div v-if="props.type === 'fixed_income'" class="glass-card md:hidden">
       <!-- 第一行：总市值 -->
       <div class="mb-2.5">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
-        <p class="text-[22px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+        <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
+        <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
       </div>
       <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益） -->
-      <div class="grid grid-cols-4 gap-x-1.5 border-t border-black/5 pt-2.5">
+      <div class="grid grid-cols-4 gap-x-2 border-t border-black/5 pt-2.5">
         <div class="min-w-0">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? '+' : '') + summaryStats.portfolioAnnualRate.toFixed(2) + '%' : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalDailyProfit) : '****' }}
           </p>
         </div>
@@ -1418,29 +1428,29 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <!-- PC端：4列卡片（年化收益率在最后） -->
     <div class="hidden md:grid grid-cols-4 gap-3">
       <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
-        <p class="text-[20px] font-semibold text-apple-text tracking-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+        <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
+        <p class="text-[22px] font-semibold text-apple-text tracking-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
       </div>
       <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
+        <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
         <div class="flex items-end justify-between">
-          <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[22px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
           </p>
-          <p v-if="pageSettings.showProfitAmount" class="text-[11px] ml-2 whitespace-nowrap" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
+          <p v-if="pageSettings.showProfitAmount" class="text-[12px] ml-2 whitespace-nowrap" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
             {{ summaryStats.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalDailyProfit) }} 今日
           </p>
         </div>
       </div>
       <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
-        <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+        <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
+        <p class="text-[22px] font-semibold tracking-tight" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
           {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
         </p>
       </div>
       <div class="glass-card p-4">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>
-        <p class="text-[20px] font-semibold tracking-tight" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+        <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>
+        <p class="text-[22px] font-semibold tracking-tight" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
           {{ pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? '+' : '') + summaryStats.portfolioAnnualRate.toFixed(2) + '%' : '****' }}
         </p>
       </div>
@@ -1450,32 +1460,32 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <div v-if="props.type !== 'fixed_income'" class="glass-card md:hidden">
       <!-- 第一行：总市值 -->
       <div class="mb-2.5">
-        <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
-        <p class="text-[22px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+        <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
+        <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
       </div>
       <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益） -->
-      <div class="grid grid-cols-4 gap-x-1.5 border-t border-black/5 pt-2.5">
+      <div class="grid grid-cols-4 gap-x-2 border-t border-black/5 pt-2.5">
         <div class="min-w-0">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">总收益率</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">年化收益率</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitRate ? (summaryStats.portfolioAnnualRate >= 0 ? '+' : '') + summaryStats.portfolioAnnualRate.toFixed(2) + '%' : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
-          <p class="text-[10px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
-          <p class="text-[12px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+          <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
+          <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
             {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalDailyProfit) : '****' }}
           </p>
         </div>
@@ -1548,17 +1558,18 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
         <p class="text-apple-secondary">加载中...</p>
       </div>
       
-      <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length > 0" class="-mx-3 md:mx-0 overflow-x-auto">
-        <table class="w-full apple-table min-w-[520px]">
-          <thead>
-            <tr>
-              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">名称</th>
-              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">代码</th>
-              <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持仓金额</th>
-              <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">占比</th>
-              <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">持有权益</th>
-            </tr>
-          </thead>
+      <div v-else-if="showAggregatedHoldings && aggregatedHoldings && aggregatedHoldings.stocks.length > 0" class="-mx-3 md:mx-0">
+        <div class="overflow-x-auto max-h-[320px] md:max-h-[480px] overflow-y-auto rounded-lg">
+          <table class="w-full apple-table min-w-[520px]">
+            <thead class="sticky top-0 z-10 bg-[#FAFAFA] md:bg-white">
+              <tr>
+                <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider backdrop-blur-xl">名称</th>
+                <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider backdrop-blur-xl">代码</th>
+                <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider backdrop-blur-xl">持仓金额</th>
+                <th class="px-3 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider backdrop-blur-xl">占比</th>
+                <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider backdrop-blur-xl">持有权益</th>
+              </tr>
+            </thead>
           <tbody class="divide-y divide-apple-border/50">
             <tr v-for="(stock, idx) in aggregatedHoldings.stocks" :key="stock.code">
               <td class="px-2 py-2.5">
@@ -1579,7 +1590,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <span 
                     v-for="fund in stock.funds.slice(0, 3)" 
                     :key="fund.fundCode"
-                    class="apple-tag bg-black/5 text-apple-secondary whitespace-nowrap"
+                    @click="goToProductByCode(fund.fundCode)"
+                    class="apple-tag bg-black/5 text-apple-secondary whitespace-nowrap cursor-pointer hover:bg-black/10 hover:text-primary-500 transition-colors select-none"
                   >
                     {{ fund.fundCode }} ({{ fund.ratio.toFixed(1) }}%)
                   </span>
@@ -1630,6 +1642,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
       
       <!-- 无持仓数据的基金提示 -->
@@ -1644,7 +1657,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           <span 
             v-for="fund in aggregatedHoldings?.noHoldingsFunds || []" 
             :key="fund.code"
-            class="inline-flex items-center px-2 py-1 rounded-md bg-orange-100 text-orange-700 text-[11px] gap-1.5"
+            @click="goToProductByCode(fund.code)"
+            class="inline-flex items-center px-2 py-1 rounded-md bg-orange-100 text-orange-700 text-[11px] gap-1.5 cursor-pointer hover:bg-orange-200 transition-colors select-none"
           >
             <span class="font-mono">{{ fund.code }}</span>
             <span class="text-orange-500/70">{{ formatCurrency(fund.marketValue) }}</span>
@@ -1687,8 +1701,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
     </div>
 
-    <div class="flex flex-col gap-3">
-      <div class="relative w-full">
+    <div class="flex items-center gap-2 sm:gap-3">
+      <!-- 搜索框 -->
+      <div class="relative flex-1 min-w-0">
         <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-apple-secondary" />
         <input 
           v-model="searchQuery"
@@ -1697,30 +1712,30 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           class="glass-input w-full pl-10 pr-4 py-2.5 rounded-apple outline-none text-[15px]"
         />
       </div>
-      <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center gap-2 sm:flex sm:items-center sm:gap-2 sm:overflow-visible">
-        <select 
-          v-if="!props.type"
-          v-model="filterType"
-          class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px] flex-shrink-0 touch-target min-h-[44px]"
+      <!-- 产品类型（仅"全部产品"页面显示） -->
+      <select 
+        v-if="!props.type"
+        v-model="filterType"
+        class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px] flex-shrink-0 min-w-[100px] touch-target min-h-[44px]"
+      >
+        <option value="all">全部类型</option>
+        <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+      <!-- 状态按钮组（全部/持有/清仓/自选） -->
+      <div class="flex rounded-xl overflow-hidden border border-apple-border/50 bg-white flex-shrink-0">
+        <button
+          v-for="status in filterStatusOptions"
+          :key="status"
+          @click="filterStatus = status"
+          class="px-3 py-2 text-[13px] font-medium transition-all touch-target min-h-[40px]"
+          :class="filterStatus === status 
+            ? 'bg-primary-500 text-white' 
+            : 'bg-transparent text-apple-secondary hover:text-apple-text'"
         >
-          <option value="all">全部类型</option>
-          <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-        <div class="flex rounded-xl overflow-hidden border border-apple-border/50 bg-white flex-shrink-0">
-          <button
-            v-for="status in filterStatusOptions"
-            :key="status"
-            @click="filterStatus = status"
-            class="px-3 py-2 text-[13px] font-medium transition-all touch-target min-h-[40px]"
-            :class="filterStatus === status 
-              ? 'bg-primary-500 text-white' 
-              : 'bg-transparent text-apple-secondary hover:text-apple-text'"
-          >
-            {{ status === 'all' ? '全部' : PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.label }}
-          </button>
-        </div>
+          {{ status === 'all' ? '全部' : PRODUCT_STATUS_OPTIONS.find(o => o.value === status)?.label }}
+        </button>
       </div>
     </div>
     

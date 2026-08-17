@@ -92,6 +92,8 @@ stop_services() {
     stop_process_by_pattern "node server/db-server.js" "数据库服务"
     stop_process_by_pattern "node server/scraper.mjs" "爬虫服务"
     stop_process_by_pattern "npx vite" "前端服务"
+    # 兼容 macOS/Linux 下 vite 直接以 node .bin/vite 方式启动的路径
+    stop_process_by_pattern "\.bin/vite" "前端服务(直启模式)"
 
     rm -f "$DB_PID_FILE" "$SCRAPER_PID_FILE" "$VITE_PID_FILE"
 
