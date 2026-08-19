@@ -46,7 +46,7 @@ export type NavSource = 'tiantian' | 'cmb' | 'icbc' | ''
 
 export const NAV_SOURCE_OPTIONS: { value: NavSource; label: string; applicableTypes: ProductType[] }[] = [
   { value: '', label: '不查询', applicableTypes: ['equity', 'fund', 'fixed_income'] },
-  { value: 'tiantian', label: '天天基金网', applicableTypes: ['equity', 'fund', 'fixed_income'] },
+  { value: 'tiantian', label: '东方财富', applicableTypes: ['equity', 'fund', 'fixed_income'] },
   { value: 'cmb', label: '招银理财', applicableTypes: ['fixed_income'] },
   { value: 'icbc', label: '工银理财', applicableTypes: ['fixed_income'] }
 ]

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { X, Upload, AlertTriangle, CheckCircle } from 'lucide-vue-next'
-import { parseFundTable } from '@/utils/importParser'
+import { parseFundTable, normalizeDate } from '@/utils/importParser'
 import { generateId } from '@/utils/storage'
 
 const props = defineProps<{
@@ -48,12 +48,22 @@ const handleImport = () => {
       })
     }
     
-    const dateParts = row.date.split(/[-/]/)
-    const dateTimestamp = new Date(
-      parseInt(dateParts[0]),
-      parseInt(dateParts[1]) - 1,
-      parseInt(dateParts[2])
-    ).getTime()
+    // 日期已在 parseFundTable 中统一规范化为 YYYY-MM-DD
+    // 这里再做一次兜底，防止后续其他数据源调用时传入未规范化日期
+    const ymd = normalizeDate(row.date) || row.date
+    const dateParts = ymd.split(/-/)
+    const dateTimestamp = dateParts.length === 3
+      ? new Date(
+          parseInt(dateParts[0], 10),
+          parseInt(dateParts[1], 10) - 1,
+          parseInt(dateParts[2], 10)
+        ).getTime()
+      : new Date(ymd).getTime()
+
+    if (!dateTimestamp || isNaN(dateTimestamp)) {
+      // 日期解析失败时跳过本条，避免写入 NaN 导致批量导入整体失败
+      continue
+    }
     
     newTransactions.push({
       id: generateId(),
@@ -97,7 +107,7 @@ const handleImport = () => {
         <div class="p-5 overflow-y-auto space-y-4 flex-1">
           <div class="bg-primary-50 border border-primary-200 rounded-apple p-4 text-sm text-primary-700">
             <p class="font-medium mb-1">使用说明</p>
-            <p>从天天基金网或银行交易记录中复制表格数据，粘贴到下方输入框中。</p>
+            <p>从东方财富或银行交易记录中复制表格数据，粘贴到下方输入框中。</p>
             <p class="mt-1">支持格式：确认日期、权益代码、权益简称、业务类型、确认状态、确认份额、确认金额、手续费、确认净值
             <br>支持业务类型：买基金、定时定额投资（均作为买入处理）</p>
           </div>

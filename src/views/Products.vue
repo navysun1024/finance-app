@@ -1202,6 +1202,44 @@ const getTermDepositRemainingDays = (product: any): number => {
   return remainingDays
 }
 
+// 解析固收产品的持有期限为天数
+// 支持格式："90天"、"365天"、"6个月"、"1年"、"无固定期限"、空字符串 / "自定义/不填写"
+// 返回 null 表示"无期限"，不显示剩余天数；返回数字则为总天数
+const parseHoldingTermToDays = (term: string | undefined | null): number | null => {
+  if (!term) return null
+  const t = String(term).trim()
+  if (!t) return null
+  if (t.includes('无固定期限')) return null
+
+  // 匹配 年
+  const yearMatch = t.match(/^(\d+(?:\.\d+)?)\s*年$/)
+  if (yearMatch) return Math.round(parseFloat(yearMatch[1]) * 365)
+
+  // 匹配 个月
+  const monthMatch = t.match(/^(\d+(?:\.\d+)?)\s*个月$/)
+  if (monthMatch) return Math.round(parseFloat(monthMatch[1]) * 30)
+
+  // 匹配 天 / D（忽略大小写）
+  const dayMatch = t.match(/^(\d+(?:\.\d+)?)\s*(天|d|D)$/)
+  if (dayMatch) return Math.round(parseFloat(dayMatch[1]))
+
+  // 纯数字，默认按天处理
+  const pureNum = t.match(/^(\d+(?:\.\d+)?)$/)
+  if (pureNum) return Math.round(parseFloat(pureNum[1]))
+
+  return null
+}
+
+// 获取固收产品剩余天数：总期限天数 - 已持有天数；无期限或负值返回 null
+const getFixedIncomeRemainingDays = (product: any, position: any): number | null => {
+  if (!product || !position) return null
+  if (product.type !== 'fixed_income') return null
+  const total = parseHoldingTermToDays((product as any).holdingTerm)
+  if (total === null) return null
+  const held = position.holdingDays || 0
+  return Math.max(0, total - held)
+}
+
 // 格式化存款期限：超过1年显示年
 const formatDuration = (durationMonths: number): string => {
   if (!durationMonths || durationMonths <= 0) return '-'
@@ -2122,6 +2160,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id)">
                   <p class="text-[14px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
+                  <p 
+                    v-if="product.type === 'fixed_income' && getFixedIncomeRemainingDays(product, getPosition(product.id)) !== null" 
+                    class="text-[10px] text-apple-secondary mt-0.5"
+                  >
+                    剩余{{ getFixedIncomeRemainingDays(product, getPosition(product.id)) }}天
+                  </p>
                 </template>
                 <template v-else>
                   <p class="text-[13px] text-apple-secondary">-</p>
@@ -2259,7 +2303,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     class="text-[14px] font-semibold"
                     :class="(getDailyProfit(product) ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
-                    {{ (getDailyProfit(product) ?? 0) >= 0 ? '+' : '' }}{{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
+                    {{ (getDailyProfit(product) ?? 0) >= 0 ? '+' : '-' }}{{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
                   </p>
                 </template>
                 <template v-else>

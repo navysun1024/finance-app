@@ -80,6 +80,37 @@ const termDepositRemainingDays = computed(() => {
   return Math.max(0, totalDurationDays - elapsedDays)
 })
 
+// 解析固收产品的持有期限为天数
+const parseHoldingTermToDays = (term: string | undefined | null): number | null => {
+  if (!term) return null
+  const t = String(term).trim()
+  if (!t) return null
+  if (t.includes('无固定期限')) return null
+
+  const yearMatch = t.match(/^(\d+(?:\.\d+)?)\s*年$/)
+  if (yearMatch) return Math.round(parseFloat(yearMatch[1]) * 365)
+
+  const monthMatch = t.match(/^(\d+(?:\.\d+)?)\s*个月$/)
+  if (monthMatch) return Math.round(parseFloat(monthMatch[1]) * 30)
+
+  const dayMatch = t.match(/^(\d+(?:\.\d+)?)\s*(天|d|D)$/)
+  if (dayMatch) return Math.round(parseFloat(dayMatch[1]))
+
+  const pureNum = t.match(/^(\d+(?:\.\d+)?)$/)
+  if (pureNum) return Math.round(parseFloat(pureNum[1]))
+
+  return null
+}
+
+// 固收产品剩余天数（总期限天数 - 已持有天数）；无期限返回 null
+const fixedIncomeRemainingDays = computed<number | null>(() => {
+  const { product, holdingDays } = props.position
+  if (product.type !== 'fixed_income') return null
+  const total = parseHoldingTermToDays((product as any).holdingTerm)
+  if (total === null) return null
+  return Math.max(0, total - (holdingDays || 0))
+})
+
 // 格式化存款期限
 const formatDuration = (durationMonths: number): string => {
   if (!durationMonths || durationMonths <= 0) return '-'
@@ -240,6 +271,20 @@ const formatDuration = (durationMonths: number): string => {
             >
               {{ showProfitAmount ? (position.profit >= 0 ? '+' : '') + formatCurrency1(position.profit) : '****' }}
             </p>
+          </div>
+        </div>
+        <!-- 固收产品：一行 2 列（持有天数 + 剩余天数）-->
+        <div 
+          v-if="position.product.type === 'fixed_income' && (position.holdingDays !== undefined || fixedIncomeRemainingDays !== null)"
+          class="grid grid-cols-2 gap-x-2 mt-1 pt-1 border-t border-black/5"
+        >
+          <div v-if="position.holdingDays !== undefined" class="min-w-0">
+            <p class="text-apple-secondary/70 text-[10px]">持有天数</p>
+            <p class="text-[12px] font-semibold text-apple-text truncate">{{ position.holdingDays }} 天</p>
+          </div>
+          <div v-if="fixedIncomeRemainingDays !== null" class="min-w-0 text-left">
+            <p class="text-apple-secondary/70 text-[10px]">剩余天数</p>
+            <p class="text-[12px] font-semibold text-apple-text truncate">{{ fixedIncomeRemainingDays }} 天</p>
           </div>
         </div>
       </template>

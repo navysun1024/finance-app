@@ -171,7 +171,7 @@ const fetchNavByDate = async (product: Product, targetDate: string): Promise<num
     // 对于权益/基金类产品，使用fetchEquityNav获取
     if (product.type === 'equity' || product.type === 'fund' || navSource === 'tiantian') {
       const result = await fetchEquityNav(product.code)
-      console.log('[TransactionModal] 从天天基金获取净值:', result.nav)
+      console.log('[TransactionModal] 从东方财富获取净值:', result.nav)
       return result.nav
     }
     

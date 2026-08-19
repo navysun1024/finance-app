@@ -876,6 +876,26 @@ app.get('/api/fund/purchase-limit/:code', async (req, res) => {
   }
 })
 
+/**
+ * 获取基金最新净值
+ * 优先使用东方财富移动端APP API（净值更新更快30-60分钟），失败自动回退旧接口
+ * 返回: { nav, date, name, dailyReturn, purchaseLimitLabel }
+ */
+app.get('/api/fund/nav/:code', async (req, res) => {
+  const { code } = req.params
+  try {
+    if (!code || code.length < 6) {
+      return res.status(400).json({ error: '基金代码格式不正确' })
+    }
+    const result = await fetchFundNavServer(code)
+    log(`[API] 基金 ${code}(${result.name}) 净值查询: nav=${result.nav}, date=${result.date}, 日涨幅=${result.dailyReturn ?? '-'}`)
+    res.json(result)
+  } catch (e) {
+    log(`[API] 基金净值查询失败 - code: ${code}, 错误: ${e.message}`, 'ERROR')
+    res.status(500).json({ error: e.message || '净值查询失败' })
+  }
+})
+
 app.get('/products', authenticate, (req, res) => {
   db.all('SELECT * FROM products WHERE userId = ? ORDER BY createdAt DESC', [req.userId], (err, rows) => {
     if (err) {
@@ -1052,10 +1072,25 @@ app.post('/batch-import', authenticate, (req, res) => {
   result.products.total = products?.length || 0
   result.transactions.total = transactions?.length || 0
 
+  // 响应头重复发送保护：错误发生后立即标记，避免第二次 res.json 抛 ERR_HTTP_HEADERS_SENT
+  let responded = false
+  function fail(status, payload) {
+    if (responded) return
+    responded = true
+    db.run('ROLLBACK', () => {
+      res.status(status).json(payload)
+    })
+  }
+  function ok(payload) {
+    if (responded) return
+    responded = true
+    res.json(payload)
+  }
+
   db.run('BEGIN TRANSACTION', (err) => {
     if (err) {
       log(`批量导入 - 事务开始失败: ${err.message}`, 'ERROR')
-      return res.status(500).json({ success: false, error: '事务开始失败' })
+      return fail(500, { success: false, error: '事务开始失败' })
     }
 
     const existingProductCodeMap = new Map()
@@ -1064,8 +1099,7 @@ app.post('/batch-import', authenticate, (req, res) => {
     db.all('SELECT id, code FROM products WHERE userId = ?', [req.userId], (err, existingProducts) => {
       if (err) {
         log(`批量导入 - 查询已有产品失败: ${err.message}`, 'ERROR')
-        db.run('ROLLBACK')
-        return res.status(500).json({ success: false, error: '查询已有产品失败' })
+        return fail(500, { success: false, error: '查询已有产品失败' })
       }
 
       existingProducts.forEach((p) => {
@@ -1080,7 +1114,8 @@ app.post('/batch-import', authenticate, (req, res) => {
         return
       }
 
-      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      // 18 列 + 18 个占位符，数量必须严格一致
+      const stmtProduct = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       let productDone = 0
 
       products.forEach((product) => {
@@ -1096,20 +1131,40 @@ app.post('/batch-import', authenticate, (req, res) => {
           return
         }
 
-        stmtProduct.run(product.id, req.userId, product.name, product.type, product.code || '', product.note || '', product.holder || '', product.dcaAmount || 0, product.dcaCycle || '', product.navSource || '', product.holdingTerm || '', product.createdAt, product.interestRate || 0, product.durationMonths || 0, product.minAmount || 0, product.maturityDate || '', product.interestMethod || '', product.bankName || '', (err) => {
-          if (err) {
-            log(`批量导入 - 产品插入失败: ${product.name}, 错误: ${err.message}`, 'ERROR')
-            db.run('ROLLBACK')
-            return res.status(500).json({ success: false, error: `产品「${product.name}」插入失败: ${err.message}` })
+        // 显式提供 18 个字段值，顺序与列清单严格对应
+        stmtProduct.run(
+          product.id,
+          req.userId,
+          product.name,
+          product.type,
+          product.code || '',
+          product.note || '',
+          product.holder || '',
+          product.dcaAmount || 0,
+          product.dcaCycle || '',
+          product.navSource || '',
+          product.holdingTerm || '',
+          product.createdAt || Date.now(),
+          product.interestRate || 0,
+          product.durationMonths || 0,
+          product.minAmount || 0,
+          product.maturityDate || '',
+          product.interestMethod || '',
+          product.bankName || '',
+          (err) => {
+            if (err) {
+              log(`批量导入 - 产品插入失败: ${product.name}, 错误: ${err.message}`, 'ERROR')
+              return fail(500, { success: false, error: `产品「${product.name}」插入失败: ${err.message}` })
+            }
+            result.products.imported++
+            productCodeMap.set(product.code, product.id)
+            productDone++
+            if (productDone === products.length) {
+              stmtProduct.finalize()
+              processTransactions()
+            }
           }
-          result.products.imported++
-          productCodeMap.set(product.code, product.id)
-          productDone++
-          if (productDone === products.length) {
-            stmtProduct.finalize()
-            processTransactions()
-          }
-        })
+        )
       })
     })
 
@@ -1118,10 +1173,41 @@ app.post('/batch-import', authenticate, (req, res) => {
         db.run('COMMIT', (err) => {
           if (err) {
             log(`批量导入 - 提交事务失败: ${err.message}`, 'ERROR')
-            return res.status(500).json({ success: false, error: '提交事务失败' })
+            return fail(500, { success: false, error: '提交事务失败' })
           }
           log(`批量导入完成 - 用户: ${req.userId}, 产品: 导入${result.products.imported}/跳过${result.products.skipped}, 交易: 导入${result.transactions.imported}/跳过${result.transactions.skipped}`)
-          res.json(result)
+          ok(result)
+        })
+        return
+      }
+
+      // 后端兜底：清理非法 date（NaN/null/undefined/非数字），避免命中 NOT NULL 约束
+      // date 字段是 INTEGER NOT NULL，存毫秒时间戳
+      const validTransactions = []
+      for (const t of transactions) {
+        const d = Number(t.date)
+        if (!Number.isFinite(d) || d <= 0) {
+          result.transactions.skipped++
+          const productName = (products?.find((p) => p.code === t.productCode)?.name) || (products?.find((p) => p.id === t.productId)?.name) || '未知产品'
+          result.transactions.skippedDetails.push({
+            productName,
+            date: '(日期格式异常)',
+            amount: t.amount
+          })
+          continue
+        }
+        validTransactions.push({ ...t, date: d })
+      }
+
+      if (validTransactions.length === 0) {
+        // 没有有效交易，直接提交产品结果
+        db.run('COMMIT', (err) => {
+          if (err) {
+            log(`批量导入 - 提交事务失败: ${err.message}`, 'ERROR')
+            return fail(500, { success: false, error: '提交事务失败' })
+          }
+          log(`批量导入完成(无有效交易) - 用户: ${req.userId}, 产品: 导入${result.products.imported}/跳过${result.products.skipped}, 交易: 导入${result.transactions.imported}/跳过${result.transactions.skipped}`)
+          ok(result)
         })
         return
       }
@@ -1130,8 +1216,7 @@ app.post('/batch-import', authenticate, (req, res) => {
       db.all('SELECT productId, date, type, amount FROM transactions WHERE userId = ?', [req.userId], (err, existingTx) => {
         if (err) {
           log(`批量导入 - 查询已有交易失败: ${err.message}`, 'ERROR')
-          db.run('ROLLBACK')
-          return res.status(500).json({ success: false, error: '查询已有交易失败' })
+          return fail(500, { success: false, error: '查询已有交易失败' })
         }
 
         existingTx.forEach((t) => {
@@ -1141,7 +1226,7 @@ app.post('/batch-import', authenticate, (req, res) => {
         const stmtTx = db.prepare('INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         let txDone = 0
 
-        transactions.forEach((t) => {
+        validTransactions.forEach((t) => {
           const realProductId = productCodeMap.get(t.productCode) || t.productId
           const txKey = `${realProductId}-${t.date}-${t.type}-${t.amount}`
 
@@ -1154,7 +1239,7 @@ app.post('/batch-import', authenticate, (req, res) => {
               amount: t.amount
             })
             txDone++
-            if (txDone === transactions.length) {
+            if (txDone === validTransactions.length) {
               stmtTx.finalize()
               finishImport()
             }
@@ -1164,13 +1249,12 @@ app.post('/batch-import', authenticate, (req, res) => {
           stmtTx.run(t.id, req.userId, realProductId, t.type, t.date, t.amount, t.price, t.shares, t.fee || 0, t.note || '', (err) => {
             if (err) {
               log(`批量导入 - 交易插入失败: ${err.message}`, 'ERROR')
-              db.run('ROLLBACK')
-              return res.status(500).json({ success: false, error: `交易插入失败: ${err.message}` })
+              return fail(500, { success: false, error: `交易插入失败: ${err.message}` })
             }
             result.transactions.imported++
             existingTxSet.add(txKey)
             txDone++
-            if (txDone === transactions.length) {
+            if (txDone === validTransactions.length) {
               stmtTx.finalize()
               finishImport()
             }
@@ -1183,10 +1267,10 @@ app.post('/batch-import', authenticate, (req, res) => {
       db.run('COMMIT', (err) => {
         if (err) {
           log(`批量导入 - 提交事务失败: ${err.message}`, 'ERROR')
-          return res.status(500).json({ success: false, error: '提交事务失败' })
+          return fail(500, { success: false, error: '提交事务失败' })
         }
         log(`批量导入完成 - 用户: ${req.userId}, 产品: 导入${result.products.imported}/跳过${result.products.skipped}, 交易: 导入${result.transactions.imported}/跳过${result.transactions.skipped}`)
-        res.json(result)
+        ok(result)
       })
     }
   })
@@ -1535,9 +1619,67 @@ async function fetchFundPurchaseLimit(fundCode) {
 }
 
 /**
- * 从东方财富获取基金净值（服务端直接调用，无需 Vite 代理）
+ * 从东方财富获取基金净值（服务端直接调用）
+ * 优先使用移动端 APP API（更新更快），失败时回退到 pingzhongdata 旧接口
  */
 async function fetchFundNavServer(fundCode) {
+  try {
+    return await fetchFundNavMobile(fundCode)
+  } catch (e) {
+    log(`[净值] 基金 ${fundCode} 移动端API查询失败: ${e.message}，回退到旧接口`, 'WARN')
+    return await fetchFundNavLegacy(fundCode)
+  }
+}
+
+/**
+ * 东方财富移动端 APP API - 净值更新比 pingzhongdata 快 30-60 分钟
+ */
+async function fetchFundNavMobile(fundCode) {
+  const deviceId = `web-svr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?pageIndex=1&pageSize=10&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=${encodeURIComponent(deviceId)}&Fcodes=${encodeURIComponent(fundCode)}`
+  const { status, data: text } = await httpRequest(url, {
+    headers: {
+      'Referer': 'https://fund.eastmoney.com/',
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+    }
+  })
+
+  if (status !== 200 || !text) {
+    throw new Error(`基金 ${fundCode} 移动端API请求失败 (HTTP ${status})`)
+  }
+
+  let result
+  try {
+    result = JSON.parse(text)
+  } catch (e) {
+    throw new Error(`基金 ${fundCode} 移动端API返回非JSON格式`)
+  }
+
+  if (!result || !result.Success || !result.Datas || result.Datas.length === 0) {
+    throw new Error(`基金 ${fundCode} 移动端API返回无有效数据`)
+  }
+
+  const fundData = result.Datas.find(d => d.FCODE === fundCode)
+  if (!fundData || !fundData.NAV) {
+    throw new Error(`基金 ${fundCode} 移动端API未找到净值数据`)
+  }
+
+  const nav = parseFloat(fundData.NAV)
+  const dateStr = fundData.PDATE || ''
+  const fundName = fundData.SHORTNAME || ''
+  const dailyReturn = fundData.NAVCHGRT ? parseFloat(fundData.NAVCHGRT) : null
+
+  // 并行获取限购信息
+  const { purchaseLimitLabel } = await fetchFundPurchaseLimit(fundCode)
+
+  log(`[净值] 基金 ${fundCode}(${fundName}) 移动端API查询成功: nav=${nav}, date=${dateStr}, dailyReturn=${dailyReturn}`)
+  return { nav, date: dateStr, name: fundName, dailyReturn, purchaseLimitLabel }
+}
+
+/**
+ * 旧的 pingzhongdata 接口，作为回退方案
+ */
+async function fetchFundNavLegacy(fundCode) {
   const url = `https://fund.eastmoney.com/pingzhongdata/${fundCode}.js`
   const { status, data: text } = await httpRequest(url, {
     headers: {
@@ -1567,18 +1709,17 @@ async function fetchFundNavServer(fundCode) {
   const lastDate = new Date(last.x)
   const dateStr = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}-${String(lastDate.getDate()).padStart(2, '0')}`
 
-  // 计算当日收益率（与上一个交易日净值对比）
   let dailyReturn = null
   if (trendData.length >= 2) {
     const prev = trendData[trendData.length - 2]
     if (prev.y > 0) {
-      dailyReturn = Math.round(((last.y - prev.y) / prev.y) * 10000) / 100 // 百分比，保留两位小数
+      dailyReturn = Math.round(((last.y - prev.y) / prev.y) * 10000) / 100
     }
   }
 
-  // 并行获取限购信息
   const { purchaseLimitLabel } = await fetchFundPurchaseLimit(fundCode)
 
+  log(`[净值] 基金 ${fundCode}(${fundName}) 旧接口查询成功: nav=${last.y}, date=${dateStr}, dailyReturn=${dailyReturn}`)
   return { nav: last.y, date: dateStr, name: fundName, dailyReturn, purchaseLimitLabel }
 }
 
@@ -1805,7 +1946,7 @@ async function runNavUpdate() {
           
           if (navSrc === 'tiantian') {
             result = await fetchFundNavServer(product.code)
-            sourceLabel = '天天基金'
+            sourceLabel = '东方财富'
           } else if (navSrc === 'icbc') {
             result = await fetchIcbcNavServer(product.code, userId)
             sourceLabel = '工银理财'
@@ -2295,7 +2436,7 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
     if (!product) return res.status(404).json({ error: '产品不存在' })
     // 支持基金产品，以及 navSource 为 tiantian 的固收产品
     if (product.type !== 'equity' && product.type !== 'fund' && product.navSource !== 'tiantian') {
-      return res.status(400).json({ error: '仅基金产品或天天基金数据源的产品支持此功能' })
+      return res.status(400).json({ error: '仅基金产品或东方财富数据源的产品支持此功能' })
     }
     if (!product.code) return res.status(400).json({ error: '产品代码缺失' })
 

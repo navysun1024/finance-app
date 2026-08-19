@@ -211,7 +211,7 @@ const handleSubmit = () => {
           <div v-if="type !== 'term_deposit'">
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
               产品代码
-              <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（权益代码支持从天天基金网查询净值）</span>
+              <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（权益代码支持从东方财富查询净值）</span>
             </label>
             <input 
               v-model="code"

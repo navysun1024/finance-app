@@ -27,56 +27,100 @@ export async function fetchEquityPurchaseLimit(equityCode: string): Promise<stri
 export async function fetchEquityNav(equityCode: string): Promise<NavResult> {
   logger.info(`查询权益净值, code: ${equityCode}`)
   return logger.withTiming(`fetchEquityNav(${equityCode})`, async () => {
-    const url = `/api/pingzhongdata/pingzhongdata/${equityCode}.js`
+    try {
+      // 优先走后端统一封装接口：/api/db/api/fund/nav/${code}
+      // 后端内部实现：优先东方财富移动端APP API（净值更新快30-60分钟）+ 失败自动回退 pingzhongdata 旧接口
+      // 由后端 HTTPS 直连，彻底避免前端 Vite/Nginx 双端代理配置问题
+      const url = `/api/db/api/fund/nav/${encodeURIComponent(equityCode)}`
+      const response = await fetch(url)
 
-    const response = await fetch(url)
-    const text = await response.text()
-
-    if (!text || text.length < 100) {
-      logger.warn(`权益 ${equityCode} 数据为空, 响应长度: ${text?.length || 0}`)
-      throw new Error(`权益 ${equityCode} 数据为空`)
-    }
-
-    const nameMatch = text.match(/var Data_fundName\s*=\s*['"]([^'"]+)['"]/)
-    const equityName = nameMatch ? nameMatch[1] : ''
-
-    const trendMatch = text.match(/var Data_netWorthTrend\s*=\s*(\[[\s\S]+?\]);/)
-    if (!trendMatch) {
-      logger.error(`权益 ${equityCode} 净值趋势数据解析失败`)
-      throw new Error(`权益 ${equityCode} 净值趋势数据解析失败`)
-    }
-
-    const data = JSON.parse(trendMatch[1])
-    if (!data || data.length === 0) {
-      logger.warn(`权益 ${equityCode} 暂无净值数据`)
-      throw new Error(`权益 ${equityCode} 暂无净值数据`)
-    }
-
-    const last = data[data.length - 1]
-    const lastDate = new Date(last.x)
-    const dateStr = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}-${String(lastDate.getDate()).padStart(2, '0')}`
-
-    // 计算当日收益率（与上一个交易日净值对比）
-    let dailyReturn: number | null = null
-    if (data.length >= 2) {
-      const prev = data[data.length - 2]
-      if (prev.y > 0) {
-        dailyReturn = Math.round(((last.y - prev.y) / prev.y) * 10000) / 100
+      if (!response.ok) {
+        let errMsg = `HTTP ${response.status}`
+        try {
+          const errJson = await response.json()
+          if (errJson?.error) errMsg = errJson.error
+        } catch (_) {}
+        throw new Error(errMsg)
       }
-    }
 
-    // 并行获取限购信息
-    const purchaseLimitLabel = await fetchEquityPurchaseLimit(equityCode)
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('json')) {
+        throw new Error(`后端返回非JSON (content-type: ${contentType})，回退到直连查询`)
+      }
 
-    logger.info(`权益 ${equityCode} 净值查询成功: nav=${last.y}, date=${dateStr}, name=${equityName}, dailyReturn=${dailyReturn}, limit=${purchaseLimitLabel}`)
-    return {
-      nav: last.y,
-      date: dateStr,
-      name: equityName,
-      dailyReturn,
-      purchaseLimitLabel
+      const result = await response.json()
+
+      if (!result || typeof result.nav !== 'number' || !result.date) {
+        throw new Error(`后端返回数据格式异常`)
+      }
+
+      logger.info(`权益 ${equityCode} 净值查询成功(后端API): nav=${result.nav}, date=${result.date}, name=${result.name}, dailyReturn=${result.dailyReturn}, limit=${result.purchaseLimitLabel}`)
+      return {
+        nav: result.nav,
+        date: result.date,
+        name: result.name || '',
+        dailyReturn: result.dailyReturn ?? null,
+        purchaseLimitLabel: result.purchaseLimitLabel || ''
+      }
+    } catch (e: any) {
+      // 后端接口异常时（如 db-server 未启动），回退到前端直连旧接口兜底
+      logger.warn(`权益 ${equityCode} 后端封装接口失败(${e?.message || '未知错误'})，回退前端直连查询`)
+      return await fetchEquityNavLegacy(equityCode)
     }
   })
+}
+
+/**
+ * 旧的 pingzhongdata 接口，作为回退方案
+ */
+async function fetchEquityNavLegacy(equityCode: string): Promise<NavResult> {
+  const url = `/api/pingzhongdata/pingzhongdata/${equityCode}.js`
+
+  const response = await fetch(url)
+  const text = await response.text()
+
+  if (!text || text.length < 100) {
+    logger.warn(`权益 ${equityCode} 旧接口数据为空, 响应长度: ${text?.length || 0}`)
+    throw new Error(`权益 ${equityCode} 数据为空`)
+  }
+
+  const nameMatch = text.match(/var Data_fundName\s*=\s*['"]([^'"]+)['"]/)
+  const equityName = nameMatch ? nameMatch[1] : ''
+
+  const trendMatch = text.match(/var Data_netWorthTrend\s*=\s*(\[[\s\S]+?\]);/)
+  if (!trendMatch) {
+    logger.error(`权益 ${equityCode} 旧接口净值趋势数据解析失败`)
+    throw new Error(`权益 ${equityCode} 净值趋势数据解析失败`)
+  }
+
+  const data = JSON.parse(trendMatch[1])
+  if (!data || data.length === 0) {
+    logger.warn(`权益 ${equityCode} 旧接口暂无净值数据`)
+    throw new Error(`权益 ${equityCode} 暂无净值数据`)
+  }
+
+  const last = data[data.length - 1]
+  const lastDate = new Date(last.x)
+  const dateStr = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}-${String(lastDate.getDate()).padStart(2, '0')}`
+
+  let dailyReturn: number | null = null
+  if (data.length >= 2) {
+    const prev = data[data.length - 2]
+    if (prev.y > 0) {
+      dailyReturn = Math.round(((last.y - prev.y) / prev.y) * 10000) / 100
+    }
+  }
+
+  const purchaseLimitLabel = await fetchEquityPurchaseLimit(equityCode)
+
+  logger.info(`权益 ${equityCode} 净值查询成功(旧接口): nav=${last.y}, date=${dateStr}, name=${equityName}, dailyReturn=${dailyReturn}, limit=${purchaseLimitLabel}`)
+  return {
+    nav: last.y,
+    date: dateStr,
+    name: equityName,
+    dailyReturn,
+    purchaseLimitLabel
+  }
 }
 
 export async function fetchCmbNav(productCode: string): Promise<NavResult> {

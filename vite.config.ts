@@ -66,6 +66,20 @@ export default defineConfig({
           })
         }
       },
+      '/api/fundmobapi': {
+        target: 'https://fundmobapi.eastmoney.com',
+        changeOrigin: true,
+        followRedirects: true,
+        rewrite: (path) => path.replace(/^\/api\/fundmobapi/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            try {
+              proxyReq.setHeader('Referer', 'https://fund.eastmoney.com/')
+              proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36')
+            } catch (_) {}
+          })
+        }
+      },
       '/api/scrape': {
         target: 'http://localhost:3001',
         changeOrigin: true,

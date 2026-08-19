@@ -12,6 +12,7 @@
 - **持仓穿透**：自动抓取基金股票持仓，按持有权益加权聚合展示
 - **限购信息自动同步**：从东方财富基金 F10 抓取并合并到产品备注
 - **可视化图表**：资产分布饼图、收益/市值趋势、净值走势（含基准对比）、阶段涨幅、持仓穿透柱图等 ECharts 图表
+- **多产品对比**：支持权益/固收产品收益率与净值走势叠加对比，差异一目了然
 - **批量导入 / 导出**：Excel/JSON 导入、JSON 备份、Excel 报表
 - **用户认证**：注册/登录、bcrypt 密码哈希、24h 会话、速率限制、多用户数据隔离
 - **响应式 UI**：Tailwind CSS，移动端+PC 端深度优化；支持深浅主题
@@ -25,16 +26,23 @@
 | **Vue Router** | 4.3.0 | 路由管理（含导航守卫） |
 | **TypeScript** | 5.4.5 | 类型系统 |
 | **Vite** | 5.2.8 | 构建与开发服务器 |
+| **@vitejs/plugin-vue** | 6.0.7 | Vite Vue 单文件组件插件 |
+| **vue-tsc** | 2.0.0 | Vue TypeScript 类型检查 |
 | **Tailwind CSS** | 3.4.14 | 原子化样式框架 |
+| **PostCSS** | 8.4.35 | CSS 后处理器 |
+| **Autoprefixer** | 10.4.17 | CSS 自动前缀 |
 | **ECharts** | 5.5.0 | 数据可视化图表 |
 | **Lucide Vue Next** | 0.31.0 | SVG 图标库 |
 | **XLSX** | 0.18.5 | Excel 文件生成/解析 |
 | **Express** | 5.2.1 | 后端 HTTP 框架 |
+| **cors** | 2.8.6 | Express 跨域中间件 |
 | **SQLite3** | 6.0.1 | 后端数据库 |
 | **sql.js** | 1.14.1 | 浏览器端 SQLite（保留模块） |
 | **Puppeteer** | 25.1.0 | 招银理财 / 工银理财 网页爬虫 |
 | **bcryptjs** | 3.0.3 | 密码加密 |
 | **Axios** | 1.16.1 | HTTP 请求 |
+| **@types/node** | 20.11.0 | Node.js TypeScript 类型定义 |
+| **@types/bcryptjs** | 2.4.6 | bcryptjs TypeScript 类型定义 |
 | **Node** | >= 22 | 运行环境（Puppeteer 25 要求） |
 
 ## 快速开始
@@ -107,6 +115,7 @@ NAS 部署注意：
 │   │   ├── TransactionCard.vue             # 交易记录卡片（净值更新双行布局）
 │   │   └── TransactionModal.vue            # 交易记录编辑弹窗
 │   ├── composables/
+│   │   ├── useCompare.ts             # 产品对比逻辑（组合、区间年化、净值对齐）
 │   │   └── useFinance.ts             # 核心业务逻辑（状态 / 盈亏 / XIRR / 汇总）
 │   ├── router/
 │   │   └── index.ts                  # Vue Router 配置
@@ -124,6 +133,7 @@ NAS 部署注意：
 │   │   ├── storage.ts                # 后端 API（HTTP fetch + Bearer Token）
 │   │   └── xirr.ts                   # XIRR 牛顿迭代算法
 │   ├── views/
+│   │   ├── Compare.vue               # 产品对比页（净值走势 + 区间年化 并排对比）
 │   │   ├── Dashboard.vue             # 仪表盘（汇总卡 / 饼图 / 趋势图）
 │   │   ├── Login.vue                 # 登录
 │   │   ├── ProductDetail.vue         # 产品详情（净值走势+基准 / 阶段涨幅 / 交易）
@@ -133,7 +143,11 @@ NAS 部署注意：
 │   │   └── Transactions.vue          # 交易记录总览
 │   ├── App.vue
 │   ├── main.ts
+│   ├── sqljs.d.ts                    # sql.js TypeScript 类型声明
 │   └── style.css
+├── scripts/                          # 辅助脚本
+│   ├── export_holdings.mjs           # 持仓穿透数据导出脚本（v1）
+│   └── export_holdings_v2.mjs        # 持仓穿透数据导出脚本（v2）
 ├── server/
 │   ├── db-server.js                  # Express API 服务 + 净值调度器（:3002）
 │   ├── scraper.mjs                   # Puppeteer 爬虫（招银/工银 :3001）
@@ -147,13 +161,20 @@ NAS 部署注意：
 ├── public/                           # 静态资源（sql.js WASM、favicon）
 ├── Dockerfile                        # Node:22-alpine + Chromium + Nginx 单容器构建
 ├── docker-compose.yml                # 生产编排
+├── docker-entrypoint.sh              # Docker 容器入口脚本
 ├── nginx.conf                        # 静态文件 + /api 反向代理
-├── docker-entrypoint.sh
 ├── start.sh                          # macOS / Linux 开发环境一键启停
-├── vite.config.ts                    # Vite + 9 条 API 代理规则
-├── tailwind.config.js
-├── tsconfig.json
+├── vite.config.ts                    # Vite + 7 条 API 代理规则
+├── tailwind.config.js                # Tailwind 主题配置
+├── postcss.config.js                 # PostCSS 配置
+├── tsconfig.json                     # TypeScript 配置
+├── tsconfig.node.json                # TypeScript Node 环境配置
 ├── package.json
+├── package-lock.json
+├── CHANGELOG.md                      # 版本变更记录
+├── test_full_import.mjs              # 批量导入完整性测试脚本
+├── .dockerignore
+├── .gitignore
 └── index.html
 ```
 
@@ -176,46 +197,50 @@ type ProductType =
 
 > 这是本项目最核心的"动态数据"部分。所有外部请求会通过缓存层（SQLite `data_cache` 表 + 前端 indexApi.ts localStorage 缓存）去重。
 
-### 一、权益产品净值 + 限购（天天基金 / 东方财富）
+### 一、权益产品净值 + 限购（东方财富移动端 + 旧接口回退）
 
-| 数据项 | 获取端 | 触发条件 | 接口 / 代理路径 | 目标 URL | 缓存 |
+| 数据项 | 获取端 | 触发条件 | 接口 / 代理路径 | 目标 URL / 实现 | 缓存 |
 |---|---|---|---|---|---|
-| **历史净值曲线** | 前端 equityApi.ts [fetchEquityNav](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L27) | 详情页加载、净值走势刷新、回填历史 | `/api/pingzhongdata/pingzhongdata/{code}.js` | `https://fund.eastmoney.com/pingzhongdata/{code}.js` | 不落缓存，随调随取 |
-| **最新净值 + 名称 + 当日收益** | 后端 db-server.js `fetchTiantianNav`（调度时） | 定时调度、手动触发、产品列表页手动更新 | 后端直连 `fundgz.1234567.com.cn/{code}.js` | `http://fundgz.1234567.com.cn/js/{code}.js` | — |
-| **限购信息（暂停/单日上限/不限购）** | 后端 [fetchFundPurchaseLimit](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L1491) | 净值查询时**并行**触发；即使当日净值已存在也执行 | 后端直连 `fundf10.eastmoney.com/jbgk_{code}.html` | `http://fundf10.eastmoney.com/jbgk_{code}.html` | 结果合并到 `products.note` 持久化 |
-| **阶段涨幅（1w/1m/3m/6m/1y/2y/3y/ytd）** | 前端 equityApi.ts [fetchEquityStageGains](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L206) | 详情页阶段涨幅卡片加载、批量加载 | `/api/db/fund/stage-gains/:code` → 后端 `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jdzf` | `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jdzf&code={code}` | SQLite `data_cache`（`fund_stage_gains_{code}`，TTL 24h） |
-| **基金持仓（前十大重仓股 + 资产配置）** | 前端 equityApi.ts [fetchEquityHoldings](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L287) | 产品列表「持仓穿透」展开、详情页持仓 | `/api/db/fund/holdings/:code` → 后端 `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc` | `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code={code}&topline=10` | SQLite `data_cache`（`fund_holdings_{code}`，TTL 到下季季报发布后 30 天） |
-| **持仓穿透聚合（多只基金按持有权益加权）** | 前端 [fetchAggregatedHoldings](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L350) | 产品列表页持仓穿透展开 | `/api/db/equity/aggregated-holdings?funds=id1,id2`（后端组合，不直连外部） | — | 按基金组合哈希缓存 |
+| **历史净值曲线** | 前端 equityApi.ts [fetchEquityNav](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L27) | 详情页加载、净值走势刷新、回填历史 | 优先 `/api/db/api/fund/nav/{code}`（后端统一封装，HTTPS直连）；失败回退 `/api/pingzhongdata/pingzhongdata/{code}.js` | 后端 `fetchFundNavServer`：①东方财富移动端 APP API（净值更新快 30–60min）→ ②回退 `https://fund.eastmoney.com/pingzhongdata/{code}.js` | 详情页回填历史通过 `POST /fund/backfill-nav/:productId` 走 pingzhongdata，不落缓存 |
+| **最新净值 + 名称 + 当日收益** | 后端 db-server.js `fetchFundNavServer`（调度时） | 定时调度、手动触发、产品列表页手动更新 | 后端 `/api/fund/nav/:code` → 前端封装 `/api/db/api/fund/nav/{code}` | ①优先：`https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo`（移动端APP API）；②失败回退：`https://fund.eastmoney.com/pingzhongdata/{code}.js` | — |
+| **限购信息（暂停/单日上限/不限购）** | 后端 `fetchFundPurchaseLimit`（在净值接口**内部串行返回**） | 随净值查询**一同返回**；即使当日净值已存在，调度器仍会独立更新 `products.note` | 后端直连 `fundf10.eastmoney.com/jbgk_{code}.html`（在 fetchFundNavMobile / fetchFundNavLegacy 内部调用） | `http://fundf10.eastmoney.com/jbgk_{code}.html` | 结果合并到 `products.note` 持久化，格式如 `单日上限5万元` / `暂停申购` / `不限购` |
+| **阶段涨幅（1w/1m/3m/6m/1y/2y/3y/ytd）** | 前端 equityApi.ts [fetchEquityStageGains](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L250) | 详情页阶段涨幅卡片加载、批量加载 | `/api/db/fund/stage-gains/:code` → 后端 `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jdzf` | `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jdzf&code={code}` | SQLite `data_cache`（`fund_stage_gains_{code}`，TTL 24h） |
+| **基金持仓（前十大重仓股 + 资产配置）** | 前端 equityApi.ts [fetchEquityHoldings](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L331) | 产品列表「持仓穿透」展开、详情页持仓 | `/api/db/fund/holdings/:code` → 后端 `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc` | `http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code={code}&topline=10` | SQLite `data_cache`（`fund_holdings_{code}`，TTL 到下季季报发布后 30 天；数据过旧时自动匹配目标 ETF 替代） |
+| **持仓穿透聚合（多只基金按持有权益加权）** | 前端 [fetchAggregatedHoldings](file:///Users/haijun/Documents/Financial/app/src/utils/equityApi.ts#L394) | 产品列表页持仓穿透展开 | `/api/db/equity/aggregated-holdings?funds=id1,id2`（后端组合，不直连外部） | — | 按基金组合哈希缓存 |
 
 ### 二、固收理财产品净值（Puppeteer 爬虫）
 
-| 数据项 | 触发条件 | 爬虫服务路由 | 目标站点 / 页面 | 单请求超时 |
+| 数据项 | 触发条件 | 路由（前端 → 后端 → 爬虫） | 目标站点 / 页面 | 超时（爬虫内部 / db-server 外层） |
 |---|---|---|---|---|
-| **招银理财 最新净值** | 调度 / 手动 / 产品列表页更新（`navSource==='cmb'`） | `GET /api/scrape/cmb?code={code}` | `https://cfweb.paas.cmbchina.com/personal/prodvalue` （搜索→详情） | 3 分钟 |
-| **招银理财 历史净值（翻页）** | 详情页手动回填历史（`navSource==='cmb'`，调度不执行历史） | `GET /api/db/cmb/nav-history/{code}`（后端调爬虫 `cmb/history`） | 同上（点击"下一页"翻到指定页） | 10 分钟 |
-| **招银 批量净值** | 调度器批量（`navSource==='cmb'`） | `GET /api/scrape/cmb/batch?codes=a,b,c` | 同上 | 3 分钟 / 批 |
-| **工银理财 最新净值** | 调度 / 手动（`navSource==='icbc'`） | `GET /api/scrape/icbc?code={code}` | `https://wm.icbc.com.cn/netWorthDisclosure` （红按钮搜索区→新详情页） | 3 分钟 |
-| **工银理财 历史净值** | 详情页手动回填（`navSource==='icbc'`，调度不执行历史） | `GET /api/scrape/icbc/history?code={code}&maxPages=N` | 同上（详情页翻页） | 10 分钟 |
+| **招银理财 最新净值** | 调度 / 手动 / 产品列表页更新（`navSource==='cmb'`） | 前端 `/api/scrape/cmb?code={code}` → 爬虫 `GET /api/scrape/cmb` | `https://cfweb.paas.cmbchina.com/personal/prodvalue` （搜索→详情） | **45s / 3min** |
+| **招银理财 历史净值（翻页）** | 详情页手动回填历史（`navSource==='cmb'`，调度不执行历史） | 前端 `/api/db/cmb/nav-history/{code}?maxPages=N` → 后端 `GET /cmb/nav-history/:code` → 爬虫 `GET /api/scrape/cmb/history` | 同上（点击"下一页"翻到指定页） | **5min / 10min** |
+| **招银 批量净值** | 调度器批量（`navSource==='cmb'`） | 前端 `/api/scrape/cmb/batch?codes=a,b,c` → 爬虫 `GET /api/scrape/cmb/batch` | 同上 | 每产品 20s / 批 |
+| **工银理财 最新净值** | 调度 / 手动（`navSource==='icbc'`） | 前端 `/api/scrape/icbc?code={code}` → 爬虫 `GET /api/scrape/icbc` | `https://wm.icbc.com.cn/netWorthDisclosure` （红按钮搜索区→新详情页） | **90s（重试 180s） / 3min** |
+| **工银理财 历史净值** | 详情页手动回填（`navSource==='icbc'`，调度不执行历史） | 前端 `/api/scrape/icbc/history?code={code}&maxPages=N` → 爬虫 `GET /api/scrape/icbc/history` | 同上（详情页翻页） | 爬虫内部 3min / — |
 
 **爬虫关键约定**：
 - 调度器**只跑最新净值**，不做历史 API 调用；历史回填必须由用户在详情页手动触发
 - CMB 历史页爬取采用 `elementHandle.evaluate(el => el.click())`，避免 puppeteer `click()` 在 headless 中卡住
+- 所有爬虫接口支持 `mock` 参数（未启动 Chromium 时返回模拟数据兜底）
 
 ### 三、定期存款
 
-- 定存产品**无外部 API**；当日收益 = 本金 × 年利率 / 365，在前端 `useFinance.ts` 中直接计算
-- 定存产品**不展示详情页**；PC 与移动端列表点击均禁止跳转到 `ProductDetail`
+- 定存产品**无外部 API**；当日收益 = 本金 × 年利率 / 365（**到期后收益 = 0**），在前端 `useFinance.ts` 中直接计算
+- 定存产品**不展示详情页**；PC 与移动端列表点击均禁止跳转到 `ProductDetail`（卡片层 `@click` 条件拦截 + 无路由守卫兜底）
+- 起始日期计算优先级：①有交易记录 → 首次买入日期；②无交易但有到期日+期限 → 到期日 - 存款期限；③其他 → 创建日期
 
 ### 四、业绩比较基准指数（走势图对比）
 
 | 指数代码 | 数据来源 | 获取端 | 触发条件 | 目标 URL |
 |---|---|---|---|---|
-| **00xxxx 股票指数**（000906 中证800 / 000300 沪深300 / 000905 中证500 / 000923 公司债指数 等） | **腾讯 K 线 API**（原 push2his.eastmoney.com 已封锁） | 后端 [fetchFromTencent](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L2820) | 净值走势图加载时基准公式解析出该指数 | `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh{code},day,,,1000,qfq` |
-| **H 开头债券指数**（如 H11001 中证全债） | 中证指数官网 API | 后端 [fetchFromCsindex](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L2855) | 同上 | `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=H11001&startDate=10年前&endDate=今天` |
+| **00xxxx 股票指数**（硬编码支持：`000906` 中证800 / `000300` 沪深300 / `000905` 中证500 / `000923` 公司债指数） | **腾讯 K 线 API**（原 push2his.eastmoney.com 已封锁） | 后端 [fetchFromTencent](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L2962) | 净值走势图加载时基准公式解析出该指数 | `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh{code},day,,,1000,qfq`（重试 3 次，间隔 2s） |
+| **H 开头债券指数**（硬编码支持：`H11001` 中证全债） | 中证指数官网 API | 后端 [fetchFromCsindex](file:///Users/haijun/Documents/Financial/app/server/db-server.js#L2988) | 同上 | `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode={code}&startDate={YYYYMMDD(10年前)}&endDate={YYYYMMDD(今天)}`（实际传具体日期值，而非中文描述） |
 
 **路由**：`GET /index/history?code=000906`（Vite 代理 `/api/db/index/history` → :3002）
 
 **缓存**：SQLite `data_cache`（`index_history_{code}`，TTL 4 小时）
+
+**注意**：非硬编码集合内的指数代码会直接返回"不支持"错误；如需新增请在 db-server.js 的 `INDEX_TENCENT_CODES` / `INDEX_CSI_HCODES` Set 中注册。
 
 **curl 健壮性**（后端 `execCurlWithProxyFallback`）：
 1. 先以 `--noproxy '*'` 直连（避免 shell 残留的 https_proxy 干扰）
@@ -259,7 +284,7 @@ type ProductType =
 
 ## Vite 开发环境 API 代理
 
-[Vite 配置](file:///Users/haijun/Documents/Financial/app/vite.config.ts) 的 9 条代理规则：
+[Vite 配置](file:///Users/haijun/Documents/Financial/app/vite.config.ts) 的 7 条代理规则：
 
 | 前端路径 | 目标 | 用途 |
 |---|---|---|
@@ -268,7 +293,7 @@ type ProductType =
 | `/api/fund/*` | `http://fundgz.1234567.com.cn/*` | 天天基金实时估值（保留） |
 | `/api/eastmoney/*` | `https://fund.eastmoney.com/*` | 东方财富基金数据 |
 | `/api/pingzhongdata/*` | `https://fund.eastmoney.com/*` | 基金历史净值 JS（权益详情页主要来源） |
-| `/api/fundf10/*` | `http://fundf10.eastmoney.com/*` | 基金 F10（阶段涨幅 / 持仓 / 限购） |
+| `/api/fundmobapi/*` | `https://fundmobapi.eastmoney.com/*` | 东方财富移动端基金 API |
 | `/api/nav-scheduler/*` | `http://localhost:3002/*` | 净值调度器 API |
 
 ## 服务架构
@@ -353,11 +378,12 @@ docker-host :8080 ──▶ Nginx (:80 inside)
 |---|---|---|
 | `/login` / `/register` | Login / Register | 不需要认证 |
 | `/` | Dashboard | 仪表盘汇总 |
-| `/funds` | Products (`type=equity`) | 权益产品列表 |
+| `/equity` | Products (`type=equity`) | 权益产品列表 |
 | `/fixed-income` | Products (`type=fixed_income`) | 固收产品列表 |
 | `/term-deposit` | Products (`type=term_deposit`) | 定存产品列表 |
 | `/products` | Products (all) | 全部产品 |
 | `/products/:id` | ProductDetail | 产品详情（定存产品路由守卫禁止进入） |
+| `/compare` | Compare | 多产品对比页（净值走势 + 区间年化） |
 | `/transactions` | Transactions | 所有交易 |
 | `/settings` | Settings | 导入/导出/调度/清空 |
 
@@ -368,8 +394,8 @@ docker-host :8080 ──▶ Nginx (:80 inside)
 ## 关键前端 UI 约定
 
 - 金额类数据统一 **1 位小数**
-- 汇总卡移动端：总市值独占 22px；持仓收益/总收益率/年化收益率/今日收益 4 列一行，tag 10px、数字 12px
-- PC 端概览与产品页统一 4 卡布局（市值 / 持仓收益+今日收益小字 / 持仓收益率 / 年化）
+- 汇总卡移动端：总市值标签 12px、值 24px；持仓收益/总收益率/年化收益率/今日收益 4 列一行 `gap-x-2`，标签 **13px**、值 **15px**
+- PC 端概览与产品页统一 4 卡布局 `gap-3`（市值 / 持仓收益+今日收益小字 / 持仓收益率 / 年化），标签 **12px**、值 **22px**
 - 权益阶段涨幅卡：`grid-cols-4` 固定 8 指标 2 行（1w/1m/3m/6m/1y/2y/3y/ytd）
 - 固收年化收益大卡：`grid-cols-3` 固定 5 指标 2 行（1m/3m/6m/1y/成立以来）
 - 净值走势图 X 轴 type=`time` 而非 category，与对比页完全对齐
