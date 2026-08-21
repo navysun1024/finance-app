@@ -12,12 +12,11 @@ import type { BenchmarkPoint } from '@/types'
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
-import TransactionCard from '@/components/TransactionCard.vue'
 import * as echarts from 'echarts'
 
 const route = useRoute()
 const router = useRouter()
-const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, PRODUCT_TYPE_OPTIONS, refresh } = useFinance()
+const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, updateProductPurchaseLimit, PRODUCT_TYPE_OPTIONS, refresh } = useFinance()
 
 const fetchingNav = ref(false)
 const fetchingNavHistory = ref(false)
@@ -136,30 +135,9 @@ const handleFetchNav = async () => {
       updateTime
     )
 
-    // 将限购信息写入产品备注
+    // 查询到的限购信息写入产品限购属性（不写入备注）
     if (result.purchaseLimitLabel) {
-      const currentNote = product.value.note || ''
-      // 移除旧的限购标记，追加新的
-      const cleaned = currentNote
-        .split('\n')
-        .filter(line => !/^(限购:|单日上限|不限购$|暂停申购$)/.test(line.trim()))
-        .join('\n')
-        .trim()
-      const newNote = cleaned ? `${cleaned}\n${result.purchaseLimitLabel}` : result.purchaseLimitLabel
-      updateProduct(
-        product.value.id,
-        product.value.name,
-        product.value.type,
-        newNote,
-        product.value.code,
-        product.value.holder,
-        product.value.dcaAmount,
-        product.value.dcaCycle,
-        product.value.navSource,
-        (product.value as any).holdingTerm || '',
-        (product.value as any).benchmarkEnabled || false,
-        (product.value as any).benchmarkFormula || ''
-      )
+      updateProductPurchaseLimit(product.value.id, result.purchaseLimitLabel)
     }
   } catch (e: any) {
     navFetchError.value = e.message || '查询失败'
@@ -2135,24 +2113,118 @@ onUnmounted(() => {
         </div>
         <span class="text-[11px] md:text-xs text-apple-secondary sm:ml-auto w-full sm:w-auto text-center sm:text-right">共 {{ sortedTransactions.length }} 条记录</span>
       </div>
-      <!-- 移动端卡片布局 -->
-      <div class="md:hidden space-y-2">
-        <div v-if="sortedTransactions.length > 0" class="space-y-2">
-          <TransactionCard 
-            v-for="transaction in sortedTransactions" 
-            :key="transaction.id" 
-            :transaction="transaction"
-            :change-percent="transaction.type === 'nav_update' ? getNavChange(transaction) : undefined"
-            :hide-product-name="true"
-            @edit="handleEditTransaction"
-            @delete="handleDeleteTransaction"
-          />
+      <!-- 移动端表格布局（固定日期列 + 横向滚动） -->
+      <div class="md:hidden">
+        <div v-if="sortedTransactions.length > 0" class="glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
+          <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
+            <div class="min-w-[850px]">
+              <table class="w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]">
+                <thead>
+                  <tr>
+                    <th 
+                      class="sticky bg-[#FAFAFA] px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                      style="width: 100px; min-width: 100px; max-width: 100px;"
+                      @click="handleTxSort('date')"
+                    >
+                      <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-2.5 h-2.5" :class="txSortKey === 'date' ? 'text-primary-500' : ''" /></div>
+                    </th>
+                    <th 
+                      class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                      style="width: 64px; min-width: 64px; max-width: 64px;"
+                      @click="handleTxSort('type')"
+                    >
+                      <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-2.5 h-2.5" :class="txSortKey === 'type' ? 'text-primary-500' : ''" /></div>
+                    </th>
+                    <th 
+                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                      style="width: 110px; min-width: 110px; max-width: 110px;"
+                      @click="handleTxSort('amount')"
+                    >
+                      <div class="flex items-center justify-end space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-2.5 h-2.5" :class="txSortKey === 'amount' ? 'text-primary-500' : ''" /></div>
+                    </th>
+                    <th 
+                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                      style="width: 100px; min-width: 100px; max-width: 100px;"
+                      @click="handleTxSort('price')"
+                    >
+                      <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-2.5 h-2.5" :class="txSortKey === 'price' ? 'text-primary-500' : ''" /></div>
+                    </th>
+                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 70px; min-width: 70px; max-width: 70px;">涨跌幅</th>
+                    <th 
+                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                      style="width: 100px; min-width: 100px; max-width: 100px;"
+                      @click="handleTxSort('shares')"
+                    >
+                      <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-2.5 h-2.5" :class="txSortKey === 'shares' ? 'text-primary-500' : ''" /></div>
+                    </th>
+                    <th 
+                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                      style="width: 85px; min-width: 85px; max-width: 85px;"
+                      @click="handleTxSort('fee')"
+                    >
+                      <div class="flex items-center justify-end space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-2.5 h-2.5" :class="txSortKey === 'fee' ? 'text-primary-500' : ''" /></div>
+                    </th>
+                    <th class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 120px; min-width: 120px; max-width: 120px;">备注</th>
+<th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 56px; min-width: 56px; max-width: 56px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-apple-border/50">
+                  <tr 
+                    v-for="transaction in sortedTransactions" 
+                    :key="transaction.id"
+                    class="hover:bg-primary-50/30 transition-colors"
+                  >
+                    <td class="sticky bg-white dark:bg-apple-bg px-2 py-2 whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
+                      <p class="text-[12px] text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</p>
+                    </td>
+                    <td class="px-2 py-2 whitespace-nowrap">
+                      <span 
+                        class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0"
+                        :class="{
+                          'bg-loss/10 text-loss': transaction.type === 'buy',
+                          'bg-profit/10 text-profit': transaction.type === 'sell',
+                          'bg-yellow-50 text-yellow-600': transaction.type === 'dividend',
+                          'bg-primary-50 text-primary-500': transaction.type === 'nav_update'
+                        }"
+                      >
+                        {{ transaction.type === 'buy' ? '买入' : transaction.type === 'sell' ? '卖出' : transaction.type === 'dividend' ? '分红' : '净值更新' }}
+                      </span>
+                    </td>
+                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px]" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
+                      {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
+                    </td>
+                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
+                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] font-medium" :class="getNavChangeClass(transaction)">{{ getNavChange(transaction) }}</td>
+                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
+                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
+                    <td class="px-2 py-2 whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.note || '-' }}</td>
+                    <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop>
+                      <div class="flex items-center justify-center space-x-0">
+                        <button 
+                          @click="handleEditTransaction(transaction)"
+                          class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                        </button>
+                        <button 
+                          @click="handleDeleteTransaction(transaction.id)"
+                          class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div v-else-if="transactions.length === 0" class="glass-card p-8 text-center">
+        <div v-else-if="transactions.length === 0" class="md:hidden glass-card p-8 text-center -mx-3 md:mx-0 mt-2">
           <p class="text-apple-text text-[16px] font-medium">暂无交易记录</p>
           <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加交易记录</p>
         </div>
-        <div v-else class="glass-card p-8 text-center">
+        <div v-else class="md:hidden glass-card p-8 text-center -mx-3 md:mx-0 mt-2">
           <p class="text-apple-text text-[16px] font-medium">当前日期区间内无交易记录</p>
           <p class="text-apple-secondary text-[13px] mt-2">试试切换为"全部"查看更多</p>
         </div>

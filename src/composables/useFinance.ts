@@ -85,12 +85,13 @@ export function useFinance() {
  };
  const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '') => {
  const product: Product = {
- id: generateId(),
- name,
- type,
- code,
- note,
- holder,
+  id: generateId(),
+  name,
+  type,
+  code,
+  note,
+  purchaseLimit: '',
+  holder,
  dcaAmount,
  dcaCycle,
  navSource: navSource as Product['navSource'],
@@ -136,13 +137,29 @@ export function useFinance() {
  }
  };
  const deleteProduct = async (id: string) => {
- const txsToDelete = transactions.value.filter(t => t.productId === id);
- products.value = products.value.filter(p => p.id !== id);
- transactions.value = transactions.value.filter(t => t.productId !== id);
- await saveProducts(products.value);
- for (const tx of txsToDelete) {
- await deleteTransactionFromServer(tx.id).catch(() => {});
- }
+  const txsToDelete = transactions.value.filter(t => t.productId === id);
+  products.value = products.value.filter(p => p.id !== id);
+  transactions.value = transactions.value.filter(t => t.productId !== id);
+  await saveProducts(products.value);
+  for (const tx of txsToDelete) {
+    await deleteTransactionFromServer(tx.id).catch(() => {});
+  }
+ };
+ const updateProductPurchaseLimit = async (id: string, purchaseLimit: string) => {
+  // 残留旧限购信息从备注 note 中移除，避免重复/混杂
+  let changed = false
+  const next = products.value.map(p => {
+    if (p.id !== id) return p
+    const { note, ...rest } = p
+    const cleaned = note.split('\n').filter(line => !/^(限购:|单日上限|不限购$|暂停申购$)/.test(line.trim())).join('\n').trim()
+    if (rest.purchaseLimit === purchaseLimit && cleaned === note) return p
+    changed = true
+    return { ...rest, note: cleaned, purchaseLimit }
+  })
+  if (changed) {
+    products.value = next
+    await saveProducts(products.value)
+  }
  };
  const addTransaction = async (productId: string, type: TransactionType, date: number, amount: number, price: number, shares: number, fee: number = 0, note: string = '') => {
  const transaction: Transaction = {
@@ -621,6 +638,7 @@ const getMarketValueHistory = (days: number = 365): {
  refresh,
  addProduct,
  updateProduct,
+  updateProductPurchaseLimit,
  deleteProduct,
  addTransaction,
  updateTransaction,

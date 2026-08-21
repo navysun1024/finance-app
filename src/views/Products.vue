@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOff, Scale, X, TrendingUp, TrendingDown } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
-import ProductListItem from '@/components/ProductListItem.vue'
 import { useFinance } from '@/composables/useFinance'
 import { useCompare } from '@/composables/useCompare'
 import { useRouter, useRoute } from 'vue-router'
@@ -791,52 +790,6 @@ const getFixedIncomeAnnualRate = (code: string | undefined): FixedIncomeAnnualRa
   return fixedIncomeAnnualRateMap.value.get(code)
 }
 
-// ==================== 成立天数（基于最早净值日期计算）====================
-const inceptionDaysMap = computed(() => {
-  const map = new Map<string, number>()
-  for (const product of products.value) {
-    if (product.type !== 'fixed_income' || !product.code) continue
-    const navUpdates = getTransactionsByProductId(product.id)
-      .filter(t => t.type === 'nav_update')
-      .sort((a, b) => a.date - b.date)
-    if (navUpdates.length === 0) continue
-    const earliestDate = navUpdates[0].date
-    const days = Math.floor((Date.now() - earliestDate) / (24 * 60 * 60 * 1000))
-    map.set(product.code, days)
-  }
-  return map
-})
-
-const getInceptionDays = (code: string | undefined): number | undefined => {
-  if (!code) return undefined
-  return inceptionDaysMap.value.get(code)
-}
-
-// ==================== 成立年化收益率（首笔净值至今的年化）====================
-const inceptionAnnualRateMap = computed(() => {
-  const map = new Map<string, number>()
-  for (const product of products.value) {
-    if (product.type !== 'fixed_income' || !product.code) continue
-    const navUpdates = getTransactionsByProductId(product.id)
-      .filter(t => t.type === 'nav_update')
-      .sort((a, b) => a.date - b.date)
-    if (navUpdates.length < 2) continue
-    const first = navUpdates[0]
-    const last = navUpdates[navUpdates.length - 1]
-    const days = (last.date - first.date) / (24 * 60 * 60 * 1000)
-    if (days < 7) continue
-    const simpleReturn = last.price / first.price
-    const annualRate = (Math.pow(simpleReturn, 365 / days) - 1) * 100
-    map.set(product.code, annualRate)
-  }
-  return map
-})
-
-const getInceptionAnnualRate = (code: string | undefined): number | undefined => {
-  if (!code) return undefined
-  return inceptionAnnualRateMap.value.get(code)
-}
-
 // ==================== 持仓汇总（懒加载 + 缓存）====================
 const aggregatedHoldings = ref<AggregatedHoldingsResult | null>(null)
 const loadingAggregatedHoldings = ref(false)
@@ -1429,7 +1382,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
 
 <!-- 汇总统计卡片 -->
     <!-- 移动端 固收：两行合并卡片（第一行：总市值；第二行：4项指标同一行） -->
-    <div v-if="props.type === 'fixed_income'" class="glass-card md:hidden">
+    <div v-if="props.type === 'fixed_income'" class="glass-card md:hidden -mx-3 md:mx-0">
       <!-- 第一行：总市值 -->
       <div class="mb-2.5">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
@@ -1495,7 +1448,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     </div>
     
     <!-- 移动端 权益/定存：两行合并卡片（第一行：总市值；第二行：4项指标同一行） -->
-    <div v-if="props.type !== 'fixed_income'" class="glass-card md:hidden">
+    <div v-if="props.type !== 'fixed_income'" class="glass-card md:hidden -mx-3 md:mx-0">
       <!-- 第一行：总市值 -->
       <div class="mb-2.5">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
@@ -1777,34 +1730,524 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
       </div>
     </div>
     
-    <!-- 移动端卡片布局 -->
-    <div class="md:hidden space-y-2">
-      <div v-if="filteredProducts.length > 0" class="space-y-2">
-        <ProductListItem
-          v-for="product in filteredProducts"
-          :key="product.id"
-          v-show="getPosition(product.id)"
-          :position="getPosition(product.id)!"
-          :daily-return="getDailyReturn(product.code)?.dailyReturn"
-          :show-profit-amount="pageSettings.showProfitAmount"
-          :show-profit-rate="pageSettings.showProfitRate"
-          :nav-updated-today="todayNavUpdateSet.has(product.id)"
-          :status="productStatusMap.get(product.id)"
-          :is-watchlist-mode="filterStatus === 'watchlist' && props.type === 'fixed_income'"
-          :inception-days="getInceptionDays(product.code)"
-          :fi-annual-1m="getFixedIncomeAnnualRate(product.code)?.['1m']"
-          :inception-annual-rate="getInceptionAnnualRate(product.code)"
-          :is-comparing="isInCompare(product.id)"
-          @edit="handleEdit(product)"
-          @delete="handleDelete(product.id)"
-          @compare="handleToggleCompare(product)"
-          @click="(id) => router.push({ name: 'product-detail', params: { id }, query: { status: filterStatus, type: filterType } })"
-        />
+    <!-- 移动端表格布局（固定产品列 + 横向滚动） -->
+    <div v-if="filteredProducts.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
+      <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
+        <div class="min-w-[760px]">
+          <table :class="['w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]', { 'term-deposit-table': props.type === 'term_deposit' }]">
+            <thead>
+              <tr>
+                <th 
+                  class="sticky bg-[#FAFAFA] px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                  @click="handleSort('name')"
+                >
+                  <div class="flex items-center space-x-1">
+                    <span>产品</span>
+                    <ChevronsUpDown v-if="sortKey !== 'name'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type !== 'equity'"
+                  class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('holder')"
+                >
+                  <div class="flex items-center space-x-1">
+                    <span>持有人</span>
+                    <ChevronsUpDown v-if="sortKey !== 'holder'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('marketValue')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>市值</span>
+                    <ChevronsUpDown v-if="sortKey !== 'marketValue'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'fixed_income'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('annualRate')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>持有年化</span>
+                    <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'term_deposit'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('annualRate')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>年利率</span>
+                    <ChevronsUpDown v-if="sortKey !== 'annualRate'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('profit')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>收益</span>
+                    <ChevronsUpDown v-if="sortKey !== 'profit'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'term_deposit'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('durationMonths')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>期限</span>
+                    <ChevronsUpDown v-if="sortKey !== 'durationMonths'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'term_deposit'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('maturityDate')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>到期</span>
+                    <ChevronsUpDown v-if="sortKey !== 'maturityDate'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type !== 'term_deposit'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('holdingDays')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>持有</span>
+                    <ChevronsUpDown v-if="sortKey !== 'holdingDays'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'term_deposit'"
+                  class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap"
+                >
+                  <div class="flex items-center justify-center space-x-1">
+                    <span>存款进度</span>
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'equity'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('profitRate')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>收益率</span>
+                    <ChevronsUpDown v-if="sortKey !== 'profitRate'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'fixed_income'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('fiAnnual1m')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>近1月</span>
+                    <ChevronsUpDown v-if="sortKey !== 'fiAnnual1m'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'fixed_income'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('fiAnnual3m')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>近3月</span>
+                    <ChevronsUpDown v-if="sortKey !== 'fiAnnual3m'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'fixed_income'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('fiAnnual1y')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>近1年</span>
+                    <ChevronsUpDown v-if="sortKey !== 'fiAnnual1y'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'equity'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('stageGains1m')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>近1月</span>
+                    <ChevronsUpDown v-if="sortKey !== 'stageGains1m'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'equity'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('stageGains3m')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>近3月</span>
+                    <ChevronsUpDown v-if="sortKey !== 'stageGains3m'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type === 'equity'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('stageGainsYtd')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>今年</span>
+                    <ChevronsUpDown v-if="sortKey !== 'stageGainsYtd'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type !== 'term_deposit'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('dailyReturn')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>当日涨幅</span>
+                    <ChevronsUpDown v-if="sortKey !== 'dailyReturn'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th 
+                  v-if="props.type !== 'term_deposit'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  @click="handleSort('dailyProfit')"
+                >
+                  <div class="flex items-center justify-end space-x-1">
+                    <span>当日收益</span>
+                    <ChevronsUpDown v-if="sortKey !== 'dailyProfit'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </div>
+                </th>
+                <th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap w-14">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-apple-border/50">
+              <tr 
+                v-for="product in filteredProducts" 
+                :key="product.id" 
+                class="hover:bg-primary-50/30 transition-colors"
+                :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
+                @click="product.type !== 'term_deposit' && router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus, type: filterType } })"
+              >
+                <td class="sticky bg-white dark:bg-apple-bg px-2 py-2">
+                  <div>
+                    <div class="flex items-center gap-1.5">
+                      <h3 class="text-[12px] font-semibold text-apple-text truncate max-w-[155px]">{{ product.name }}</h3>
+                    </div>
+                    <div class="flex items-center space-x-1.5 mt-0.5">
+                      <span 
+                        v-if="!props.type"
+                        class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium shrink-0"
+                        :class="{
+                          'bg-primary-50 text-primary-500': product.type === 'equity' || product.type === 'fund',
+                          'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income',
+                          'bg-amber-50 text-amber-600': product.type === 'term_deposit'
+                        }"
+                      >
+                        {{ getProductTypeLabel(product.type) }}
+                      </span>
+                      <span 
+                        v-if="productStatusMap.get(product.id)"
+                        class="inline-flex items-center px-1 py-0.5 rounded-full text-[9px] font-medium shrink-0"
+                        :style="{ backgroundColor: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color + '15', color: PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.color }"
+                      >
+                        {{ PRODUCT_STATUS_OPTIONS.find(o => o.value === productStatusMap.get(product.id))?.label }}
+                      </span>
+                      <template v-if="product.type === 'term_deposit'">
+                        <span v-if="product.bankName" class="text-[10px] text-apple-secondary shrink-0">{{ product.bankName }}</span>
+                      </template>
+                      <template v-else>
+                        <span v-if="product.code" class="text-[10px] font-mono text-apple-secondary shrink-0">{{ product.code }}</span>
+                      </template>
+                    </div>
+                  </div>
+                </td>
+                <td v-if="props.type !== 'equity'" class="px-2 py-2 whitespace-nowrap">
+                  <p class="text-[12px] text-apple-secondary">{{ product.holder || '-' }}</p>
+                </td>
+                <td class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getPosition(product.id) && pageSettings.showMarketValue">
+                    <p class="text-[12px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }}</p>
+                  </template>
+                  <template v-else-if="getPosition(product.id) && !pageSettings.showMarketValue">
+                    <p class="text-[12px] font-semibold text-apple-secondary">****</p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getPosition(product.id) as any).annualRate >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getPosition(product.id) as any).annualRate >= 0 ? '+' : '' }}{{ (getPosition(product.id) as any).annualRate.toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else-if="getPosition(product.id) && !pageSettings.showProfitRate">
+                    <p class="text-[12px] font-semibold text-apple-secondary">****</p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <p class="text-[12px] font-semibold text-amber-600">{{ (product.interestRate || 0).toFixed(2) }}%</p>
+                </td>
+                <td class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getPosition(product.id) && pageSettings.showProfitAmount">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getPosition(product.id) as any).profit >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency1((getPosition(product.id) as any).profit) }}
+                    </p>
+                  </template>
+                  <template v-else-if="getPosition(product.id) && !pageSettings.showProfitAmount">
+                    <p class="text-[12px] font-semibold text-apple-secondary">****</p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <p class="text-[12px] font-semibold text-apple-text">{{ formatDuration(product.durationMonths || 0) }}</p>
+                </td>
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <p class="text-[12px] font-semibold text-apple-text">{{ formatMaturityDate(product) }}</p>
+                  <p class="text-[9px] text-apple-secondary mt-0.5">
+                    {{ getTermDepositProgress(product) >= 100 ? '已到期' : `剩${getTermDepositRemainingDays(product)}天` }}
+                  </p>
+                </td>
+                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getPosition(product.id)">
+                    <p class="text-[12px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }}天</p>
+                    <p 
+                      v-if="product.type === 'fixed_income' && getFixedIncomeRemainingDays(product, getPosition(product.id)) !== null" 
+                      class="text-[9px] text-apple-secondary mt-0.5"
+                    >
+                      剩{{ getFixedIncomeRemainingDays(product, getPosition(product.id)) }}天
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5 w-28">
+                    <span class="text-[10px] font-semibold text-apple-text w-9 text-right">{{ getTermDepositProgress(product).toFixed(0) }}%</span>
+                    <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
+                      <div 
+                        class="h-full bg-amber-500 transition-all duration-300"
+                        :style="{ width: getTermDepositProgress(product) + '%' }"
+                      ></div>
+                    </div>
+                  </div>
+                </td>
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getPosition(product.id) as any).profitRate >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getPosition(product.id) as any).profitRate >= 0 ? '+' : '' }}{{ (getPosition(product.id) as any).profitRate.toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else-if="getPosition(product.id) && !pageSettings.showProfitRate">
+                    <p class="text-[12px] font-semibold text-apple-secondary">****</p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getFixedIncomeAnnualRate(product.code)?.['1m'] !== undefined">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0).toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getFixedIncomeAnnualRate(product.code)?.['3m'] !== undefined">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0).toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getFixedIncomeAnnualRate(product.code)?.['1y'] !== undefined">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0).toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getStageGains(product.code)">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getStageGains(product.code)?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getStageGains(product.code)?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getStageGains(product.code)?.['1m'] || 0).toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getStageGains(product.code)">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getStageGains(product.code)?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getStageGains(product.code)?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getStageGains(product.code)?.['3m'] || 0).toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
+                  </template>
+                </td>
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getStageGains(product.code)">
+                    <p 
+                      class="text-[12px] font-semibold"
+                      :class="(getStageGains(product.code)?.ytd || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getStageGains(product.code)?.ytd || 0) >= 0 ? '+' : '' }}{{ (getStageGains(product.code)?.ytd || 0).toFixed(2) }}%
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
+                  </template>
+                </td>
+                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getDailyReturn(product.code)">
+                    <p
+                      class="text-[12px] font-semibold"
+                      :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? 'text-profit' : (getDailyReturn(product.code)?.dailyReturn ?? 0) < 0 ? 'text-loss' : ''"
+                    >
+                      {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
+                    </p>
+                    <div class="flex items-center justify-end mt-0.5">
+                      <span class="text-[9px]" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
+                        {{ getDailyReturn(product.code)?.date || '' }}
+                      </span>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                  <template v-if="getDailyProfit(product) !== null">
+                    <p
+                      class="text-[12px] font-semibold"
+                      :class="(getDailyProfit(product) ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    >
+                      {{ (getDailyProfit(product) ?? 0) >= 0 ? '+' : '-' }}{{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[11px] text-apple-secondary">-</p>
+                  </template>
+                </td>
+                <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop>
+                  <div class="flex items-center justify-center space-x-0">
+                    <button
+                      v-if="product.type !== 'term_deposit'"
+                      @click="handleToggleCompare(product)"
+                      :class="[
+                        'w-6 h-6 flex items-center justify-center rounded-md transition-colors',
+                        isInCompare(product.id)
+                          ? 'text-primary-500 bg-primary-50'
+                          : 'text-apple-secondary hover:text-primary-500 hover:bg-primary-50'
+                      ]"
+                      :title="isInCompare(product.id) ? '移出对比' : '加入对比'"
+                    >
+                      <Scale class="w-3 h-3" />
+                    </button>
+                    <button
+                      @click="handleEdit(product)"
+                      class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    </button>
+                    <button
+                      @click="handleDelete(product.id)"
+                      class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-      <div v-else class="glass-card p-8 text-center">
-        <p class="text-apple-text text-[16px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}数据</p>
-        <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
-      </div>
+    </div>
+    <div v-else class="md:hidden glass-card p-6 text-center -mx-3 md:mx-0">
+      <p class="text-apple-text text-[15px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}数据</p>
+      <p class="text-apple-secondary text-[12px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
     </div>
     
     <!-- 桌面端表格布局 -->
@@ -2087,7 +2530,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <template v-else>
                       <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0">代码: {{ product.code }}</span>
                       <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-[11px] text-fixed-income shrink-0 bg-fixed-income/5 px-1.5 py-0.5 rounded">期限: {{ (product as any).holdingTerm }}</span>
-                      <span v-if="product.note" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.note">{{ product.note }}</span>
+                      <!-- PC端权益产品显示限购信息（不显示备注） -->
+                    <span v-if="props.type === 'equity' && product.purchaseLimit" class="hidden md:inline text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.purchaseLimit">{{ product.purchaseLimit }}</span>
+                    <span v-if="props.type !== 'equity' && product.note" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.note">{{ product.note }}</span>
                       <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                     </template>
                   </div>

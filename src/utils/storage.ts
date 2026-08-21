@@ -34,6 +34,7 @@ export async function getProducts(): Promise<Product[]> {
       ? data.map((p: any) => ({
           ...p,
           holder: p.holder || '',
+          purchaseLimit: p.purchaseLimit || '',
           dcaAmount: typeof p.dcaAmount === 'number' ? p.dcaAmount : (p.dcaAmount || 0),
           dcaCycle: p.dcaCycle || '',
           navSource: p.navSource || '',

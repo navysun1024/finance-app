@@ -199,6 +199,82 @@ input[type="date"].glass-input::-webkit-date-and-time-value {
   border-bottom: none;
 }
 
+/* ====== Mobile Product Table: Sticky Column Shadow ====== */
+
+.apple-table.mobile-product-table {
+  table-layout: fixed;
+}
+
+.apple-table.mobile-product-table th,
+.apple-table.mobile-product-table td {
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+/* Mobile table lives in its own horizontal-scroll container,
+ * disable the global vertical-sticky header to avoid conflict
+ * with horizontal sticky columns. Thead stays static relative
+ * to tbody so column widths line up under horizontal scroll. */
+.apple-table.mobile-product-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+
+.apple-table.mobile-product-table th.sticky,
+.apple-table.mobile-product-table td.sticky {
+  position: sticky;
+  left: 0;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  box-shadow: 3px 0 6px -4px rgba(0, 0, 0, 0.12);
+}
+
+.apple-table.mobile-product-table thead th.sticky {
+  top: 0;
+  left: 0;
+  z-index: 25;
+}
+
+.apple-table.mobile-product-table tbody td.sticky {
+  z-index: 10;
+}
+
+.apple-table.mobile-product-table tbody td.sticky > div {
+  white-space: normal;
+}
+
+/* Rounded corners for the mobile product table itself, so the
+ * th/tbody grey/white backgrounds follow the glass-card radius
+ * and don't poke out as right-angles. Sticky columns and the
+ * horizontal-scroll container both have the same radius. */
+.apple-table.mobile-product-table thead tr th:first-child {
+  border-top-left-radius: var(--apple-radius-lg);
+}
+
+/* ====== Mobile: Limiting table height with inner scroll ======
+ * Tables (product list / transactions) cap their height so long
+ * lists scroll inside the card instead of stretching the page.
+ * overflow-y works alongside the horizontal overflow container;
+ * horizontal sticky columns keep working because this element is
+ * the nearest scrolling ancestor. */
+.mobile-table-scroll {
+  max-height: 60vh;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.apple-table.mobile-product-table thead tr th:last-child {
+  border-top-right-radius: var(--apple-radius-lg);
+}
+.apple-table.mobile-product-table tbody tr:last-child td:first-child {
+  border-bottom-left-radius: var(--apple-radius-lg);
+}
+.apple-table.mobile-product-table tbody tr:last-child td:last-child {
+  border-bottom-right-radius: var(--apple-radius-lg);
+}
+
 /* ====== Misc ====== */
 
 .safe-area-bottom {
@@ -234,6 +310,15 @@ input[type="date"].glass-input::-webkit-date-and-time-value {
 @media (max-width: 639px) {
   .glass-card {
     padding: 12px !important;
+  }
+
+  /* Tables rendered directly inside a glass card on mobile need to
+   * bleed to the card's rounded edges — no inner padding, so the
+   * sticky column and scrollable columns sit right against the
+   * card's rounded corners and maximize horizontal space.
+   * Use on: product list, product detail transactions, transaction list, etc. */
+  .glass-card.glass-table-card {
+    padding: 0 !important;
   }
 }
 

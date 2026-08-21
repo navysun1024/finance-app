@@ -135,6 +135,13 @@ db.run(`ALTER TABLE products ADD COLUMN bankName TEXT DEFAULT ''`, (err) => {
   }
 })
 
+// 权益产品限购信息（从备注 note 中独立出来）
+db.run(`ALTER TABLE products ADD COLUMN purchaseLimit TEXT DEFAULT ''`, (err) => {
+  if (err) {
+    // 列已存在，忽略错误
+  }
+})
+
 db.run(`
   CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
@@ -613,7 +620,7 @@ app.post('/api/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName, purchaseLimit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -621,7 +628,7 @@ app.post('/api/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '')
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '', p.purchaseLimit || '')
           })
           
           stmt.finalize((err) => {
@@ -942,7 +949,7 @@ app.post('/products', authenticate, (req, res) => {
             existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
           )
           
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName, purchaseLimit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           products.forEach(p => {
             let finalId = p.id
             if (conflictingIds.has(p.id)) {
@@ -950,7 +957,7 @@ app.post('/products', authenticate, (req, res) => {
               idMapping[p.id] = finalId
               log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '')
+            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '', p.purchaseLimit || '')
           })
           
           stmt.finalize((err) => {
@@ -1557,18 +1564,16 @@ async function fetchFundAssetAllocationWithRetry(fundCode) {
 }
 
 /**
- * 将限购信息合并到产品备注中（保留用户原有备注，替换旧的限购信息）
+ * 保存限购信息到产品的 purchaseLimit 字段
  */
-function mergePurchaseLimitNote(existingNote, purchaseLimitLabel) {
-  // 移除旧的限购标记（以 "限购:" / "单日上限" / "不限购" / "暂停申购" 开头的行）
-  const cleaned = existingNote
-    .split('\n')
-    .filter(line => !/^(限购:|单日上限|不限购$|暂停申购$)/.test(line.trim()))
-    .join('\n')
-    .trim()
-
-  if (!purchaseLimitLabel) return cleaned
-  return cleaned ? `${cleaned}\n${purchaseLimitLabel}` : purchaseLimitLabel
+function saveProductPurchaseLimit(productId, userId, purchaseLimitLabel) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      'UPDATE products SET purchaseLimit = ? WHERE id = ? AND userId = ?',
+      [purchaseLimitLabel, productId, userId],
+      (err) => { if (err) reject(err); else resolve() }
+    )
+  })
 }
 
 /**
@@ -1958,17 +1963,10 @@ async function runNavUpdate() {
           const navDateTs = parseNavDate(result.date)
           const navDateKey = getDateOnlyTimestamp(navDateTs)
 
-          // 更新产品备注中的限购信息（即使净值已存在也需要更新）
+          // 更新产品限购属性（即使净值已存在也需要更新）
           if (result.purchaseLimitLabel) {
             try {
-              const newNote = mergePurchaseLimitNote(product.note || '', result.purchaseLimitLabel)
-              await new Promise((resolve, reject) => {
-                db.run(
-                  'UPDATE products SET note = ? WHERE id = ? AND userId = ?',
-                  [newNote, product.id, userId],
-                  (err) => { if (err) reject(err); else resolve() }
-                )
-              })
+              await saveProductPurchaseLimit(product.id, userId, result.purchaseLimitLabel)
               log(`[NAV调度] [用户 ${userId}] 更新限购信息: ${product.name} - ${result.purchaseLimitLabel}`, 'DEBUG')
             } catch (noteErr) {
               log(`[NAV调度] 更新限购信息失败: ${product.name}, 错误: ${noteErr.message}`, 'WARN')

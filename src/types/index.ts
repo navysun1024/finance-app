@@ -4,6 +4,8 @@ export interface Product {
   type: ProductType
   code: string
   note: string
+  // 限购属性：单日上限 / 暂停申购 / 不限购 等，独立于备注 note
+  purchaseLimit: string
   holder: string
   dcaAmount: number
   dcaCycle: string

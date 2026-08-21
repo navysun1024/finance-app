@@ -3,7 +3,6 @@ import { ref, computed, onMounted } from 'vue'
 import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, Upload, CheckCircle, AlertTriangle, X, Calendar } from 'lucide-vue-next'
 import TransactionModal from '@/components/TransactionModal.vue'
 import BatchImportModal from '@/components/BatchImportModal.vue'
-import TransactionCard from '@/components/TransactionCard.vue'
 import { useFinance } from '@/composables/useFinance'
 import { formatCurrency } from '@/utils/format'
 import { batchImport, type BatchImportResult } from '@/utils/storage'
@@ -286,18 +285,117 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
       <span class="text-[12px] text-apple-secondary ml-auto">共 {{ filteredTransactions.length }} 条记录</span>
     </div>
     
-    <!-- 移动端卡片布局 -->
-    <div class="md:hidden space-y-2">
-      <div v-if="filteredTransactions.length > 0" class="space-y-2">
-        <TransactionCard 
-          v-for="transaction in filteredTransactions" 
-          :key="transaction.id" 
-          :transaction="transaction"
-          @edit="handleEdit"
-          @delete="handleDelete"
-        />
+    <!-- 移动端表格布局（固定日期列 + 横向滚动） -->
+    <div class="md:hidden">
+      <div v-if="filteredTransactions.length > 0" class="glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
+        <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
+          <div class="min-w-[900px]">
+            <table class="w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]">
+              <thead>
+                <tr>
+                  <th 
+                    class="sticky bg-[#FAFAFA] px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                    style="width: 100px; min-width: 100px; max-width: 100px;"
+                    @click="handleSort('date')"
+                  >
+                    <div class="flex items-center space-x-1"><span>日期</span><component :is="getSortIcon('date')" class="w-2.5 h-2.5" :class="sortKey === 'date' ? 'text-primary-500' : ''" /></div>
+                  </th>
+                  <th 
+                    class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                    style="width: 150px; min-width: 150px; max-width: 150px;"
+                    @click="handleSort('productId')"
+                  >
+                    <div class="flex items-center space-x-1"><span>产品</span><component :is="getSortIcon('productId')" class="w-2.5 h-2.5" :class="sortKey === 'productId' ? 'text-primary-500' : ''" /></div>
+                  </th>
+                  <th 
+                    class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                    style="width: 64px; min-width: 64px; max-width: 64px;"
+                    @click="handleSort('type')"
+                  >
+                    <div class="flex items-center space-x-1"><span>类型</span><component :is="getSortIcon('type')" class="w-2.5 h-2.5" :class="sortKey === 'type' ? 'text-primary-500' : ''" /></div>
+                  </th>
+                  <th 
+                    class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                    style="width: 110px; min-width: 110px; max-width: 110px;"
+                    @click="handleSort('amount')"
+                  >
+                    <div class="flex items-center justify-end space-x-1"><span>金额</span><component :is="getSortIcon('amount')" class="w-2.5 h-2.5" :class="sortKey === 'amount' ? 'text-primary-500' : ''" /></div>
+                  </th>
+                  <th 
+                    class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                    style="width: 100px; min-width: 100px; max-width: 100px;"
+                    @click="handleSort('price')"
+                  >
+                    <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getSortIcon('price')" class="w-2.5 h-2.5" :class="sortKey === 'price' ? 'text-primary-500' : ''" /></div>
+                  </th>
+                  <th 
+                    class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                    style="width: 100px; min-width: 100px; max-width: 100px;"
+                    @click="handleSort('shares')"
+                  >
+                    <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getSortIcon('shares')" class="w-2.5 h-2.5" :class="sortKey === 'shares' ? 'text-primary-500' : ''" /></div>
+                  </th>
+                  <th 
+                    class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                    style="width: 85px; min-width: 85px; max-width: 85px;"
+                    @click="handleSort('fee')"
+                  >
+                    <div class="flex items-center justify-end space-x-1"><span>手续费</span><component :is="getSortIcon('fee')" class="w-2.5 h-2.5" :class="sortKey === 'fee' ? 'text-primary-500' : ''" /></div>
+                  </th>
+                  <th class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 120px; min-width: 120px; max-width: 120px;">备注</th>
+<th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 56px; min-width: 56px; max-width: 56px;">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-apple-border/50">
+                <tr 
+                  v-for="transaction in filteredTransactions" 
+                  :key="transaction.id"
+                  class="hover:bg-primary-50/30 transition-colors"
+                >
+                  <td class="sticky bg-white dark:bg-apple-bg px-2 py-2 whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
+                    <p class="text-[12px] text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</p>
+                  </td>
+                  <td class="px-2 py-2 whitespace-nowrap">
+                    <p class="text-[12px] text-apple-text truncate max-w-[150px]">{{ getProductName(transaction.productId) }}</p>
+                  </td>
+                  <td class="px-2 py-2 whitespace-nowrap">
+                    <span 
+                      class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0"
+                      :style="{ backgroundColor: getTransactionTypeColor(transaction.type) + '15', color: getTransactionTypeColor(transaction.type) }"
+                    >
+                      {{ getTransactionTypeLabel(transaction.type) }}
+                    </span>
+                  </td>
+                  <td class="px-2 py-2 text-right whitespace-nowrap text-[12px]" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-amber-500'">
+                    {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
+                  </td>
+                  <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
+                  <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
+                  <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
+                  <td class="px-2 py-2 whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.note || '-' }}</td>
+                  <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop>
+                    <div class="flex items-center justify-center space-x-0">
+                      <button 
+                        @click="handleEdit(transaction)"
+                        class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                      </button>
+                      <button 
+                        @click="handleDelete(transaction.id)"
+                        class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      <div v-else class="glass-card p-8 text-center">
+      <div v-else class="md:hidden glass-card p-8 text-center -mx-3 md:mx-0 mt-2">
         <p class="text-apple-text text-[16px] font-medium">暂无交易记录</p>
         <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加交易记录</p>
       </div>

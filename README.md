@@ -191,7 +191,7 @@ type ProductType =
 **产品关键字段**：
 - `navSource`（净值源）：`''`(不查询) / `tiantian`(天天基金) / `cmb`(招银) / `icbc`(工银)；固收产品按 `navSource` 选择对应爬虫，权益走天天基金
 - `benchmarkEnabled` / `benchmarkFormula`：是否启用业绩基准 + 基准公式，如 `000906*0.6+H11001*0.4`
-- `purchaseLimit`、`buyLimit` 等限购信息合并到 `note` 字段保存，格式如 `单日上限5万元` / `暂停申购` / `不限购`
+- `purchaseLimit`：权益产品限购属性，独立于备注保存，格式如 `单日上限5万元` / `暂停申购` / `不限购`
 
 ## 外部数据获取方式与触发条件
 
