@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { ArrowLeft, Plus, Edit, TrendingUp, TrendingDown, RefreshCw, Calendar, ArrowUp, ArrowDown, ChevronsUpDown, History } from 'lucide-vue-next'
+import { ArrowLeft, Plus, Edit, TrendingUp, TrendingDown, RefreshCw, Calendar, History } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
@@ -264,10 +264,6 @@ const product = computed(() => getProductById(productId.value))
 const position = computed(() => getPositionById(productId.value))
 const transactions = computed(() => getTransactionsByProductId(productId.value))
 
-// 交易记录排序
-const txSortKey = ref<keyof Transaction>('date')
-const txSortOrder = ref<'asc' | 'desc'>('desc')
-
 // 交易记录日期区间筛选
 const txDateRangeOptions = [
   { value: '1m', label: '近1月' },
@@ -277,7 +273,7 @@ const txDateRangeOptions = [
   { value: 'all', label: '全部' },
   { value: 'custom', label: '自定义' }
 ]
-const txDateRange = ref('3m')
+const txDateRange = ref('1m')
 const txCustomStartDate = ref('')
 const txCustomEndDate = ref('')
 
@@ -315,31 +311,10 @@ const sortedTransactions = computed(() => {
   if (txType.value !== 'all') {
     list = list.filter(t => t.type === txType.value)
   }
-  list.sort((a, b) => {
-    const aVal = a[txSortKey.value]
-    const bVal = b[txSortKey.value]
-    if (txSortOrder.value === 'asc') {
-      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
-    } else {
-      return aVal < bVal ? 1 : aVal > bVal ? -1 : 0
-    }
-  })
+  // 按日期倒序排列
+  list.sort((a, b) => b.date - a.date)
   return list
 })
-
-const handleTxSort = (key: keyof Transaction) => {
-  if (txSortKey.value === key) {
-    txSortOrder.value = txSortOrder.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    txSortKey.value = key
-    txSortOrder.value = 'desc'
-  }
-}
-
-const getTxSortIcon = (key: keyof Transaction) => {
-  if (txSortKey.value !== key) return ChevronsUpDown
-  return txSortOrder.value === 'asc' ? ArrowUp : ArrowDown
-}
 
 const showModal = ref(false)
 const editingTransaction = ref<typeof transactions.value[0] | null>(null)
@@ -1663,27 +1638,27 @@ onUnmounted(() => {
           v-if="product.code && product.type !== 'equity' && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
-          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
+          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
-          <Calendar class="w-4 h-4" :class="{ 'animate-spin': fetchingNavHistory }" />
+          <Calendar class="w-3.5 h-3.5 md:w-4 md:h-4" :class="{ 'animate-spin': fetchingNavHistory }" />
           <span>{{ fetchingNavHistory ? '查询中...' : '查询历史净值' }}</span>
         </button>
         <button
           v-if="product.code && (product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
           @click="handleBackfillNav"
           :disabled="backfillingNav"
-          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
+          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
-          <History class="w-4 h-4" :class="{ 'animate-spin': backfillingNav }" />
+          <History class="w-3.5 h-3.5 md:w-4 md:h-4" :class="{ 'animate-spin': backfillingNav }" />
           <span>{{ backfillingNav ? '补全中...' : '补全历史净值' }}</span>
         </button>
         <button
           v-if="product.code"
           @click="handleFetchNav"
           :disabled="fetchingNav"
-          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
+          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
-          <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': fetchingNav }" />
+          <RefreshCw class="w-3.5 h-3.5 md:w-4 md:h-4" :class="{ 'animate-spin': fetchingNav }" />
           <span>{{ fetchingNav ? '查询中...' : '查询净值' }}</span>
         </button>
       </div>
@@ -2030,7 +2005,7 @@ onUnmounted(() => {
                 :key="opt.value"
                 @click="navRange = opt.value"
                 :class="[
-                  'px-2 py-0.5 text-[11px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-colors md:touch-target !min-h-[28px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
+                  'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-colors md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
                   navRange === opt.value
                     ? 'bg-white text-apple-text shadow-sm font-medium'
                     : 'text-apple-secondary hover:text-apple-text'
@@ -2050,9 +2025,9 @@ onUnmounted(() => {
         <h3 class="text-lg font-semibold text-apple-text">历史交易</h3>
         <button 
           @click="handleAddTransaction"
-          class="apple-btn-primary text-sm touch-target min-h-[40px] px-4 py-2 flex-shrink-0"
+          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
-          <Plus class="w-4 h-4" />
+          <Plus class="w-3.5 h-3.5 md:w-4 md:h-4" />
           <span>新增交易</span>
         </button>
       </div>
@@ -2067,7 +2042,7 @@ onUnmounted(() => {
               :key="opt.value"
               @click="txType = opt.value"
               :class="[
-                'px-2 py-0.5 text-[11px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[28px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
+                'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
                 txType === opt.value
                   ? 'bg-white text-apple-text shadow-sm font-medium'
                   : 'text-apple-secondary hover:text-apple-text'
@@ -2087,7 +2062,7 @@ onUnmounted(() => {
               :key="opt.value"
               @click="txDateRange = opt.value"
               :class="[
-                'px-2 py-0.5 text-[11px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[28px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
+                'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
                 txDateRange === opt.value
                   ? 'bg-white text-apple-text shadow-sm font-medium'
                   : 'text-apple-secondary hover:text-apple-text'
@@ -2117,55 +2092,37 @@ onUnmounted(() => {
       <div class="md:hidden">
         <div v-if="sortedTransactions.length > 0" class="glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
           <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
-            <div class="min-w-[850px]">
-              <table class="w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]">
+            <div class="min-w-[780px]">
+              <table class="w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]" style="table-layout: fixed;">
                 <thead>
                   <tr>
-                    <th 
-                      class="sticky bg-[#FAFAFA] px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
-                      style="width: 100px; min-width: 100px; max-width: 100px;"
-                      @click="handleTxSort('date')"
-                    >
-                      <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-2.5 h-2.5" :class="txSortKey === 'date' ? 'text-primary-500' : ''" /></div>
+                    <th class="sticky bg-[#FAFAFA] px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
+                      日期
                     </th>
-                    <th 
-                      class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
-                      style="width: 64px; min-width: 64px; max-width: 64px;"
-                      @click="handleTxSort('type')"
-                    >
-                      <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-2.5 h-2.5" :class="txSortKey === 'type' ? 'text-primary-500' : ''" /></div>
+                    <th class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 72px; min-width: 72px; max-width: 72px;">
+                      类型
                     </th>
-                    <th 
-                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
-                      style="width: 110px; min-width: 110px; max-width: 110px;"
-                      @click="handleTxSort('amount')"
-                    >
-                      <div class="flex items-center justify-end space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-2.5 h-2.5" :class="txSortKey === 'amount' ? 'text-primary-500' : ''" /></div>
+                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
+                      金额
                     </th>
-                    <th 
-                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
-                      style="width: 100px; min-width: 100px; max-width: 100px;"
-                      @click="handleTxSort('price')"
-                    >
-                      <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-2.5 h-2.5" :class="txSortKey === 'price' ? 'text-primary-500' : ''" /></div>
+                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 95px; min-width: 95px; max-width: 95px;">
+                      单价/净值
                     </th>
-                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 70px; min-width: 70px; max-width: 70px;">涨跌幅</th>
-                    <th 
-                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
-                      style="width: 100px; min-width: 100px; max-width: 100px;"
-                      @click="handleTxSort('shares')"
-                    >
-                      <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-2.5 h-2.5" :class="txSortKey === 'shares' ? 'text-primary-500' : ''" /></div>
+                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 80px; min-width: 80px; max-width: 80px;">
+                      涨跌幅
                     </th>
-                    <th 
-                      class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
-                      style="width: 85px; min-width: 85px; max-width: 85px;"
-                      @click="handleTxSort('fee')"
-                    >
-                      <div class="flex items-center justify-end space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-2.5 h-2.5" :class="txSortKey === 'fee' ? 'text-primary-500' : ''" /></div>
+                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 90px; min-width: 90px; max-width: 90px;">
+                      份额
                     </th>
-                    <th class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 120px; min-width: 120px; max-width: 120px;">备注</th>
-<th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 56px; min-width: 56px; max-width: 56px;">操作</th>
+                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 75px; min-width: 75px; max-width: 75px;">
+                      手续费
+                    </th>
+                    <th class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 130px; min-width: 130px; max-width: 130px;">
+                      备注
+                    </th>
+                    <th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 56px; min-width: 56px; max-width: 56px;">
+                      操作
+                    </th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-apple-border/50">
@@ -2177,7 +2134,7 @@ onUnmounted(() => {
                     <td class="sticky bg-white dark:bg-apple-bg px-2 py-2 whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
                       <p class="text-[12px] text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</p>
                     </td>
-                    <td class="px-2 py-2 whitespace-nowrap">
+                    <td class="px-2 py-2 whitespace-nowrap text-left">
                       <span 
                         class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0"
                         :class="{
@@ -2234,36 +2191,24 @@ onUnmounted(() => {
       <div class="hidden md:block">
         <div class="glass-card overflow-hidden">
           <div class="overflow-x-auto">
-          <table class="w-full apple-table">
+          <table class="w-full apple-table" style="table-layout: fixed;">
             <thead>
               <tr>
-                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('date')">
-                  <div class="flex items-center space-x-1"><span>日期</span><component :is="getTxSortIcon('date')" class="w-4 h-4" :class="txSortKey === 'date' ? 'text-primary-500' : ''" /></div>
-                </th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('type')">
-                  <div class="flex items-center space-x-1"><span>类型</span><component :is="getTxSortIcon('type')" class="w-4 h-4" :class="txSortKey === 'type' ? 'text-primary-500' : ''" /></div>
-                </th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('amount')">
-                  <div class="flex items-center justify-end space-x-1"><span>金额</span><component :is="getTxSortIcon('amount')" class="w-4 h-4" :class="txSortKey === 'amount' ? 'text-primary-500' : ''" /></div>
-                </th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('price')">
-                  <div class="flex items-center justify-end space-x-1"><span>单价/净值</span><component :is="getTxSortIcon('price')" class="w-4 h-4" :class="txSortKey === 'price' ? 'text-primary-500' : ''" /></div>
-                </th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">涨跌幅</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('shares')">
-                  <div class="flex items-center justify-end space-x-1"><span>份额</span><component :is="getTxSortIcon('shares')" class="w-4 h-4" :class="txSortKey === 'shares' ? 'text-primary-500' : ''" /></div>
-                </th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleTxSort('fee')">
-                  <div class="flex items-center justify-end space-x-1"><span>手续费</span><component :is="getTxSortIcon('fee')" class="w-4 h-4" :class="txSortKey === 'fee' ? 'text-primary-500' : ''" /></div>
-                </th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">备注</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider">操作</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 140px;">日期</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 105px;">类型</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 140px;">金额</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 130px;">单价/净值</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 110px;">涨跌幅</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 130px;">份额</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 110px;">手续费</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 180px;">备注</th>
+                <th class="px-4 py-2.5 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 80px;">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-apple-border/50">
               <tr v-for="transaction in sortedTransactions" :key="transaction.id">
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</td>
-                <td class="px-4 py-3 whitespace-nowrap">
+                <td class="px-4 py-3 whitespace-nowrap text-left">
                   <span 
                     class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
                     :class="{
@@ -2276,7 +2221,7 @@ onUnmounted(() => {
                     {{ transaction.type === 'buy' ? '买入' : transaction.type === 'sell' ? '卖出' : transaction.type === 'dividend' ? '分红' : '净值更新' }}
                   </span>
                 </td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
                   {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
                 </td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
