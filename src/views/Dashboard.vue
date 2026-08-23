@@ -614,20 +614,6 @@ onUnmounted(() => {
       </div>
     </div>
     
-    <!-- 资产分布图 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
-      <div v-for="group in chartGroups" :key="group.type + '-dist'" class="glass-card md:p-5">
-        <div class="flex items-center mb-3 md:mb-4">
-          <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
-          <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}分布</h3>
-          <span class="ml-auto text-[12px] text-apple-secondary font-medium">
-            合计 {{ formatCurrency1(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}
-          </span>
-        </div>
-        <div :ref="setChartRef(group.type)" class="h-44 md:h-56"></div>
-      </div>
-    </div>
-
     <!-- 收益日历 -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
       <div v-for="group in chartGroups" :key="group.type + '-calendar'" class="glass-card md:p-5">
@@ -645,6 +631,20 @@ onUnmounted(() => {
             :product-type="group.type"
           />
         </div>
+      </div>
+    </div>
+
+    <!-- 资产分布图 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+      <div v-for="group in chartGroups" :key="group.type + '-dist'" class="glass-card md:p-5">
+        <div class="flex items-center mb-3 md:mb-4">
+          <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
+          <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}分布</h3>
+          <span class="ml-auto text-[12px] text-apple-secondary font-medium">
+            合计 {{ formatCurrency1(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}
+          </span>
+        </div>
+        <div :ref="setChartRef(group.type)" class="h-44 md:h-56"></div>
       </div>
     </div>
     

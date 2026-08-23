@@ -1733,12 +1733,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <!-- 移动端表格布局（固定产品列 + 横向滚动） -->
     <div v-if="filteredProducts.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
       <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
-        <div class="min-w-[760px]">
+        <div class="min-w-[860px]">
           <table :class="['w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]', { 'term-deposit-table': props.type === 'term_deposit' }]">
             <thead>
               <tr>
                 <th 
                   class="sticky bg-[#FAFAFA] px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none"
+                  style="width: 155px; min-width: 155px; max-width: 155px;"
                   @click="handleSort('name')"
                 >
                   <div class="flex items-center space-x-1">
@@ -1751,6 +1752,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type !== 'equity'"
                   class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 55px; min-width: 55px; max-width: 55px;"
                   @click="handleSort('holder')"
                 >
                   <div class="flex items-center space-x-1">
@@ -1762,6 +1764,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </th>
                 <th 
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 80px; min-width: 80px; max-width: 80px;"
                   @click="handleSort('marketValue')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1774,6 +1777,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'fixed_income'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 68px; min-width: 68px; max-width: 68px;"
                   @click="handleSort('annualRate')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1786,6 +1790,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 52px; min-width: 52px; max-width: 52px;"
                   @click="handleSort('annualRate')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1797,6 +1802,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </th>
                 <th 
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 80px; min-width: 80px; max-width: 80px;"
                   @click="handleSort('profit')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1809,6 +1815,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 55px; min-width: 55px; max-width: 55px;"
                   @click="handleSort('durationMonths')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1821,6 +1828,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 75px; min-width: 75px; max-width: 75px;"
                   @click="handleSort('maturityDate')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1833,6 +1841,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type !== 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 55px; min-width: 55px; max-width: 55px;"
                   @click="handleSort('holdingDays')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1845,6 +1854,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap"
+                  style="width: 120px; min-width: 120px; max-width: 120px;"
                 >
                   <div class="flex items-center justify-center space-x-1">
                     <span>存款进度</span>
@@ -1853,6 +1863,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'equity'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 65px; min-width: 65px; max-width: 65px;"
                   @click="handleSort('profitRate')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1865,6 +1876,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'fixed_income'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 52px; min-width: 52px; max-width: 52px;"
                   @click="handleSort('fiAnnual1m')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1877,6 +1889,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'fixed_income'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 52px; min-width: 52px; max-width: 52px;"
                   @click="handleSort('fiAnnual3m')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1889,6 +1902,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'fixed_income'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 52px; min-width: 52px; max-width: 52px;"
                   @click="handleSort('fiAnnual1y')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1901,6 +1915,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'equity'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 52px; min-width: 52px; max-width: 52px;"
                   @click="handleSort('stageGains1m')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1913,6 +1928,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'equity'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 52px; min-width: 52px; max-width: 52px;"
                   @click="handleSort('stageGains3m')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1925,6 +1941,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'equity'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 52px; min-width: 52px; max-width: 52px;"
                   @click="handleSort('stageGainsYtd')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1937,6 +1954,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type !== 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 58px; min-width: 58px; max-width: 58px;"
                   @click="handleSort('dailyReturn')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1949,6 +1967,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type !== 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap"
+                  style="width: 65px; min-width: 65px; max-width: 65px;"
                   @click="handleSort('dailyProfit')"
                 >
                   <div class="flex items-center justify-end space-x-1">
@@ -1958,7 +1977,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
                   </div>
                 </th>
-                <th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap w-14">操作</th>
+                <th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 56px; min-width: 56px; max-width: 56px;">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-apple-border/50">
@@ -1969,7 +1988,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
                 @click="product.type !== 'term_deposit' && router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus, type: filterType } })"
               >
-                <td class="sticky bg-white dark:bg-apple-bg px-2 py-2">
+                <td class="sticky bg-white dark:bg-apple-bg px-2 py-2" style="width: 155px; min-width: 155px; max-width: 155px;">
                   <div>
                     <div class="flex items-center gap-1.5">
                       <h3 class="text-[12px] font-semibold text-apple-text truncate max-w-[155px]">{{ product.name }}</h3>
@@ -2002,10 +2021,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     </div>
                   </div>
                 </td>
-                <td v-if="props.type !== 'equity'" class="px-2 py-2 whitespace-nowrap">
+                <td v-if="props.type !== 'equity'" class="px-2 py-2 whitespace-nowrap" style="width: 55px; min-width: 55px; max-width: 55px;">
                   <p class="text-[12px] text-apple-secondary">{{ product.holder || '-' }}</p>
                 </td>
-                <td class="px-2 py-2 text-right whitespace-nowrap">
+                <td class="px-2 py-2 text-right whitespace-nowrap" style="width: 80px; min-width: 80px; max-width: 80px;">
                   <template v-if="getPosition(product.id) && pageSettings.showMarketValue">
                     <p class="text-[12px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }}</p>
                   </template>
@@ -2016,7 +2035,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 68px; min-width: 68px; max-width: 68px;">
                   <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2032,10 +2051,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;">
                   <p class="text-[12px] font-semibold text-amber-600">{{ (product.interestRate || 0).toFixed(2) }}%</p>
                 </td>
-                <td class="px-2 py-2 text-right whitespace-nowrap">
+                <td class="px-2 py-2 text-right whitespace-nowrap" style="width: 80px; min-width: 80px; max-width: 80px;">
                   <template v-if="getPosition(product.id) && pageSettings.showProfitAmount">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2051,16 +2070,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 55px; min-width: 55px; max-width: 55px;">
                   <p class="text-[12px] font-semibold text-apple-text">{{ formatDuration(product.durationMonths || 0) }}</p>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 75px; min-width: 75px; max-width: 75px;">
                   <p class="text-[12px] font-semibold text-apple-text">{{ formatMaturityDate(product) }}</p>
                   <p class="text-[9px] text-apple-secondary mt-0.5">
                     {{ getTermDepositProgress(product) >= 100 ? '已到期' : `剩${getTermDepositRemainingDays(product)}天` }}
                   </p>
                 </td>
-                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 55px; min-width: 55px; max-width: 55px;">
                   <template v-if="getPosition(product.id)">
                     <p class="text-[12px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }}天</p>
                     <p 
@@ -2074,8 +2093,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 whitespace-nowrap">
-                  <div class="flex items-center gap-1.5 w-28">
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 whitespace-nowrap" style="width: 120px; min-width: 120px; max-width: 120px;">
+                  <div class="flex items-center gap-1.5">
                     <span class="text-[10px] font-semibold text-apple-text w-9 text-right">{{ getTermDepositProgress(product).toFixed(0) }}%</span>
                     <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
                       <div 
@@ -2085,7 +2104,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     </div>
                   </div>
                 </td>
-                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 65px; min-width: 65px; max-width: 65px;">
                   <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2101,7 +2120,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;" @click.stop>
                   <template v-if="getFixedIncomeAnnualRate(product.code)?.['1m'] !== undefined">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2114,7 +2133,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;" @click.stop>
                   <template v-if="getFixedIncomeAnnualRate(product.code)?.['3m'] !== undefined">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2127,7 +2146,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;">
                   <template v-if="getFixedIncomeAnnualRate(product.code)?.['1y'] !== undefined">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2140,7 +2159,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;">
                   <template v-if="getStageGains(product.code)">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2153,7 +2172,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;">
                   <template v-if="getStageGains(product.code)">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2166,7 +2185,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;">
                   <template v-if="getStageGains(product.code)">
                     <p 
                       class="text-[12px] font-semibold"
@@ -2179,7 +2198,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">{{ loadingStageGains ? '...' : '-' }}</p>
                   </template>
                 </td>
-                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 58px; min-width: 58px; max-width: 58px;">
                   <template v-if="getDailyReturn(product.code)">
                     <p
                       class="text-[12px] font-semibold"
@@ -2197,7 +2216,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap">
+                <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 65px; min-width: 65px; max-width: 65px;">
                   <template v-if="getDailyProfit(product) !== null">
                     <p
                       class="text-[12px] font-semibold"
@@ -2210,7 +2229,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop>
+                <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop style="width: 56px; min-width: 56px; max-width: 56px;">
                   <div class="flex items-center justify-center space-x-0">
                     <button
                       v-if="product.type !== 'term_deposit'"
@@ -2226,16 +2245,11 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                       <Scale class="w-3 h-3" />
                     </button>
                     <button
+                      v-if="product.type === 'term_deposit'"
                       @click="handleEdit(product)"
                       class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                    </button>
-                    <button
-                      @click="handleDelete(product.id)"
-                      class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                     </button>
                   </div>
                 </td>

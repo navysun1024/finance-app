@@ -225,9 +225,9 @@ input[type="date"].glass-input::-webkit-date-and-time-value {
 .apple-table.mobile-product-table td.sticky {
   position: sticky;
   left: 0;
-  width: 180px;
-  min-width: 180px;
-  max-width: 180px;
+  width: auto;
+  min-width: auto;
+  max-width: none;
   box-shadow: 3px 0 6px -4px rgba(0, 0, 0, 0.12);
 }
 
@@ -253,16 +253,12 @@ input[type="date"].glass-input::-webkit-date-and-time-value {
   border-top-left-radius: var(--apple-radius-lg);
 }
 
-/* ====== Mobile: Limiting table height with inner scroll ======
- * Tables (product list / transactions) cap their height so long
- * lists scroll inside the card instead of stretching the page.
- * overflow-y works alongside the horizontal overflow container;
- * horizontal sticky columns keep working because this element is
- * the nearest scrolling ancestor. */
+/* ====== Mobile: Table horizontal scroll only ======
+ * Tables (product list / transactions) allow horizontal scroll
+ * for fixed columns, but do not cap height or add vertical scroll,
+ * so the table scrolls along with the page naturally. */
 .mobile-table-scroll {
-  max-height: 60vh;
   overflow-x: auto;
-  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 .apple-table.mobile-product-table thead tr th:last-child {
