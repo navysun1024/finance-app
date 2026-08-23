@@ -9,7 +9,7 @@ import type { ProductType, ProductStatus, Product } from '@/types'
 import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency, formatCurrency1, formatPercent, getDateOnly } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
-import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult } from '@/utils/equityApi'
+import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult, type AggregatedStock } from '@/utils/equityApi'
 import * as echarts from 'echarts'
 
 const props = defineProps<{
