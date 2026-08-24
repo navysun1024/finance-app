@@ -15,7 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: InterestMethod | string; bankName: string }): void
+  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: InterestMethod | string; bankName: string; purchaseLimit: string }): void
 }>()
 
 const name = ref('')
@@ -36,6 +36,7 @@ const minAmount = ref(0)
 const maturityDate = ref('')
 const interestMethod = ref<InterestMethod | string>('maturity')
 const bankName = ref('')
+const purchaseLimit = ref('')
 
 // 持有期限常用预设选项
 const HOLDING_TERM_OPTIONS = [
@@ -79,6 +80,7 @@ watch(() => props.visible, (val) => {
     maturityDate.value = props.editProduct.maturityDate || ''
     interestMethod.value = (props.editProduct.interestMethod as InterestMethod) || 'maturity'
     bankName.value = props.editProduct.bankName || ''
+    purchaseLimit.value = (props.editProduct as any).purchaseLimit || ''
   } else if (val) {
     name.value = ''
     type.value = props.defaultType || 'equity'
@@ -98,6 +100,7 @@ watch(() => props.visible, (val) => {
     maturityDate.value = ''
     interestMethod.value = 'maturity'
     bankName.value = ''
+    purchaseLimit.value = ''
   }
 })
 
@@ -165,7 +168,8 @@ const handleSubmit = () => {
     minAmount: minAmount.value,
     maturityDate: maturityDate.value,
     interestMethod: interestMethod.value,
-    bankName: bankName.value.trim()
+    bankName: bankName.value.trim(),
+    purchaseLimit: purchaseLimit.value.trim()
   })
 }
 </script>
@@ -220,9 +224,21 @@ const handleSubmit = () => {
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
           </div>
+          <div v-if="type === 'equity' || type === 'fund'">
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
+              限购信息
+              <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（留空则自动获取）</span>
+            </label>
+            <input
+              v-model="purchaseLimit"
+              type="text"
+              placeholder="如: 单日上限5万元 / 暂停申购 / 不限购"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+            />
+          </div>
           <div v-if="type !== 'term_deposit'">
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">净值查询源</label>
-            <select 
+            <select
               v-model="navSource"
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             >

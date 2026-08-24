@@ -83,14 +83,14 @@ export function useFinance() {
  products.value = await getProducts();
  transactions.value = await getTransactions();
  };
- const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '') => {
+ const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '') => {
  const product: Product = {
   id: generateId(),
   name,
   type,
   code,
   note,
-  purchaseLimit: '',
+  purchaseLimit,
   holder,
  dcaAmount,
  dcaCycle,
@@ -110,7 +110,7 @@ export function useFinance() {
  await saveProducts(products.value);
  return product;
  };
- const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '') => {
+ const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '') => {
  const index = products.value.findIndex(p => p.id === id);
  if (index !== -1) {
  products.value[index] = {
@@ -131,7 +131,8 @@ export function useFinance() {
  minAmount,
  maturityDate,
  interestMethod: interestMethod || undefined,
- bankName
+ bankName,
+ purchaseLimit
  };
  await saveProducts(products.value);
  }

@@ -594,42 +594,54 @@ app.get('/api/products', authenticate, (req, res) => {
 app.post('/api/products', authenticate, (req, res) => {
   const products = req.body
   log(`保存产品列表 - userId: ${req.userId}, 数量: ${products?.length || 0}`)
-  db.run('BEGIN TRANSACTION', () => {
-    db.run('DELETE FROM products WHERE userId = ?', [req.userId], (err) => {
-      if (err) {
-        log(`清空产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-        db.run('ROLLBACK')
-        return res.status(500).json({ error: '清空旧数据失败' })
-      }
-      
-      // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
-      const incomingIds = products.map(p => p.id)
-      db.all(
-        'SELECT id, userId FROM products WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
-        incomingIds,
-        (err, existingProducts) => {
-          if (err) {
-            log(`检查产品ID冲突失败: ${err.message}`, 'ERROR')
-            db.run('ROLLBACK')
-            return res.status(500).json({ error: '检查ID冲突失败' })
-          }
-          
-          // 构建ID映射：旧ID -> 新ID（仅对冲突的ID生成新ID）
-          const idMapping = {}
-          const conflictingIds = new Set(
-            existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
-          )
-          
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName, purchaseLimit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          products.forEach(p => {
-            let finalId = p.id
-            if (conflictingIds.has(p.id)) {
-              finalId = generateId()
-              idMapping[p.id] = finalId
-              log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
+  // 先保存现有限购信息，避免 DELETE+INSERT 覆盖
+  db.all('SELECT id, purchaseLimit FROM products WHERE userId = ?', [req.userId], (err, existingRows) => {
+    if (err) {
+      log(`查询现有限购信息失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    const existingPurchaseLimit = new Map()
+    for (const row of existingRows || []) {
+      if (row.purchaseLimit) existingPurchaseLimit.set(row.id, row.purchaseLimit)
+    }
+    db.run('BEGIN TRANSACTION', () => {
+      db.run('DELETE FROM products WHERE userId = ?', [req.userId], (err) => {
+        if (err) {
+          log(`清空产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+          db.run('ROLLBACK')
+          return res.status(500).json({ error: '清空旧数据失败' })
+        }
+
+        // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
+        const incomingIds = products.map(p => p.id)
+        db.all(
+          'SELECT id, userId FROM products WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
+          incomingIds,
+          (err, existingProducts) => {
+            if (err) {
+              log(`检查产品ID冲突失败: ${err.message}`, 'ERROR')
+              db.run('ROLLBACK')
+              return res.status(500).json({ error: '检查ID冲突失败' })
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '', p.purchaseLimit || '')
-          })
+
+            // 构建ID映射：旧ID -> 新ID（仅对冲突的ID生成新ID）
+            const idMapping = {}
+            const conflictingIds = new Set(
+              existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
+            )
+
+            const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName, purchaseLimit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            products.forEach(p => {
+              let finalId = p.id
+              if (conflictingIds.has(p.id)) {
+                finalId = generateId()
+                idMapping[p.id] = finalId
+                log(`产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
+              }
+              // 保留现有限购信息：前端未传或为空时，使用数据库已有值
+              const purchaseLimit = p.purchaseLimit || existingPurchaseLimit.get(p.id) || ''
+              stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '', purchaseLimit)
+            })
           
           stmt.finalize((err) => {
             if (err) {
@@ -651,6 +663,7 @@ app.post('/api/products', authenticate, (req, res) => {
         }
       )
     })
+  })
   })
 })
 
@@ -918,47 +931,59 @@ app.get('/products', authenticate, (req, res) => {
 app.post('/products', authenticate, (req, res) => {
   const products = req.body
   log(`[legacy] 保存产品 - userId: ${req.userId}, 数量: ${products?.length || 0}`)
-  db.run('BEGIN TRANSACTION', () => {
-    db.run('DELETE FROM products WHERE userId = ?', [req.userId], (err) => {
-      if (err) {
-        log(`[legacy] 清空产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-        db.run('ROLLBACK')
-        return res.status(500).json({ error: '清空旧数据失败' })
-      }
-      
-      // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
-      const incomingIds = products.map(p => p.id)
-      if (incomingIds.length === 0) {
-        log(`[legacy] 保存产品成功 - userId: ${req.userId}, 数量: 0`)
-        return res.json({ success: true, idMapping: {} })
-      }
-      
-      db.all(
-        'SELECT id, userId FROM products WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
-        incomingIds,
-        (err, existingProducts) => {
-          if (err) {
-            log(`[legacy] 检查产品ID冲突失败: ${err.message}`, 'ERROR')
-            db.run('ROLLBACK')
-            return res.status(500).json({ error: '检查ID冲突失败' })
-          }
-          
-          // 构建ID映射：旧ID -> 新ID（仅对冲突的ID生成新ID）
-          const idMapping = {}
-          const conflictingIds = new Set(
-            existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
-          )
-          
-          const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName, purchaseLimit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          products.forEach(p => {
-            let finalId = p.id
-            if (conflictingIds.has(p.id)) {
-              finalId = generateId()
-              idMapping[p.id] = finalId
-              log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
+  // 先保存现有限购信息，避免 DELETE+INSERT 覆盖
+  db.all('SELECT id, purchaseLimit FROM products WHERE userId = ?', [req.userId], (err, existingRows) => {
+    if (err) {
+      log(`[legacy] 查询现有限购信息失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    const existingPurchaseLimit = new Map()
+    for (const row of existingRows || []) {
+      if (row.purchaseLimit) existingPurchaseLimit.set(row.id, row.purchaseLimit)
+    }
+    db.run('BEGIN TRANSACTION', () => {
+      db.run('DELETE FROM products WHERE userId = ?', [req.userId], (err) => {
+        if (err) {
+          log(`[legacy] 清空产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+          db.run('ROLLBACK')
+          return res.status(500).json({ error: '清空旧数据失败' })
+        }
+
+        // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
+        const incomingIds = products.map(p => p.id)
+        if (incomingIds.length === 0) {
+          log(`[legacy] 保存产品成功 - userId: ${req.userId}, 数量: 0`)
+          return res.json({ success: true, idMapping: {} })
+        }
+
+        db.all(
+          'SELECT id, userId FROM products WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
+          incomingIds,
+          (err, existingProducts) => {
+            if (err) {
+              log(`[legacy] 检查产品ID冲突失败: ${err.message}`, 'ERROR')
+              db.run('ROLLBACK')
+              return res.status(500).json({ error: '检查ID冲突失败' })
             }
-            stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '', p.purchaseLimit || '')
-          })
+
+            // 构建ID映射：旧ID -> 新ID（仅对冲突的ID生成新ID）
+            const idMapping = {}
+            const conflictingIds = new Set(
+              existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
+            )
+
+            const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName, purchaseLimit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            products.forEach(p => {
+              let finalId = p.id
+              if (conflictingIds.has(p.id)) {
+                finalId = generateId()
+                idMapping[p.id] = finalId
+                log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
+              }
+              // 保留现有限购信息：前端未传或为空时，使用数据库已有值
+              const purchaseLimit = p.purchaseLimit || existingPurchaseLimit.get(p.id) || ''
+              stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '', purchaseLimit)
+            })
           
           stmt.finalize((err) => {
             if (err) {
@@ -979,6 +1004,7 @@ app.post('/products', authenticate, (req, res) => {
         }
       )
     })
+  })
   })
 })
 

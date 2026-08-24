@@ -18,8 +18,7 @@ export function formatCurrencyInt(value: number): string {
 
 export function formatCurrency1(value: number): string {
   return new Intl.NumberFormat('zh-CN', {
-    style: 'currency',
-    currency: 'CNY',
+    style: 'decimal',
     minimumFractionDigits: 1,
     maximumFractionDigits: 1
   }).format(value)

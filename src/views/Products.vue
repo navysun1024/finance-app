@@ -1314,11 +1314,11 @@ watch([compareIds, compareRangeType, compareCustomStart, compareCustomEnd, showC
   }
 }, { deep: true })
 
-const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string }) => {
+const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string; purchaseLimit: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName)
+    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName, data.purchaseLimit)
   } else {
-    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName)
+    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName, data.purchaseLimit)
   }
   showModal.value = false
 }
@@ -1342,20 +1342,20 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             <EyeOff v-else class="w-4 h-4 text-apple-secondary" />
           </button>
         </div>
-        <div class="flex items-center gap-2 overflow-x-auto mt-0.5">
+        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar mt-0.5">
           <!-- 批量更新净值按钮（权益和固收理财页面显示） -->
           <button 
             v-if="props.type === 'fixed_income' || props.type === 'equity'"
             @click="handleBatchUpdateNav"
             :disabled="loadingBatchNav"
-            class="apple-btn-primary flex items-center space-x-2 px-3 py-1.5 text-[13px] disabled:opacity-50 touch-target min-h-[36px] whitespace-nowrap"
+            class="apple-btn-primary flex items-center space-x-2 px-3 py-1.5 text-[13px] disabled:opacity-50 min-h-[36px] whitespace-nowrap"
           >
             <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loadingBatchNav }" />
             <span>{{ loadingBatchNav ? '更新中...' : '净值更新' }}</span>
           </button>
           <button 
             @click="handleAdd"
-            class="apple-btn-primary flex items-center space-x-2 px-3 py-1.5 text-[13px] touch-target min-h-[36px] whitespace-nowrap"
+            class="apple-btn-primary flex items-center space-x-2 px-3 py-1.5 text-[13px] min-h-[36px] whitespace-nowrap"
           >
             <Plus class="w-3.5 h-3.5" />
             <span>新增产品</span>
