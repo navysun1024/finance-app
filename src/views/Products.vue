@@ -1366,23 +1366,23 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             :disabled="loadingBatchNav"
             class="apple-btn-primary flex items-center space-x-2 px-3 py-1.5 text-[13px] disabled:opacity-50 min-h-[36px] whitespace-nowrap"
           >
-            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': loadingBatchNav }" />
+            <RefreshCw class="w-3.5 h-3.5 hidden sm:block" :class="{ 'animate-spin': loadingBatchNav }" />
             <span>{{ loadingBatchNav ? '更新中...' : '净值更新' }}</span>
           </button>
           <button 
             @click="handleAdd"
             class="apple-btn-primary flex items-center space-x-2 px-3 py-1.5 text-[13px] min-h-[36px] whitespace-nowrap"
           >
-            <Plus class="w-3.5 h-3.5" />
+            <Plus class="w-3.5 h-3.5 hidden sm:block" />
             <span>新增产品</span>
           </button>
           <!-- 对比按钮 -->
           <button 
             v-if="compareIds.length > 0 && props.type !== 'term_deposit'"
             @click="showComparePanel = true"
-            class="flex items-center space-x-2 px-3 py-1.5 text-[13px] rounded-xl border border-primary-500 text-primary-500 hover:bg-primary-50 transition-colors touch-target min-h-[36px] whitespace-nowrap"
+            class="flex items-center space-x-2 px-4 py-2 text-[13px] rounded-full border border-primary-500 text-primary-500 bg-white hover:bg-primary-50 transition-colors min-h-[36px] whitespace-nowrap"
           >
-            <Scale class="w-3.5 h-3.5" />
+            <Scale class="w-3.5 h-3.5 hidden sm:block" />
             <span>对比</span>
             <span class="px-1.5 py-0.5 bg-primary-500 text-white rounded-full text-[11px] font-medium">{{ compareIds.length }}</span>
           </button>
@@ -1811,7 +1811,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <!-- 移动端表格布局（固定产品列 + 横向滚动） -->
     <div v-if="filteredProducts.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
       <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
-        <div :class="props.type === 'term_deposit' ? 'min-w-[690px]' : props.type === 'fixed_income' ? 'min-w-[830px]' : 'min-w-[770px]'">
+        <div :class="props.type === 'term_deposit' ? 'min-w-[750px]' : props.type === 'fixed_income' ? 'min-w-[830px]' : 'min-w-[770px]'">
           <table :class="['w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]', { 'term-deposit-table': props.type === 'term_deposit' }]">
             <thead>
               <tr>
@@ -1906,7 +1906,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap relative pr-3"
-                  style="width: 75px; min-width: 75px; max-width: 75px;"
+                  style="width: 70px; min-width: 70px; max-width: 70px;"
                   @click="handleSort('durationMonths')"
                 >
                   <span>到期收益</span>
@@ -1919,7 +1919,20 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap relative pr-3"
-                  style="width: 75px; min-width: 75px; max-width: 75px;"
+                  style="width: 55px; min-width: 55px; max-width: 55px;"
+                  @click="handleSort('durationMonths')"
+                >
+                  <span>期限</span>
+                  <span class="absolute right-0 top-1/2 -translate-y-1/2 inline-flex items-center">
+                    <ChevronsUpDown v-if="sortKey !== 'durationMonths'" class="w-2.5 h-2.5 text-apple-secondary/40" />
+                    <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
+                    <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
+                  </span>
+                </th>
+                <th 
+                  v-if="props.type === 'term_deposit'"
+                  class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap relative pr-3"
+                  style="width: 85px; min-width: 85px; max-width: 85px;"
                   @click="handleSort('maturityDate')"
                 >
                   <span>到期</span>
@@ -2182,7 +2195,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 75px; min-width: 75px; max-width: 75px;">
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 70px; min-width: 70px; max-width: 70px;">
                   <p class="text-[12px] font-semibold text-apple-text">
                     {{ getTermDepositMaturityProfit(product, getPosition(product.id)) !== null ? Math.round(getTermDepositMaturityProfit(product, getPosition(product.id)) as number).toLocaleString() : '-' }}
                   </p>
@@ -2190,7 +2203,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 55px; min-width: 55px; max-width: 55px;">
                   <p class="text-[12px] font-semibold text-apple-text">{{ formatDuration(product.durationMonths || 0) }}</p>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 75px; min-width: 75px; max-width: 75px;">
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 85px; min-width: 85px; max-width: 85px;">
                   <p class="text-[12px] font-semibold text-apple-text">{{ formatMaturityDate(product) }}</p>
                   <p class="text-[9px] text-apple-secondary mt-0.5">
                     {{ getTermDepositProgress(product) >= 100 ? '已到期' : `剩${getTermDepositRemainingDays(product)}天` }}

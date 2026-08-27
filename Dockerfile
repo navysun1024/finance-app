@@ -19,9 +19,10 @@ ENV npm_config_registry=${NPM_REGISTRY} \
     NODE_OPTIONS="--max-old-space-size=2048"
 
 # 【缓存优化】先拷贝依赖锁文件，利用 BuildKit --link 加速缓存命中
+# id 固定 cache key，sharing=locked 避免并发构建锁抖动，均有助于依赖层稳定命中
 COPY --link package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline
+RUN --mount=type=cache,id=npm,sharing=locked,target=/root/.npm \
+    npm ci --prefer-offline --no-audit --no-fund --no-update-notifier
 
 # 拷贝业务源码（--link 使源码变更不影响上层缓存层）
 COPY --link . .

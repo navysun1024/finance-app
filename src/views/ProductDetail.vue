@@ -14,9 +14,9 @@ import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
+echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, CanvasRenderer])
 
 const route = useRoute()
 const router = useRouter()
@@ -1049,14 +1049,15 @@ const updateChart = () => {
       const idx = navDateIndex.get(txDate)
       if (idx === undefined) return null
       const isBuy = tx.type === 'buy'
+      const xVal = navTimestampByIndex[idx]
+      const yVal = navValues[idx]
       return {
         name: isBuy ? '买入' : '卖出',
-        xAxis: navTimestampByIndex[idx],
-        yAxis: navValues[idx],
-        symbol: isBuy ? 'circle' : 'pin',
-        symbolSize: isBuy ? (mobile ? 7 : 8) : (mobile ? 10 : 12),
-        symbolRotate: isBuy ? 0 : 180,
-        itemStyle: { color: isBuy ? '#3b82f6' : '#ef4444', borderColor: '#fff', borderWidth: 1 },
+        coord: [xVal, yVal] as [number, number],
+        value: isBuy ? '买入' : '卖出',
+        symbol: 'circle',
+        symbolSize: isBuy ? (mobile ? 7 : 8) : (mobile ? 8 : 9),
+        itemStyle: { color: isBuy ? '#3b82f6' : '#22c55e', borderColor: '#fff', borderWidth: 1.5 },
         label: {
           show: false
         }
@@ -1109,9 +1110,11 @@ const updateChart = () => {
         symbolKeepAspect: true,
         tooltip: {
           formatter: (params: any) => {
-            const ts = params.data.xAxis
+            const datum = params.data || {}
+            const coord = datum.coord as [number, number] | undefined
+            const ts = coord?.[0] ?? datum.xAxis
+            const nav = coord?.[1] ?? datum.yAxis
             const date = ts ? new Date(ts).toLocaleDateString('zh-CN') : ''
-            const nav = params.data.yAxis
             return `<div style="font-weight:600;margin-bottom:2px">${params.name}</div>
                      <div style="color:#6b7280;font-size:11px">${date}</div>
                      <div style="margin-top:4px">净值: <b>${typeof nav === 'number' ? nav.toFixed(4) : nav}</b></div>`
