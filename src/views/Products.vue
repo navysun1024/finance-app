@@ -1811,7 +1811,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <!-- 移动端表格布局（固定产品列 + 横向滚动） -->
     <div v-if="filteredProducts.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
       <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
-        <div :class="props.type === 'term_deposit' ? 'min-w-[935px]' : 'min-w-[860px]'">
+        <div :class="props.type === 'term_deposit' ? 'min-w-[690px]' : props.type === 'fixed_income' ? 'min-w-[830px]' : 'min-w-[770px]'">
           <table :class="['w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]', { 'term-deposit-table': props.type === 'term_deposit' }]">
             <thead>
               <tr>
@@ -1945,7 +1945,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap"
-                  style="width: 80px; min-width: 80px; max-width: 80px;"
+                  style="width: 60px; min-width: 60px; max-width: 60px;"
                 >
                   <div class="flex items-center justify-center space-x-1">
                     <span>存款进度</span>
@@ -2210,7 +2210,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-center whitespace-nowrap" style="width: 80px; min-width: 80px; max-width: 80px;">
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-center whitespace-nowrap" style="width: 60px; min-width: 60px; max-width: 60px;">
                   <p class="text-[12px] font-semibold text-amber-500">{{ getTermDepositProgress(product).toFixed(0) }}%</p>
                 </td>
                 <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 65px; min-width: 65px; max-width: 65px;">
