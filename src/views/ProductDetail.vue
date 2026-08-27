@@ -12,7 +12,11 @@ import type { BenchmarkPoint } from '@/types'
 import { getAuthHeaders } from '@/utils/storage'
 import type { Transaction } from '@/types'
 import TransactionModal from '@/components/TransactionModal.vue'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { LineChart, BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
 const route = useRoute()
 const router = useRouter()

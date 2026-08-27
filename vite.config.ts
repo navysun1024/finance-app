@@ -10,9 +10,6 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
-  optimizeDeps: {
-    exclude: ['sql.js']
-  },
   build: {
     // NAS 内存有限，降低并行 worker 数避免 SIGSEGV
     // 默认 Vite 会用 CPU 核数 -1，飞牛等小机器容易 OOM -> Segmentation fault
@@ -21,11 +18,11 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          xlsx: ['xlsx'],
-          vue: ['vue', 'vue-router'],
-          echarts: ['echarts'],
-          lucide: ['lucide-vue-next']
+        manualChunks(id) {
+          if (id.includes('node_modules/echarts')) return 'echarts'
+          if (id.includes('node_modules/xlsx')) return 'xlsx'
+          if (id.includes('node_modules/vue') || id.includes('node_modules/vue-router') || id.includes('node_modules/@vue')) return 'vue'
+          if (id.includes('node_modules/lucide-vue-next')) return 'lucide'
         }
       }
     }

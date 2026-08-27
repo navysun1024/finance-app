@@ -67,7 +67,6 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
 COPY --link --from=builder /build/node_modules ./node_modules
 COPY --link --from=builder /build/dist ./dist
 COPY --link server/ ./server/
-COPY --link public/sql-wasm-browser.js public/sql-wasm-browser.wasm ./dist/
 COPY --link nginx.conf /etc/nginx/http.d/default.conf
 COPY --link docker-entrypoint.sh /docker-entrypoint.sh
 

@@ -6,7 +6,11 @@ import PullRefresh from '@/components/PullRefresh.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { calculateXIRR } from '@/utils/xirr'
 import { formatCurrency, formatCurrencyInt, formatCurrency1 } from '@/utils/format'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const refreshRef = ref<InstanceType<typeof PullRefresh> | null>(null)
 

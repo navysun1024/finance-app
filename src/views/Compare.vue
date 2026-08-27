@@ -5,7 +5,11 @@ import { useFinance, initFinance } from '@/composables/useFinance'
 import { useCompare } from '@/composables/useCompare'
 import { formatPercent, getDateOnly } from '@/utils/format'
 import type { Product } from '@/types'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
 const { products, transactions } = useFinance()
 const { compareType, compareIds, toggleCompare, removeFromCompare, switchType, MAX_COMPARE } = useCompare()

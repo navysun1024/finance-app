@@ -10,7 +10,11 @@ import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency, formatCurrency1, formatPercent, getDateOnly } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
 import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult, type AggregatedStock } from '@/utils/equityApi'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
 const props = defineProps<{
   type?: ProductType
@@ -1223,6 +1227,18 @@ const formatMaturityDate = (product: any): string => {
   return product.maturityDate
 }
 
+// 计算定存产品到期收益：本金 × 年利率 × 期限(年)，本金优先取持仓本金，否则用起存金额
+const getTermDepositMaturityProfit = (product: any, position: any = null): number | null => {
+  if (!product || product.type !== 'term_deposit') return null
+  const interestRate = product.interestRate || 0
+  const durationMonths = product.durationMonths || 0
+  if (interestRate <= 0 || durationMonths <= 0) return null
+  const principal = position?.totalInvestment ?? product.minAmount ?? 0
+  if (principal <= 0) return null
+  const maturityProfit = principal * (interestRate / 100) * (durationMonths / 12)
+  return Math.round(maturityProfit * 100) / 100
+}
+
 // 预计算所有产品的 position（只计算一次，避免模板中重复调用）
 const positionMap = computed(() => {
   const map = new Map<string, ReturnType<typeof calculatePosition>>()
@@ -1795,7 +1811,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     <!-- 移动端表格布局（固定产品列 + 横向滚动） -->
     <div v-if="filteredProducts.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
       <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
-        <div class="min-w-[860px]">
+        <div :class="props.type === 'term_deposit' ? 'min-w-[935px]' : 'min-w-[860px]'">
           <table :class="['w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]', { 'term-deposit-table': props.type === 'term_deposit' }]">
             <thead>
               <tr>
@@ -1890,10 +1906,10 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap relative pr-3"
-                  style="width: 55px; min-width: 55px; max-width: 55px;"
+                  style="width: 75px; min-width: 75px; max-width: 75px;"
                   @click="handleSort('durationMonths')"
                 >
-                  <span>期限</span>
+                  <span>到期收益</span>
                   <span class="absolute right-0 top-1/2 -translate-y-1/2 inline-flex items-center">
                     <ChevronsUpDown v-if="sortKey !== 'durationMonths'" class="w-2.5 h-2.5 text-apple-secondary/40" />
                     <ArrowUp v-else-if="sortOrder === 'asc'" class="w-2.5 h-2.5 text-primary-500" />
@@ -1929,7 +1945,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 <th 
                   v-if="props.type === 'term_deposit'"
                   class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap"
-                  style="width: 120px; min-width: 120px; max-width: 120px;"
+                  style="width: 80px; min-width: 80px; max-width: 80px;"
                 >
                   <div class="flex items-center justify-center space-x-1">
                     <span>存款进度</span>
@@ -2166,6 +2182,11 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 75px; min-width: 75px; max-width: 75px;">
+                  <p class="text-[12px] font-semibold text-apple-text">
+                    {{ getTermDepositMaturityProfit(product, getPosition(product.id)) !== null ? Math.round(getTermDepositMaturityProfit(product, getPosition(product.id)) as number).toLocaleString() : '-' }}
+                  </p>
+                </td>
                 <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 55px; min-width: 55px; max-width: 55px;">
                   <p class="text-[12px] font-semibold text-apple-text">{{ formatDuration(product.durationMonths || 0) }}</p>
                 </td>
@@ -2189,16 +2210,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <p class="text-[11px] text-apple-secondary">-</p>
                   </template>
                 </td>
-                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 whitespace-nowrap" style="width: 120px; min-width: 120px; max-width: 120px;">
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-[10px] font-semibold text-apple-text w-9 text-right">{{ getTermDepositProgress(product).toFixed(0) }}%</span>
-                    <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
-                      <div 
-                        class="h-full bg-amber-500 transition-all duration-300"
-                        :style="{ width: getTermDepositProgress(product) + '%' }"
-                      ></div>
-                    </div>
-                  </div>
+                <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-center whitespace-nowrap" style="width: 80px; min-width: 80px; max-width: 80px;">
+                  <p class="text-[12px] font-semibold text-amber-500">{{ getTermDepositProgress(product).toFixed(0) }}%</p>
                 </td>
                 <td v-if="props.type === 'equity'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 65px; min-width: 65px; max-width: 65px;">
                   <template v-if="getPosition(product.id) && pageSettings.showProfitRate">
@@ -2422,6 +2435,19 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </span>
               </th>
+              <!-- 定存产品特有列：到期收益 -->
+              <th 
+                v-if="props.type === 'term_deposit'"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none relative pr-3"
+                @click="handleSort('durationMonths')"
+              >
+                <span>到期收益</span>
+                <span class="absolute right-0 top-1/2 -translate-y-1/2 inline-flex items-center">
+                  <ChevronsUpDown v-if="sortKey !== 'durationMonths'" class="w-3 h-3 text-apple-secondary/40" />
+                  <ArrowUp v-else-if="sortOrder === 'asc'" class="w-3 h-3 text-primary-500" />
+                  <ArrowDown v-else class="w-3 h-3 text-primary-500" />
+                </span>
+              </th>
               <!-- 定存产品特有列：期限 -->
               <th 
                 v-if="props.type === 'term_deposit'"
@@ -2464,9 +2490,9 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               <!-- 定存产品特有列：存款进度 -->
               <th 
                 v-if="props.type === 'term_deposit'"
-                class="px-2 py-2.5 text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider"
+                class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider"
               >
-                <div class="flex items-center justify-center space-x-1">
+                <div class="flex items-center justify-end space-x-1">
                   <span>存款进度</span>
                 </div>
               </th>
@@ -2652,7 +2678,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </td>
               <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id) && pageSettings.showMarketValue">
-                  <p class="text-[14px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }} 元</p>
+                  <p class="text-[14px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }}</p>
                 </template>
                 <template v-else-if="getPosition(product.id) && !pageSettings.showMarketValue">
                   <p class="text-[14px] font-semibold text-apple-secondary">****</p>
@@ -2699,6 +2725,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <p class="text-[13px] text-apple-secondary">-</p>
                 </template>
               </td>
+              <!-- 定存产品特有列：到期收益 -->
+              <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
+                <p class="text-[14px] font-semibold text-apple-text">
+                  {{ getTermDepositMaturityProfit(product, getPosition(product.id)) !== null ? Math.round(getTermDepositMaturityProfit(product, getPosition(product.id)) as number).toLocaleString() : '-' }}
+                </p>
+              </td>
               <!-- 定存产品特有列：期限 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
                 <p class="text-[14px] font-semibold text-apple-text">{{ formatDuration(product.durationMonths || 0) }}</p>
@@ -2727,15 +2759,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </td>
               <!-- 定存产品特有列：存款进度 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
-                <div class="flex items-center gap-2 w-32 justify-end">
-                  <span class="text-[12px] font-semibold text-apple-text w-10 text-right">{{ getTermDepositProgress(product).toFixed(1) }}%</span>
-                  <div class="flex-1 h-2 bg-apple-border/30 rounded-full overflow-hidden">
-                    <div 
-                      class="h-full bg-amber-500 transition-all duration-300"
-                      :style="{ width: getTermDepositProgress(product) + '%' }"
-                    ></div>
-                  </div>
-                </div>
+                <p class="text-[14px] font-semibold text-amber-500 text-right">{{ getTermDepositProgress(product).toFixed(1) }}%</p>
               </td>
               <td v-if="props.type === 'equity'" class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id) && pageSettings.showProfitRate">

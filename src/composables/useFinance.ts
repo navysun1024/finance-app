@@ -62,10 +62,9 @@ async function ensureDataLoaded() {
  initPromise = (async () => {
  isLoading.value = true;
  try {
- products.value = await getProducts();
- transactions.value = await getTransactions();
+  ;[products.value, transactions.value] = await Promise.all([getProducts(), getTransactions()])
  } finally {
- isLoading.value = false;
+  isLoading.value = false;
  }
  })();
  }
@@ -80,9 +79,8 @@ export function useFinance() {
  ensureDataLoaded();
 
  const refresh = async () => {
- products.value = await getProducts();
- transactions.value = await getTransactions();
- };
+  ;[products.value, transactions.value] = await Promise.all([getProducts(), getTransactions()])
+  };
  const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '') => {
  const product: Product = {
   id: generateId(),
@@ -277,10 +275,10 @@ export function useFinance() {
  let startDate = firstBuyDate;
  if (!hasTransactions) {
  if (product.maturityDate && product.durationMonths) {
- // 到期日期 - 存款期限 = 起始日期
- const maturityDateMs = new Date(product.maturityDate).getTime();
- const durationDays = product.durationMonths * 30; // 简化计算
- startDate = maturityDateMs - durationDays * 24 * 60 * 60 * 1000;
+ // 到期日期 - 存款期限 = 起始日期（按月份精算，避免 30 天/月 简化带来的大小月、闰年误差）
+ const startDateObj = new Date(product.maturityDate);
+ startDateObj.setMonth(startDateObj.getMonth() - product.durationMonths);
+ startDate = startDateObj.getTime();
  } else {
  startDate = product.createdAt || Date.now();
  }
@@ -296,21 +294,38 @@ export function useFinance() {
  // 到期后停止计算收益，使用到期日作为截止日期
  const endDate = isMatured ? maturityTime : Date.now();
  const holdingDays = startDate > 0 ? Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24))) : 0;
- const yearsElapsed = holdingDays / 365;
- const totalInterest = principal * interestRate * yearsElapsed; // 已产生的利息（到期后不再增加）
- const marketValue = Math.round((principal + totalInterest) * 100) / 100; // 市值 = 本金 + 利息（固定）
+ // 已到期且有明确存款期限时按整存期计息（整存整取规则），未到期时按实际持有天数计息
+ const yearsElapsed = isMatured && product.durationMonths
+  ? product.durationMonths / 12
+  : holdingDays / 365;
+
+ // 已支取（卖出）的本金部分，避免利息重复计算
+ let withdrawnPrincipal = 0;
+ if (hasTransactions) {
+  for (const t of productTransactions) {
+   if (t.type === 'sell') {
+    withdrawnPrincipal += t.shares * avgCost;
+   }
+  }
+ }
+ const remainingPrincipal = Math.max(0, principal - withdrawnPrincipal); // 剩余本金
+
+ // 利息基于剩余本金计算（到期后不再增加）
+ const totalInterest = remainingPrincipal * interestRate * yearsElapsed;
+ const marketValue = Math.round((remainingPrincipal + totalInterest) * 100) / 100; // 市值 = 剩余本金 + 利息
+ // 已支取的收益已计入 realizedProfit，不再重复计算
  const profit = Math.round(totalInterest * 100) / 100 + totalDividend + realizedProfit;
- const profitRate = principal > 0 ? (totalInterest / principal) * 100 : 0;
+ const profitRate = principal > 0 ? (profit / principal) * 100 : 0;
  const annualRate = product.interestRate || 0;
- const currentNav = principal > 0 ? (principal + totalInterest) / principal : 1; // 相当于净值
- const effectiveShares = hasTransactions ? cumulativeShares : 1;
+ const currentNav = remainingPrincipal > 0 ? (remainingPrincipal + totalInterest) / remainingPrincipal : 1; // 相当于净值
+ const effectiveShares = hasTransactions ? Math.max(remainingShares, 0) : 1;
 
  return {
  productId: product.id,
  product,
  totalInvestment: principal,
  totalShares: effectiveShares,
- avgCost: principal > 0 ? principal / effectiveShares : 0,
+ avgCost: principal > 0 && effectiveShares > 0 ? principal / effectiveShares : 0,
  currentNav,
  marketValue,
  profit,
