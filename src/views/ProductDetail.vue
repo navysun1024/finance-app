@@ -1612,9 +1612,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="product" class="space-y-6 overflow-x-hidden">
+  <div v-if="product" class="space-y-6">
     <!-- 顶部标题栏 -->
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0 md:space-x-4 overflow-x-hidden">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0 md:space-x-4">
       <div class="flex items-center space-x-4 min-w-0">
         <button 
           @click="goBackToProducts()"
@@ -1623,7 +1623,7 @@ onUnmounted(() => {
           <ArrowLeft class="w-5 h-5" />
         </button>
         <div class="flex-1 min-w-0">
-          <div class="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0 overflow-hidden">
+          <div class="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0">
             <h2 class="text-xl font-semibold text-apple-text" style="overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;max-width:calc(100vw - 100px)!important">{{ product.name }}</h2>
             <button
               @click.stop="handleEdit"
@@ -1650,7 +1650,7 @@ onUnmounted(() => {
           <div v-if="product.note" class="text-sm text-apple-secondary mt-1.5">{{ product.note }}</div>
         </div>
       </div>
-      <div class="-mx-3 px-3 md:mx-0 md:px-0 w-auto md:w-auto self-end scroll-x justify-end items-center gap-2 md:flex md:items-center md:gap-2 md:overflow-visible">
+      <div class="-mx-3 px-3 md:mx-0 md:px-0 w-auto md:w-auto self-end scroll-x justify-end items-center gap-2 md:flex md:items-center md:gap-2 md:overflow-x-visible">
         <button
           v-if="product.code && product.type !== 'equity' && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"
@@ -2016,7 +2016,7 @@ onUnmounted(() => {
         <div class="flex flex-row items-center justify-between gap-2 md:gap-3 mb-2 md:mb-3 flex-nowrap">
           <h3 class="text-lg font-semibold text-apple-text flex-shrink-0">净值走势</h3>
           <div class="flex-1 min-w-0 flex justify-end">
-            <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-visible inline-flex">
+            <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible inline-flex">
               <button
                 v-for="opt in navRangeOptions"
                 :key="opt.value"
@@ -2053,7 +2053,7 @@ onUnmounted(() => {
         <!-- 交易类型筛选 -->
         <div class="w-full sm:w-auto flex items-center space-x-2">
           <span class="text-[11px] md:text-xs text-apple-secondary flex-shrink-0">类型:</span>
-          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-visible">
+          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible">
             <button
               v-for="opt in txTypeOptions"
               :key="opt.value"
@@ -2073,7 +2073,7 @@ onUnmounted(() => {
         <!-- 日期区间选择 -->
         <div class="w-full sm:w-auto flex items-center space-x-2">
           <span class="text-[11px] md:text-xs text-apple-secondary flex-shrink-0">区间:</span>
-          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-visible">
+          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible">
             <button
               v-for="opt in txDateRangeOptions"
               :key="opt.value"
