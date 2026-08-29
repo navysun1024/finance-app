@@ -624,12 +624,13 @@ const handleBatchUpdateNav = async () => {
 const dailyReturnMap = computed(() => {
   const map = new Map<string, { dailyReturn: number | null; date: string }>()
 
-  // 只在权益页用到
-  if (props.type !== 'equity') return map
+  // 只在权益和固收页用到
+  if (props.type !== 'equity' && props.type !== 'fixed_income') return map
 
   for (const product of products.value) {
     const normalizedType = product.type === 'fund' ? 'equity' : product.type
-    if (normalizedType !== 'equity' || !product.code) continue
+    if (normalizedType !== 'equity' && normalizedType !== 'fixed_income') continue
+    if (!product.code) continue
 
     const navUpdates = getTransactionsByProductId(product.id)
       .filter(t => t.type === 'nav_update')
@@ -824,12 +825,14 @@ const rowDataMap = computed(() => {
   for (const product of filteredProducts.value) {
     const position = getPosition(product.id) as any
     const row: TableRowData = { position }
-    if (props.type === 'equity') {
+    if (props.type === 'equity' || props.type === 'fixed_income') {
       row.dailyReturn = getDailyReturn(product.code)
       row.dailyProfit = getDailyProfit(product)
-    } else if (props.type === 'term_deposit') {
+    }
+    if (props.type === 'term_deposit') {
       row.dailyProfit = getDailyProfit(product)
-    } else if (props.type === 'fixed_income') {
+    }
+    if (props.type === 'fixed_income') {
       row.fiAnnual = getFixedIncomeAnnualRate(product.code)
     }
     map.set(product.id, row)
