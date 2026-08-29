@@ -1612,10 +1612,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="product" class="space-y-6">
+  <div v-if="product" class="space-y-6 overflow-x-hidden">
     <!-- 顶部标题栏 -->
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between flex-wrap space-y-3 md:space-y-0 md:space-x-4">
-      <div class="flex items-center space-x-4">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0 md:space-x-4 overflow-x-hidden">
+      <div class="flex items-center space-x-4 min-w-0">
         <button 
           @click="goBackToProducts()"
           class="p-2 text-apple-secondary hover:text-apple-text hover:bg-black/5 rounded-full transition-colors flex-shrink-0"
@@ -1623,8 +1623,8 @@ onUnmounted(() => {
           <ArrowLeft class="w-5 h-5" />
         </button>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center space-x-3">
-            <h2 class="text-xl font-semibold text-apple-text truncate">{{ product.name }}</h2>
+          <div class="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0 overflow-hidden">
+            <h2 class="text-xl font-semibold text-apple-text" style="overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;max-width:calc(100vw - 100px)!important">{{ product.name }}</h2>
             <button
               @click.stop="handleEdit"
               class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors flex-shrink-0"
@@ -1655,7 +1655,7 @@ onUnmounted(() => {
           v-if="product.code && product.type !== 'equity' && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
-          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
+          class="apple-btn-primary text-[13px] min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
           <Calendar class="w-3.5 h-3.5 md:w-4 md:h-4" :class="{ 'animate-spin': fetchingNavHistory }" />
           <span>{{ fetchingNavHistory ? '查询中...' : '查询历史净值' }}</span>
@@ -1664,7 +1664,7 @@ onUnmounted(() => {
           v-if="product.code && (product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
           @click="handleBackfillNav"
           :disabled="backfillingNav"
-          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
+          class="apple-btn-primary text-[13px] min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
           <History class="w-3.5 h-3.5 md:w-4 md:h-4" :class="{ 'animate-spin': backfillingNav }" />
           <span>{{ backfillingNav ? '补全中...' : '补全历史净值' }}</span>
@@ -1673,7 +1673,7 @@ onUnmounted(() => {
           v-if="product.code"
           @click="handleFetchNav"
           :disabled="fetchingNav"
-          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
+          class="apple-btn-primary text-[13px] min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
           <RefreshCw class="w-3.5 h-3.5 md:w-4 md:h-4" :class="{ 'animate-spin': fetchingNav }" />
           <span>{{ fetchingNav ? '查询中...' : '查询净值' }}</span>
@@ -2042,7 +2042,7 @@ onUnmounted(() => {
         <h3 class="text-lg font-semibold text-apple-text">历史交易</h3>
         <button 
           @click="handleAddTransaction"
-          class="apple-btn-primary text-sm touch-target min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
+          class="apple-btn-primary text-[13px] min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
           <Plus class="w-3.5 h-3.5 md:w-4 md:h-4" />
           <span>新增交易</span>
