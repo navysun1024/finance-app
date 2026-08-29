@@ -1462,6 +1462,12 @@ const handleResize = () => {
 }
 
 const goBackToProducts = () => {
+  // 如果是新标签页打开（无历史记录），直接关闭页面
+  if (window.history.length <= 1) {
+    window.close()
+    return
+  }
+
   // 传递筛选状态 query params，使产品列表页恢复之前的选择
   const query: Record<string, string> = {}
   if (route.query.status) query.status = route.query.status as string
@@ -2171,7 +2177,7 @@ onUnmounted(() => {
                     <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] font-medium" :class="getNavChangeClass(transaction)">{{ getNavChange(transaction) }}</td>
                     <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
                     <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
-                    <td class="px-2 py-2 whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.note || '-' }}</td>
+                    <td class="px-2 py-2 text-[12px] text-apple-secondary break-all min-w-0" style="width: 130px; min-width: 130px; max-width: 130px;">{{ transaction.note || '-' }}</td>
                     <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop>
                       <div class="flex items-center justify-center space-x-0">
                         <button 
@@ -2245,7 +2251,7 @@ onUnmounted(() => {
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavChangeClass(transaction)">{{ getNavChange(transaction) }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-secondary">{{ transaction.note || '-' }}</td>
+                <td class="px-4 py-3 text-sm text-apple-secondary break-words max-w-[180px]">{{ transaction.note || '-' }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-center">
                   <div class="flex items-center justify-center space-x-2">
                     <button 
