@@ -465,6 +465,12 @@ const goToProductByCode = (code: string) => {
   }
 }
 
+const openProductDetail = (id: string) => {
+  const url = router.resolve({ name: 'product-detail', params: { id }, query: { status: filterStatus.value, type: filterType.value } }).fullPath
+  const base = window.location.origin
+  window.open(base + url, '_blank')
+}
+
 // 切换当前页面的所有显示控制
 const togglePageDisplay = () => {
   const current = pageSettings.value.showProfitAmount && pageSettings.value.showProfitRate && pageSettings.value.showMarketValue && pageSettings.value.showCost
@@ -2077,7 +2083,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 :key="product.id" 
                 class="hover:bg-primary-50/30 transition-colors"
                 :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
-                @click="product.type !== 'term_deposit' && router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus, type: filterType } })"
+                @click="product.type !== 'term_deposit' && openProductDetail(product.id)"
               >
                 <td class="sticky bg-white dark:bg-apple-bg px-2 py-2" style="width: 155px; min-width: 155px; max-width: 155px;">
                   <div>
@@ -2616,7 +2622,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               :key="product.id" 
               class="hover:bg-primary-50/30 transition-colors"
               :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
-              @click="product.type !== 'term_deposit' && router.push({ name: 'product-detail', params: { id: product.id }, query: { status: filterStatus, type: filterType } })"
+              @click="product.type !== 'term_deposit' && openProductDetail(product.id)"
             >
               <td class="px-2 py-3">
                 <div>

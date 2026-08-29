@@ -268,6 +268,13 @@ const product = computed(() => getProductById(productId.value))
 const position = computed(() => getPositionById(productId.value))
 const transactions = computed(() => getTransactionsByProductId(productId.value))
 
+// 在新标签页中显示产品名称
+watch(product, (val) => {
+  if (val?.name) {
+    document.title = val.name
+  }
+}, { immediate: true })
+
 // 交易记录日期区间筛选
 const txDateRangeOptions = [
   { value: '1m', label: '近1月' },
@@ -1607,7 +1614,7 @@ onUnmounted(() => {
 <template>
   <div v-if="product" class="space-y-6">
     <!-- 顶部标题栏 -->
-    <div class="flex flex-col md:flex-row md:items-center space-y-3 md:space-y-0 md:space-x-4">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between flex-wrap space-y-3 md:space-y-0 md:space-x-4">
       <div class="flex items-center space-x-4">
         <button 
           @click="goBackToProducts()"
@@ -1625,22 +1632,25 @@ onUnmounted(() => {
             >
               <Edit class="w-4 h-4" />
             </button>
-            <span v-if="product.code" class="text-xs font-mono bg-black/5 text-apple-secondary px-2 py-0.5 rounded-full flex-shrink-0">
-              {{ product.code }}
-            </span>
           </div>
           <div class="flex items-center space-x-2 mt-1 flex-wrap">
             <span class="apple-tag" :style="{ color: getProductTypeColor(product.type) }">
               {{ getProductTypeLabel(product.type) }}
             </span>
+            <span v-if="product.code" class="text-xs font-mono bg-black/5 text-apple-secondary px-2 py-0.5 rounded-full">
+              {{ product.code }}
+            </span>
+            <span v-if="(product.type === 'equity' || product.type === 'fund') && (product as any).purchaseLimit" class="text-xs text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full">
+              {{ (product as any).purchaseLimit }}
+            </span>
             <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-xs text-fixed-income bg-fixed-income/10 px-2 py-0.5 rounded-full">
               持有期限 {{ (product as any).holdingTerm }}
             </span>
-            <span v-if="product.note" class="text-sm text-apple-secondary truncate">{{ product.note }}</span>
           </div>
+          <div v-if="product.note" class="text-sm text-apple-secondary mt-1.5">{{ product.note }}</div>
         </div>
       </div>
-      <div class="-mx-3 px-3 md:mx-0 md:px-0 w-full md:w-auto scroll-x items-center gap-2 md:flex md:items-center md:gap-2 md:overflow-visible">
+      <div class="-mx-3 px-3 md:mx-0 md:px-0 w-auto md:w-auto self-end scroll-x justify-end items-center gap-2 md:flex md:items-center md:gap-2 md:overflow-visible">
         <button
           v-if="product.code && product.type !== 'equity' && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"

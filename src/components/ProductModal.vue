@@ -38,24 +38,6 @@ const interestMethod = ref<InterestMethod | string>('maturity')
 const bankName = ref('')
 const purchaseLimit = ref('')
 
-// 持有期限常用预设选项
-const HOLDING_TERM_OPTIONS = [
-  { value: '', label: '自定义/不填写' },
-  { value: '7天', label: '7天' },
-  { value: '14天', label: '14天' },
-  { value: '30天', label: '30天' },
-  { value: '60天', label: '60天' },
-  { value: '90天', label: '90天' },
-  { value: '180天', label: '180天' },
-  { value: '270天', label: '270天' },
-  { value: '365天', label: '365天' },
-  { value: '1年', label: '1年' },
-  { value: '2年', label: '2年' },
-  { value: '3年', label: '3年' },
-  { value: '5年', label: '5年' },
-  { value: '无固定期限', label: '无固定期限' }
-]
-
 const availableNavSources = computed(() => {
   return NAV_SOURCE_OPTIONS.filter(opt => opt.applicableTypes.includes(type.value))
 })
@@ -212,42 +194,72 @@ const handleSubmit = () => {
               </option>
             </select>
           </div>
-          <div v-if="type !== 'term_deposit'">
-            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
-              产品代码
-              <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（权益代码支持从东方财富查询净值）</span>
-            </label>
-            <input 
-              v-model="code"
-              type="text" 
-              placeholder="请输入产品代码"
-              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
-            />
+          <div v-if="type !== 'term_deposit'" class="flex space-x-4">
+            <div class="flex-1">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">产品代码</label>
+              <input 
+                v-model="code"
+                type="text" 
+                placeholder="请输入产品代码"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              />
+            </div>
+            <div class="flex-1">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">净值查询源</label>
+              <select
+                v-model="navSource"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              >
+                <option v-for="option in availableNavSources" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
           </div>
-          <div v-if="type === 'equity' || type === 'fund'">
-            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
-              限购信息
-              <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（留空则自动获取）</span>
-            </label>
-            <input
-              v-model="purchaseLimit"
-              type="text"
-              placeholder="如: 单日上限5万元 / 暂停申购 / 不限购"
-              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
-            />
+          <div v-if="type === 'equity' || type === 'fund'" class="flex space-x-4">
+            <div class="flex-1">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
+                限购信息
+                <span class="text-xs text-apple-secondary/70 normal-case tracking-normal ml-1">（留空则自动获取）</span>
+              </label>
+              <input
+                v-model="purchaseLimit"
+                type="text"
+                placeholder="如: 单日上限5万元 / 暂停申购 / 不限购"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              />
+            </div>
+            <div class="flex-1">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">持有人</label>
+              <input 
+                v-model="holder"
+                type="text" 
+                placeholder="请输入持有人姓名"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              />
+            </div>
           </div>
-          <div v-if="type !== 'term_deposit'">
-            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">净值查询源</label>
-            <select
-              v-model="navSource"
-              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
-            >
-              <option v-for="option in availableNavSources" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+          <div v-if="type === 'fixed_income'" class="flex space-x-4">
+            <div class="flex-1">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">持有人</label>
+              <input 
+                v-model="holder"
+                type="text" 
+                placeholder="请输入持有人姓名"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              />
+            </div>
+            <div class="flex-1">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">持有期限</label>
+              <input 
+                v-model="holdingTerm"
+                type="text" 
+                placeholder="自定义，如: 90天"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              />
+            </div>
           </div>
-          <div>
+          <div v-if="type === 'term_deposit'">
             <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">持有人</label>
             <input 
               v-model="holder"
@@ -255,25 +267,6 @@ const handleSubmit = () => {
               placeholder="请输入持有人姓名"
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
-          </div>
-          <div v-if="type === 'fixed_income'">
-            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">持有期限</label>
-            <div class="flex gap-2">
-              <select 
-                v-model="holdingTerm"
-                class="glass-input w-1/2 px-3 py-2.5 rounded-xl outline-none"
-              >
-                <option v-for="opt in HOLDING_TERM_OPTIONS" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <input 
-                v-model="holdingTerm"
-                type="text" 
-                placeholder="自定义，如: 90天"
-                class="glass-input flex-1 px-4 py-2.5 rounded-xl outline-none"
-              />
-            </div>
           </div>
           <!-- 定期存款特有字段 -->
           <div v-if="type === 'term_deposit'" class="space-y-4 border-t border-apple-border/30 pt-4">
@@ -389,28 +382,30 @@ const handleSubmit = () => {
             </div>
             <div v-if="benchmarkEnabled" class="mt-3 space-y-2">
               <p class="text-xs text-apple-secondary">选择指数并设置权重，生成比较基准趋势线</p>
-              <div v-for="idx in INDEX_DEFINITIONS" :key="idx.code" class="flex items-center gap-3 py-1.5">
-                <button
-                  type="button"
-                  @click="toggleBenchmarkIndex(idx.code)"
-                  :class="[
-                    'w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors',
-                    isBenchmarkIndexSelected(idx.code) ? 'bg-primary-500 border-primary-500' : 'border-apple-border'
-                  ]"
-                >
-                  <svg v-if="isBenchmarkIndexSelected(idx.code)" class="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </button>
-                <span class="text-sm text-apple-text flex-1">{{ idx.name }}</span>
-                <div v-if="isBenchmarkIndexSelected(idx.code)" class="flex items-center gap-1">
-                  <input
-                    :value="getBenchmarkWeight(idx.code)"
-                    @input="updateBenchmarkWeight(idx.code, parseFloat(($event.target as HTMLInputElement).value) || 0)"
-                    type="number"
-                    min="0"
-                    max="100"
-                    class="glass-input w-14 px-2 py-1 text-xs rounded-lg outline-none text-right"
-                  />
-                  <span class="text-xs text-apple-secondary">%</span>
+              <div class="grid grid-cols-2 gap-2">
+                <div v-for="idx in INDEX_DEFINITIONS" :key="idx.code" class="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-black/5 transition-colors">
+                  <button
+                    type="button"
+                    @click="toggleBenchmarkIndex(idx.code)"
+                    :class="[
+                      'w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-colors',
+                      isBenchmarkIndexSelected(idx.code) ? 'bg-primary-500 border-primary-500' : 'border-apple-border'
+                    ]"
+                  >
+                    <svg v-if="isBenchmarkIndexSelected(idx.code)" class="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
+                  <span class="text-sm text-apple-text flex-1 truncate">{{ idx.shortName || idx.name }}</span>
+                  <div v-if="isBenchmarkIndexSelected(idx.code)" class="flex items-center gap-1 flex-shrink-0">
+                    <input
+                      :value="getBenchmarkWeight(idx.code)"
+                      @input="updateBenchmarkWeight(idx.code, parseFloat(($event.target as HTMLInputElement).value) || 0)"
+                      type="number"
+                      min="0"
+                      max="100"
+                      class="glass-input w-14 px-1.5 py-1 text-xs rounded-lg outline-none text-right"
+                    />
+                    <span class="text-xs text-apple-secondary">%</span>
+                  </div>
                 </div>
               </div>
               <div v-if="benchmarkComponents.length > 0" class="mt-2 px-3 py-2 bg-black/5 rounded-lg">
