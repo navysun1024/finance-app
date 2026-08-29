@@ -24,7 +24,24 @@ export const TRANSACTION_TYPE_OPTIONS: {
 const products = ref<Product[]>([])
 const transactions = ref<Transaction[]>([])
 const isLoading = ref(false)
+const transactionsByProductId = ref<Map<string, Transaction[]>>(new Map())
 let initPromise: Promise<void> | null = null
+
+function buildTransactionMap(txs: Transaction[]) {
+  const map = new Map<string, Transaction[]>()
+  for (const t of txs) {
+    const list = map.get(t.productId)
+    if (list) {
+      list.push(t)
+    } else {
+      map.set(t.productId, [t])
+    }
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.date - b.date)
+  }
+  transactionsByProductId.value = map
+}
 
 type DisplaySettings = { showProfitAmount: boolean; showProfitRate: boolean; showMarketValue: boolean; showCost: boolean }
 
@@ -62,7 +79,10 @@ async function ensureDataLoaded() {
  initPromise = (async () => {
  isLoading.value = true;
  try {
-  ;[products.value, transactions.value] = await Promise.all([getProducts(), getTransactions()])
+  const [nextProducts, nextTransactions] = await Promise.all([getProducts(), getTransactions()])
+  products.value = nextProducts
+  transactions.value = nextTransactions
+  buildTransactionMap(nextTransactions)
  } finally {
   isLoading.value = false;
  }
@@ -79,7 +99,10 @@ export function useFinance() {
  ensureDataLoaded();
 
  const refresh = async () => {
-  ;[products.value, transactions.value] = await Promise.all([getProducts(), getTransactions()])
+  const [nextProducts, nextTransactions] = await Promise.all([getProducts(), getTransactions()])
+  products.value = nextProducts
+  transactions.value = nextTransactions
+  buildTransactionMap(nextTransactions)
   };
  const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '') => {
  const product: Product = {
@@ -139,6 +162,7 @@ export function useFinance() {
   const txsToDelete = transactions.value.filter(t => t.productId === id);
   products.value = products.value.filter(p => p.id !== id);
   transactions.value = transactions.value.filter(t => t.productId !== id);
+  buildTransactionMap(transactions.value)
   await saveProducts(products.value);
   for (const tx of txsToDelete) {
     await deleteTransactionFromServer(tx.id).catch(() => {});
@@ -173,6 +197,7 @@ export function useFinance() {
  note
  };
  transactions.value.push(transaction);
+ buildTransactionMap(transactions.value)
  await addTransactionToServer(transaction);
  return transaction;
  };
@@ -191,19 +216,20 @@ export function useFinance() {
  note
  };
  await updateTransactionOnServer(transactions.value[index]);
+ buildTransactionMap(transactions.value)
  }
  };
  const deleteTransaction = async (id: string) => {
  transactions.value = transactions.value.filter(t => t.id !== id);
+ buildTransactionMap(transactions.value)
  await deleteTransactionFromServer(id);
  };
  const getProductById = (id: string): Product | undefined => {
  return products.value.find(p => p.id === id);
  };
  const getTransactionsByProductId = (productId: string): Transaction[] => {
- return transactions.value
- .filter(t => t.productId === productId)
- .sort((a, b) => a.date - b.date);
+ const list = transactionsByProductId.value.get(productId)
+ return list ? [...list] : []
  };
  const calculatePosition = (product: Product): Position => {
  const productTransactions = getTransactionsByProductId(product.id);

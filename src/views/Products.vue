@@ -623,14 +623,18 @@ const handleBatchUpdateNav = async () => {
 // ==================== 当日收益率（从 nav_update 交易记录计算）====================
 const dailyReturnMap = computed(() => {
   const map = new Map<string, { dailyReturn: number | null; date: string }>()
-  
+
+  // 只在权益页用到
+  if (props.type !== 'equity') return map
+
   for (const product of products.value) {
-    if (!product.code) continue
-    
+    const normalizedType = product.type === 'fund' ? 'equity' : product.type
+    if (normalizedType !== 'equity' || !product.code) continue
+
     const navUpdates = getTransactionsByProductId(product.id)
       .filter(t => t.type === 'nav_update')
       .sort((a, b) => b.date - a.date) // 按日期降序
-    
+
     if (navUpdates.length < 2) {
       if (navUpdates.length === 1) {
         const d = new Date(navUpdates[0].date)
@@ -639,18 +643,18 @@ const dailyReturnMap = computed(() => {
       }
       continue
     }
-    
+
     const latest = navUpdates[0]
     const prev = navUpdates[1]
     const dailyReturn = prev.price > 0
       ? Math.round(((latest.price - prev.price) / prev.price) * 10000) / 100
       : null
-    
+
     const d = new Date(latest.date)
     const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     map.set(product.code, { dailyReturn, date: dateStr })
   }
-  
+
   return map
 })
 
@@ -661,9 +665,14 @@ const todayNavUpdateSet = computed(() => {
   todayStart.setHours(0, 0, 0, 0)
   const todayEnd = new Date()
   todayEnd.setHours(23, 59, 59, 999)
-  
+
   const set = new Set<string>()
+  // 只在权益页用到此集合
+  if (props.type !== 'equity') return set
+
   for (const product of products.value) {
+    const normalizedType = product.type === 'fund' ? 'equity' : product.type
+    if (normalizedType !== 'equity' || !product.code) continue
     const navUpdates = getTransactionsByProductId(product.id)
       .filter(t => t.type === 'nav_update')
     // 检查是否有净值更新交易的创建时间在今天
@@ -750,28 +759,30 @@ interface FixedIncomeAnnualRate {
 
 const fixedIncomeAnnualRateMap = computed(() => {
   const map = new Map<string, FixedIncomeAnnualRate>()
-  
+
+  // 只在固收页用到
+  if (props.type !== 'fixed_income') return map
+
   for (const product of products.value) {
     if (product.type !== 'fixed_income' || !product.code) continue
-    
+
     const navUpdates = getTransactionsByProductId(product.id)
       .filter(t => t.type === 'nav_update')
-      .sort((a, b) => a.date - b.date)
-    
+
     if (navUpdates.length < 2) continue
-    
+
     const latest = navUpdates[navUpdates.length - 1]
     const result: FixedIncomeAnnualRate = {}
-    
+
     const timeRanges: Record<string, number> = {
       '1m': 30,
       '3m': 90,
       '1y': 365
     }
-    
+
     for (const [key, days] of Object.entries(timeRanges)) {
       const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
-      
+
       let navBefore = null
       for (let i = navUpdates.length - 1; i >= 0; i--) {
         if (navUpdates[i].date <= cutoff) {
@@ -779,7 +790,7 @@ const fixedIncomeAnnualRateMap = computed(() => {
           break
         }
       }
-      
+
       if (navBefore) {
         const actualDays = (latest.date - navBefore.date) / (24 * 60 * 60 * 1000)
         if (actualDays >= 7) {
@@ -788,16 +799,46 @@ const fixedIncomeAnnualRateMap = computed(() => {
         }
       }
     }
-    
+
     map.set(product.code, result)
   }
-  
+
   return map
 })
 
 const getFixedIncomeAnnualRate = (code: string | undefined): FixedIncomeAnnualRate | undefined => {
   if (!code) return undefined
   return fixedIncomeAnnualRateMap.value.get(code)
+}
+
+interface TableRowData {
+  position: ReturnType<typeof getPosition>
+  dailyReturn?: { dailyReturn: number | null; date: string }
+  dailyProfit?: number | null
+  fiAnnual?: FixedIncomeAnnualRate
+}
+
+// 行级预计算：把模板中会重复访问的字段缓存到 Map，减少 computed 依赖追踪与函数调用次数
+const rowDataMap = computed(() => {
+  const map = new Map<string, TableRowData>()
+  for (const product of filteredProducts.value) {
+    const position = getPosition(product.id) as any
+    const row: TableRowData = { position }
+    if (props.type === 'equity') {
+      row.dailyReturn = getDailyReturn(product.code)
+      row.dailyProfit = getDailyProfit(product)
+    } else if (props.type === 'term_deposit') {
+      row.dailyProfit = getDailyProfit(product)
+    } else if (props.type === 'fixed_income') {
+      row.fiAnnual = getFixedIncomeAnnualRate(product.code)
+    }
+    map.set(product.id, row)
+  }
+  return map
+})
+
+const getRowData = (product: Product): TableRowData => {
+  return rowDataMap.value.get(product.id) || { position: getPosition(product.id) as any }
 }
 
 // ==================== 持仓汇总（懒加载 + 缓存）====================
@@ -946,7 +987,7 @@ const summaryStats = computed(() => {
   const profitRate = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0
   
   const totalDailyProfit = filteredProducts.value.reduce((sum, product) => {
-    const dailyProfit = getDailyProfit(product)
+    const dailyProfit = getRowData(product).dailyProfit
     return sum + (dailyProfit ?? 0)
   }, 0)
   
@@ -2125,16 +2166,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   </div>
                 </td>
                 <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 58px; min-width: 58px; max-width: 58px;">
-                  <template v-if="getDailyReturn(product.code)">
+                  <template v-if="getRowData(product).dailyReturn">
                     <p
                       class="text-[12px] font-semibold"
-                      :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? 'text-profit' : (getDailyReturn(product.code)?.dailyReturn ?? 0) < 0 ? 'text-loss' : ''"
+                      :class="(getRowData(product).dailyReturn!.dailyReturn ?? 0) > 0 ? 'text-profit' : (getRowData(product).dailyReturn!.dailyReturn ?? 0) < 0 ? 'text-loss' : ''"
                     >
-                      {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
+                      {{ (getRowData(product).dailyReturn!.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getRowData(product).dailyReturn!.dailyReturn ?? 0).toFixed(2) }}%
                     </p>
                     <div class="flex items-center justify-end mt-0.5">
                       <span class="text-[9px]" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
-                        {{ getDailyReturn(product.code)?.date || '' }}
+                        {{ getRowData(product).dailyReturn!.date || '' }}
                       </span>
                     </div>
                   </template>
@@ -2143,12 +2184,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   </template>
                 </td>
                 <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 65px; min-width: 65px; max-width: 65px;">
-                  <template v-if="getDailyProfit(product) !== null">
+                  <template v-if="getRowData(product).dailyProfit !== null">
                     <p
                       class="text-[12px] font-semibold"
-                      :class="(getDailyProfit(product) ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
+                      :class="(getRowData(product).dailyProfit ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
                     >
-                      {{ (getDailyProfit(product) ?? 0) >= 0 ? '+' : '-' }}{{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
+                      {{ (getRowData(product).dailyProfit ?? 0) >= 0 ? '+' : '-' }}{{ Math.abs(getRowData(product).dailyProfit ?? 0).toFixed(1) }}
                     </p>
                   </template>
                   <template v-else>
@@ -2249,12 +2290,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   </template>
                 </td>
                 <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;" @click.stop>
-                  <template v-if="getFixedIncomeAnnualRate(product.code)?.['1m'] !== undefined">
+                  <template v-if="getRowData(product).fiAnnual?.['1m'] !== undefined">
                     <p 
                       class="text-[12px] font-semibold"
-                      :class="(getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                      :class="(getRowData(product).fiAnnual?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                     >
-                      {{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0).toFixed(2) }}%
+                      {{ (getRowData(product).fiAnnual?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getRowData(product).fiAnnual?.['1m'] || 0).toFixed(2) }}%
                     </p>
                   </template>
                   <template v-else>
@@ -2262,12 +2303,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   </template>
                 </td>
                 <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;" @click.stop>
-                  <template v-if="getFixedIncomeAnnualRate(product.code)?.['3m'] !== undefined">
+                  <template v-if="getRowData(product).fiAnnual?.['3m'] !== undefined">
                     <p 
                       class="text-[12px] font-semibold"
-                      :class="(getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                      :class="(getRowData(product).fiAnnual?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                     >
-                      {{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0).toFixed(2) }}%
+                      {{ (getRowData(product).fiAnnual?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getRowData(product).fiAnnual?.['3m'] || 0).toFixed(2) }}%
                     </p>
                   </template>
                   <template v-else>
@@ -2275,12 +2316,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   </template>
                 </td>
                 <td v-if="props.type === 'fixed_income'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 52px; min-width: 52px; max-width: 52px;">
-                  <template v-if="getFixedIncomeAnnualRate(product.code)?.['1y'] !== undefined">
+                  <template v-if="getRowData(product).fiAnnual?.['1y'] !== undefined">
                     <p 
                       class="text-[12px] font-semibold"
-                      :class="(getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                      :class="(getRowData(product).fiAnnual?.['1y'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                     >
-                      {{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0).toFixed(2) }}%
+                      {{ (getRowData(product).fiAnnual?.['1y'] || 0) >= 0 ? '+' : '' }}{{ (getRowData(product).fiAnnual?.['1y'] || 0).toFixed(2) }}%
                     </p>
                   </template>
                   <template v-else>
@@ -2665,16 +2706,16 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </td>
               <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getDailyReturn(product.code)">
+                <template v-if="getRowData(product).dailyReturn">
                   <p
                     class="text-[14px] font-semibold"
-                    :class="(getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? 'text-profit' : (getDailyReturn(product.code)?.dailyReturn ?? 0) < 0 ? 'text-loss' : ''"
+                    :class="(getRowData(product).dailyReturn?.dailyReturn ?? 0) > 0 ? 'text-profit' : (getRowData(product).dailyReturn?.dailyReturn ?? 0) < 0 ? 'text-loss' : ''"
                   >
-                    {{ (getDailyReturn(product.code)?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getDailyReturn(product.code)?.dailyReturn ?? 0).toFixed(2) }}%
+                    {{ (getRowData(product).dailyReturn?.dailyReturn ?? 0) > 0 ? '+' : '' }}{{ (getRowData(product).dailyReturn?.dailyReturn ?? 0).toFixed(2) }}%
                   </p>
                   <div class="flex items-center justify-end mt-0.5">
                     <span class="text-[11px]" :class="todayNavUpdateSet.has(product.id) ? 'text-primary-500 font-medium' : 'text-apple-secondary'">
-                      {{ getDailyReturn(product.code)?.date || '' }}
+                      {{ getRowData(product).dailyReturn?.date || '' }}
                     </span>
                   </div>
                 </template>
@@ -2683,12 +2724,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
               </td>
               <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getDailyProfit(product) !== null">
+                <template v-if="getRowData(product).dailyProfit !== null">
                   <p
                     class="text-[14px] font-semibold"
-                    :class="(getDailyProfit(product) ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    :class="(getRowData(product).dailyProfit ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
-                    {{ (getDailyProfit(product) ?? 0) >= 0 ? '+' : '-' }}{{ Math.abs(getDailyProfit(product) ?? 0).toFixed(1) }}
+                    {{ (getRowData(product).dailyProfit ?? 0) >= 0 ? '+' : '-' }}{{ Math.abs(getRowData(product).dailyProfit ?? 0).toFixed(1) }}
                   </p>
                 </template>
                 <template v-else>
@@ -2798,12 +2839,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </td>
               <!-- 固收产品特有列：年化收益率统计 -->
               <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getFixedIncomeAnnualRate(product.code)?.['1m'] !== undefined">
+                <template v-if="getRowData(product).fiAnnual?.['1m'] !== undefined">
                   <p 
                     class="text-[14px] font-semibold"
-                    :class="(getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    :class="(getRowData(product).fiAnnual?.['1m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
-                    {{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1m'] || 0).toFixed(2) }}%
+                    {{ (getRowData(product).fiAnnual?.['1m'] || 0) >= 0 ? '+' : '' }}{{ (getRowData(product).fiAnnual?.['1m'] || 0).toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
@@ -2811,12 +2852,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
               </td>
               <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getFixedIncomeAnnualRate(product.code)?.['3m'] !== undefined">
+                <template v-if="getRowData(product).fiAnnual?.['3m'] !== undefined">
                   <p 
                     class="text-[14px] font-semibold"
-                    :class="(getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    :class="(getRowData(product).fiAnnual?.['3m'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
-                    {{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['3m'] || 0).toFixed(2) }}%
+                    {{ (getRowData(product).fiAnnual?.['3m'] || 0) >= 0 ? '+' : '' }}{{ (getRowData(product).fiAnnual?.['3m'] || 0).toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
@@ -2824,12 +2865,12 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </template>
               </td>
               <td v-if="props.type === 'fixed_income'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getFixedIncomeAnnualRate(product.code)?.['1y'] !== undefined">
+                <template v-if="getRowData(product).fiAnnual?.['1y'] !== undefined">
                   <p 
                     class="text-[14px] font-semibold"
-                    :class="(getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
+                    :class="(getRowData(product).fiAnnual?.['1y'] || 0) >= 0 ? 'text-profit' : 'text-loss'"
                   >
-                    {{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0) >= 0 ? '+' : '' }}{{ (getFixedIncomeAnnualRate(product.code)?.['1y'] || 0).toFixed(2) }}%
+                    {{ (getRowData(product).fiAnnual?.['1y'] || 0) >= 0 ? '+' : '' }}{{ (getRowData(product).fiAnnual?.['1y'] || 0).toFixed(2) }}%
                   </p>
                 </template>
                 <template v-else>
