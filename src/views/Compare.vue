@@ -11,7 +11,7 @@ import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } f
 import { CanvasRenderer } from 'echarts/renderers'
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
 
-const { products, transactions } = useFinance()
+const { products, getNavHistoryByProductId } = useFinance()
 const { compareType, compareIds, toggleCompare, removeFromCompare, switchType, MAX_COMPARE } = useCompare()
 
 // ==================== 类型与产品选择 ====================
@@ -21,7 +21,7 @@ const selectedProductIds = compareIds
 const availableProducts = computed(() => {
   return products.value.filter(p => {
     if (selectedType.value === 'equity') {
-      return p.type === 'equity' || p.type === 'fund'
+      return p.type === 'equity' 
     }
     return p.type === 'fixed_income'
   })
@@ -133,9 +133,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 // 获取产品全部净值记录（用于收益率计算）
 function getAllNavSeries(productId: string): NavPoint[] {
-  return transactions.value
-    .filter(t => t.productId === productId && t.type === 'nav_update')
-    .map(t => ({ date: getDateOnly(t.date), nav: t.price }))
+  return getNavHistoryByProductId(productId)
+    .map(n => ({ date: getDateOnly(n.date), nav: n.nav }))
     .sort((a, b) => a.date - b.date)
 }
 

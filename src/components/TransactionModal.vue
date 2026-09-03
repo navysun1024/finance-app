@@ -169,7 +169,7 @@ const fetchNavByDate = async (product: Product, targetDate: string): Promise<num
     const navSource = product.navSource
     
     // 对于权益/基金类产品，使用fetchEquityNav获取
-    if (product.type === 'equity' || product.type === 'fund' || navSource === 'tiantian') {
+    if (product.type === 'equity'  || navSource === 'tiantian') {
       const result = await fetchEquityNav(product.code)
       console.log('[TransactionModal] 从东方财富获取净值:', result.nav)
       return result.nav
@@ -271,7 +271,7 @@ watch(() => props.visible, (val) => {
       // 根据编辑的产品自动设置产品类型
       const editedProduct = props.products.find(p => p.id === props.editTransaction!.productId)
       if (editedProduct) {
-        const normalizedType = editedProduct.type === 'fund' ? 'equity' : editedProduct.type
+        const normalizedType = editedProduct.type
         selectedProductType.value = normalizedType
       }
     } else {
@@ -291,7 +291,7 @@ watch(() => props.visible, (val) => {
         const currentProduct = props.currentProduct || props.products[0]
         console.log('[TransactionModal] currentProduct:', currentProduct?.id)
         if (currentProduct) {
-          const normalizedType = currentProduct.type === 'fund' ? 'equity' : currentProduct.type
+          const normalizedType = currentProduct.type
           selectedProductType.value = normalizedType
           productId.value = currentProduct.id
           console.log('[TransactionModal] 设置productId:', productId.value)
@@ -326,7 +326,7 @@ watch(() => props.visible, (val) => {
 
 const filteredProducts = computed(() => {
   return props.products.filter(p => {
-    const normalizedType = p.type === 'fund' ? 'equity' : p.type
+    const normalizedType = p.type
     return normalizedType === selectedProductType.value
   })
 })

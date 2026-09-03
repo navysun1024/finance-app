@@ -135,7 +135,7 @@ const formatDuration = (durationMonths: number): string => {
           <span 
             class="w-1.5 h-1.5 rounded-full flex-shrink-0"
             :class="{
-              'bg-blue-500': position.product.type === 'equity' || position.product.type === 'fund',
+              'bg-blue-500': position.product.type === 'equity' ,
               'bg-green-500': position.product.type === 'fixed_income',
               'bg-amber-500': position.product.type === 'term_deposit'
             }"

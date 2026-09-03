@@ -69,7 +69,7 @@ const filteredTransactions = computed(() => {
       const product = products.value.find(p => p.id === t.productId)
       if (!product) return false
       // 兼容旧数据：将 'fund' 类型视为 'equity'
-      const normalizedType = product.type === 'fund' ? 'equity' : product.type
+      const normalizedType = product.type
       return normalizedType === filterProductType.value
     })
   }

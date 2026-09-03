@@ -92,6 +92,48 @@ export default defineConfig({
         target: 'http://localhost:3002',
         changeOrigin: true,
         timeout: 600000
+      },
+      // 通用后端代理：/api/products, /api/transactions, /api/nav-history, /api/transactions/add, /api/batch-import 等
+      // 放在更具体的 /api/* 代理之后，匹配不到的 /api/* 请求都转到 db-server (3002)
+      '/api/products': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
+      '/api/transactions': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
+      '/api/nav-history': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
+      '/api/product-dividends': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
+      '/api/batch-import': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
+      '/api/fund/purchase-limit': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
+      '/api/fund/nav': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
+      '/api/fund/dividends': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
       }
     }
   }

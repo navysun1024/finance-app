@@ -12,13 +12,18 @@ const logsDir = join(__dirname, '../logs');
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
-const logFile = join(logsDir, 'scraper.log');
+
+function getLogFile(prefix) {
+  const d = new Date();
+  const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return join(logsDir, `${prefix}-${dateStr}.log`);
+}
 
 function log(message, level = 'INFO') {
   const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
   const logLine = `[${timestamp}] [${level}] ${message}`;
   console.log(logLine);
-  fs.appendFileSync(logFile, logLine + '\n');
+  fs.appendFileSync(getLogFile('scraper'), logLine + '\n');
 }
 
 const app = express();

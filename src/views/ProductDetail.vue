@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { ArrowLeft, Plus, Edit, TrendingUp, TrendingDown, RefreshCw, Calendar, History } from 'lucide-vue-next'
+import { ArrowLeft, Plus, Edit, TrendingUp, TrendingDown, RefreshCw, Calendar, History, ExternalLink } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
@@ -8,9 +8,8 @@ import { formatCurrency, formatCurrency1, formatPercent, formatDate, getDateOnly
 import { fetchEquityNav, fetchCmbNav, fetchIcbcNav, fetchCmbNavHistory, fetchIcbcNavHistory, fetchEquityStageGains, fetchEquityHoldings, type NavResult, type StageGains, type EquityHoldingsResult } from '@/utils/equityApi'
 import { fetchMultipleIndexHistory } from '@/utils/indexApi'
 import { calcBenchmarkSeries, getFormulaIndexCodes, parseBenchmarkFormula, type BenchmarkComponent } from '@/utils/benchmark'
-import type { BenchmarkPoint } from '@/types'
-import { getAuthHeaders } from '@/utils/storage'
-import type { Transaction } from '@/types'
+import type { BenchmarkPoint, NavHistory } from '@/types'
+import { getAuthHeaders, addNavHistoryRecord } from '@/utils/storage'
 import TransactionModal from '@/components/TransactionModal.vue'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -20,7 +19,7 @@ echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendCompone
 
 const route = useRoute()
 const router = useRouter()
-const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, updateProductPurchaseLimit, PRODUCT_TYPE_OPTIONS, refresh } = useFinance()
+const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, updateProductPurchaseLimit, PRODUCT_TYPE_OPTIONS, refresh, getNavHistoryByProductId, getProductDividendsByProduct } = useFinance()
 
 const fetchingNav = ref(false)
 const fetchingNavHistory = ref(false)
@@ -47,7 +46,7 @@ const handleSubmit = (data: { name: string; type: string; note: string; code: st
 }
 
 const handleFetchStageGains = async () => {
-  if (!product.value?.code || (product.value.type !== 'equity' && product.value.type !== 'fund')) return
+  if (!product.value?.code || product.value.type !== 'equity') return
 
   fetchingStageGains.value = true
   try {
@@ -61,7 +60,7 @@ const handleFetchStageGains = async () => {
 }
 
 const handleFetchHoldings = async () => {
-  if (!product.value?.code || (product.value.type !== 'equity' && product.value.type !== 'fund')) return
+  if (!product.value?.code || product.value.type !== 'equity') return
 
   fetchingHoldings.value = true
   try {
@@ -81,12 +80,12 @@ const handleFetchNav = async () => {
   try {
     let result: NavResult
     
-    const allowedSources = (product.value.type === 'equity' || product.value.type === 'fund')
+    const allowedSources = (product.value.type === 'equity' )
       ? ['tiantian'] 
       : ['tiantian', 'cmb', 'icbc']
     const navSrc = allowedSources.includes(product.value.navSource || '') 
       ? product.value.navSource 
-      : (product.value.type === 'equity' || product.value.type === 'fund' ? 'tiantian' : 'cmb')
+      : (product.value.type === 'equity'  ? 'tiantian' : 'cmb')
     
     if (navSrc === 'tiantian') {
       result = await fetchEquityNav(product.value.code)
@@ -119,25 +118,14 @@ const handleFetchNav = async () => {
     // 统一使用当天零点作为日期，确保唯一性
     const navDateMidnight = getDateOnly(dateTimestamp)
 
-    const existingTransactions = getTransactionsByProductId(productId.value)
-    if (existingTransactions.some(
-      t => t.type === 'nav_update' && getDateOnly(t.date) === navDateMidnight
-    )) {
+    const existingNavs = getNavHistoryByProductId(productId.value)
+    if (existingNavs.some(n => getDateOnly(n.date) === navDateMidnight)) {
       fetchingNav.value = false
       return
     }
 
     const updateTime = new Date().toLocaleString('zh-CN')
-    addTransaction(
-      productId.value,
-      'nav_update',
-      navDateMidnight,
-      0,
-      result.nav,
-      0,
-      0,
-      updateTime
-    )
+    await addNavHistoryRecord({ code: product.value.code, date: navDateMidnight, nav: result.nav, note: updateTime })
 
     // 查询到的限购信息写入产品限购属性（不写入备注）
     if (result.purchaseLimitLabel) {
@@ -153,12 +141,12 @@ const handleFetchNav = async () => {
 const handleFetchNavHistory = async () => {
   if (!product.value?.code) return
   
-  const allowedSources = (product.value.type === 'equity' || product.value.type === 'fund')
+  const allowedSources = (product.value.type === 'equity' )
     ? ['tiantian'] 
     : ['tiantian', 'cmb', 'icbc']
   const navSrc = allowedSources.includes(product.value.navSource || '') 
     ? product.value.navSource 
-    : (product.value.type === 'equity' || product.value.type === 'fund' ? 'tiantian' : 'cmb')
+    : (product.value.type === 'equity'  ? 'tiantian' : 'cmb')
   
   if (navSrc === 'tiantian') return
 
@@ -167,12 +155,8 @@ const handleFetchNavHistory = async () => {
   navHistorySuccess.value = ''
   
   try {
-    const existingTransactions = getTransactionsByProductId(productId.value)
-    const existingDates = new Set(
-      existingTransactions
-        .filter(t => t.type === 'nav_update')
-        .map(t => getDateOnly(t.date))
-    )
+    const existingNavs = getNavHistoryByProductId(productId.value)
+    const existingDates = new Set(existingNavs.map(n => getDateOnly(n.date)))
 
     let results: NavResult[]
     if (navSrc === 'icbc') {
@@ -208,16 +192,7 @@ const handleFetchNavHistory = async () => {
       if (!existingDates.has(dateKey)) {
         const now = new Date()
         const timeStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
-        addTransaction(
-          productId.value,
-          'nav_update',
-          dateTimestamp,
-          0,
-          result.nav,
-          0,
-          0,
-          timeStr
-        )
+        await addNavHistoryRecord({ code: product.value.code, date: dateTimestamp, nav: result.nav, note: timeStr })
         existingDates.add(dateKey)
         addedCount++
       }
@@ -239,7 +214,7 @@ const handleFetchNavHistory = async () => {
 const backfillingNav = ref(false)
 
 const handleBackfillNav = async () => {
-  const canBackfill = (product.value?.type === 'equity' || product.value?.type === 'fund') ||
+  const canBackfill = (product.value?.type === 'equity' ) ||
     (product.value?.type === 'fixed_income' && product.value?.navSource === 'tiantian')
   if (!product.value?.code || !canBackfill) return
 
@@ -268,6 +243,49 @@ const product = computed(() => getProductById(productId.value))
 const position = computed(() => getPositionById(productId.value))
 const transactions = computed(() => getTransactionsByProductId(productId.value))
 
+// 净值历史（独立新表 nav_history）
+const productNavHistory = computed(() => getNavHistoryByProductId(productId.value))
+
+// 分红历史（基金公告，独立新表 product_dividends）
+const productDividendList = computed(() => getProductDividendsByProduct(productId.value))
+
+// 历史区域 Tab 切换
+type HistoryTab = 'transactions' | 'navHistory' | 'dividends'
+const historyTab = ref<HistoryTab>('navHistory')
+
+// 每个 Tab 的滚动加载计数（初始30条，滚动到底再+30）
+const PAGE_SIZE = 30
+const txVisibleCount = ref(PAGE_SIZE)
+const navVisibleCount = ref(PAGE_SIZE)
+const divVisibleCount = ref(PAGE_SIZE)
+
+// Tab 切换时重置计数
+watch(historyTab, () => {
+  txVisibleCount.value = PAGE_SIZE
+  navVisibleCount.value = PAGE_SIZE
+  divVisibleCount.value = PAGE_SIZE
+})
+
+// 三个 Tab 的切片数据源
+const slicedTransactions = computed(() => sortedTransactions.value.slice(0, txVisibleCount.value))
+const slicedNavHistory = computed(() => [...productNavHistory.value].slice().reverse().slice(0, navVisibleCount.value))
+const slicedDividends = computed(() => productDividendList.value.slice(0, divVisibleCount.value))
+
+// 当前 Tab 是否还有更多数据
+const hasMoreTransactions = computed(() => txVisibleCount.value < sortedTransactions.value.length)
+const hasMoreNavHistory = computed(() => navVisibleCount.value < productNavHistory.value.length)
+const hasMoreDividends = computed(() => divVisibleCount.value < productDividendList.value.length)
+
+// 表格容器滚动到底部加载更多
+const handleTableScroll = (e: Event) => {
+  const el = e.target as HTMLDivElement
+  const bottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  if (bottom > 80) return // 距底部 > 80px 不触发
+  if (historyTab.value === 'transactions' && hasMoreTransactions.value) txVisibleCount.value += PAGE_SIZE
+  else if (historyTab.value === 'navHistory' && hasMoreNavHistory.value) navVisibleCount.value += PAGE_SIZE
+  else if (historyTab.value === 'dividends' && hasMoreDividends.value) divVisibleCount.value += PAGE_SIZE
+}
+
 // 在新标签页中显示产品名称
 watch(product, (val) => {
   if (val?.name) {
@@ -275,53 +293,8 @@ watch(product, (val) => {
   }
 }, { immediate: true })
 
-// 交易记录日期区间筛选
-const txDateRangeOptions = [
-  { value: '1m', label: '近1月' },
-  { value: '3m', label: '近3月' },
-  { value: '6m', label: '近6月' },
-  { value: '1y', label: '近1年' },
-  { value: 'all', label: '全部' },
-  { value: 'custom', label: '自定义' }
-]
-const txDateRange = ref('1m')
-const txCustomStartDate = ref('')
-const txCustomEndDate = ref('')
-
-// 交易类型筛选
-const txTypeOptions = [
-  { value: 'all', label: '全部' },
-  { value: 'buy', label: '买入' },
-  { value: 'sell', label: '卖出' },
-  { value: 'dividend', label: '分红' },
-  { value: 'nav_update', label: '净值更新' }
-]
-const txType = ref('nav_update')
-
-const txDateBounds = computed(() => {
-  if (txDateRange.value === 'all') return null
-  if (txDateRange.value === 'custom') {
-    const start = txCustomStartDate.value ? new Date(txCustomStartDate.value).getTime() : 0
-    const end = txCustomEndDate.value ? new Date(txCustomEndDate.value + 'T23:59:59').getTime() : Date.now()
-    return { start, end }
-  }
-  const now = Date.now()
-  const days: Record<string, number> = { '1m': 30, '3m': 90, '6m': 180, '1y': 365 }
-  const d = days[txDateRange.value] || 90
-  return { start: now - d * 24 * 60 * 60 * 1000, end: now }
-})
-
 const sortedTransactions = computed(() => {
   let list = [...transactions.value]
-  // 按日期区间筛选
-  const bounds = txDateBounds.value
-  if (bounds) {
-    list = list.filter(t => t.date >= bounds.start && t.date <= bounds.end)
-  }
-  // 按交易类型筛选
-  if (txType.value !== 'all') {
-    list = list.filter(t => t.type === txType.value)
-  }
   // 按日期倒序排列
   list.sort((a, b) => b.date - a.date)
   return list
@@ -633,13 +606,13 @@ const navRangeOptions = [
 const navRange = ref<string>('1y')
 
 const getProductTypeLabel = (type: string) => {
-  const normalized = type === 'fund' ? 'equity' : type
+  const normalized = type
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.label : type
 }
 
 const getProductTypeColor = (type: string) => {
-  const normalized = type === 'fund' ? 'equity' : type
+  const normalized = type
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.color : '#6b7280'
 }
@@ -688,13 +661,13 @@ const handleSubmitTransaction = (data: { productId: string; type: string; date: 
   showModal.value = false
 }
 
-const allNavTransactions = computed(() => 
-  transactions.value
-    .filter(t => t.type === 'nav_update')
-    .map(t => ({
-      date: formatDate(t.date),
-      timestamp: t.date,
-      nav: t.price
+// 净值数据源：直接来自 nav_history 新表（已从 transactions 迁移）
+const allNavTransactions = computed(() =>
+  productNavHistory.value
+    .map(n => ({
+      date: formatDate(n.date),
+      timestamp: n.date,
+      nav: n.nav
     }))
     .sort((a, b) => a.date.localeCompare(b.date))
 )
@@ -952,33 +925,22 @@ const renderTermDepositChart = () => {
   })
 }
 
-// 计算每个净值的日涨跌幅
-const navChangeMap = computed(() => {
-  const map = new Map<string, number>()
-  const items = allNavTransactions.value
-  for (let i = 1; i < items.length; i++) {
-    const prev = items[i - 1].nav
-    const curr = items[i].nav
-    const change = ((curr - prev) / prev) * 100
-    map.set(items[i].date, change)
-  }
-  return map
-})
-
-const getNavChange = (tx: Transaction) => {
-  if (tx.type !== 'nav_update') return '-'
-  const dateStr = formatDate(tx.date)
-  const change = navChangeMap.value.get(dateStr)
-  if (change === undefined) return '-'
-  return `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`
+// ========== 净值历史辅助函数 ==========
+// 根据 NavHistory 数组（时间升序）和索引计算日涨跌幅
+const getNavDailyChange = (navList: NavHistory[], idx: number): number => {
+  if (!navList || idx <= 0 || idx >= navList.length) return 0
+  const prev = navList[idx - 1].nav
+  const curr = navList[idx].nav
+  if (!prev) return 0
+  return ((curr - prev) / prev) * 100
 }
-
-const getNavChangeClass = (tx: Transaction) => {
-  if (tx.type !== 'nav_update') return ''
-  const dateStr = formatDate(tx.date)
-  const change = navChangeMap.value.get(dateStr)
-  if (change === undefined) return ''
-  return change >= 0 ? 'text-profit' : 'text-loss'
+// 根据 NavHistory 数组和索引计算累计涨跌幅（从最早一条到当前）
+const getNavCumulativeChange = (navList: NavHistory[], idx: number): number => {
+  if (!navList || idx < 0 || idx >= navList.length) return 0
+  const first = navList[0].nav
+  const curr = navList[idx].nav
+  if (!first) return 0
+  return ((curr - first) / first) * 100
 }
 
 const updateChart = () => {
@@ -1480,7 +1442,7 @@ const goBackToProducts = () => {
   
   const typeMap: Record<string, string> = {
     'equity': 'equity',
-    'fund': 'equity',
+
     'fixed_income': 'fixed-income',
     'term_deposit': 'term-deposit'
   }
@@ -1571,7 +1533,7 @@ onMounted(async () => {
   initChart()
   window.addEventListener('resize', handleResize)
   // 权益产品自动加载阶段涨幅和持仓信息
-  if ((product.value.type === 'equity' || product.value.type === 'fund') && product.value.code) {
+  if ((product.value.type === 'equity' ) && product.value.code) {
     handleFetchStageGains()
     handleFetchHoldings()
   }
@@ -1643,10 +1605,20 @@ onUnmounted(() => {
             <span class="apple-tag" :style="{ color: getProductTypeColor(product.type) }">
               {{ getProductTypeLabel(product.type) }}
             </span>
-            <span v-if="product.code" class="text-xs font-mono bg-black/5 text-apple-secondary px-2 py-0.5 rounded-full">
+            <span v-if="product.code" class="text-xs font-mono bg-black/5 text-apple-secondary px-2 py-0.5 rounded-full inline-flex items-center gap-1">
               {{ product.code }}
+              <a
+                v-if="product.type === 'equity'"
+                :href="`https://www.morningstar.cn/fund/${product.code}.html`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-primary-500 hover:text-primary-600 opacity-60 hover:opacity-100 transition-opacity"
+                title="查看晨星基金详情"
+              >
+                <ExternalLink class="w-3 h-3" />
+              </a>
             </span>
-            <span v-if="(product.type === 'equity' || product.type === 'fund') && (product as any).purchaseLimit" class="text-xs text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full">
+            <span v-if="(product.type === 'equity' ) && (product as any).purchaseLimit" class="text-xs text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full">
               {{ (product as any).purchaseLimit }}
             </span>
             <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-xs text-fixed-income bg-fixed-income/10 px-2 py-0.5 rounded-full">
@@ -1658,7 +1630,7 @@ onUnmounted(() => {
       </div>
       <div class="-mx-3 px-3 md:mx-0 md:px-0 w-auto md:w-auto self-end scroll-x justify-end items-center gap-2 md:flex md:items-center md:gap-2 md:overflow-x-visible">
         <button
-          v-if="product.code && product.type !== 'equity' && product.type !== 'fund' && product.navSource !== '' && product.navSource !== 'tiantian'"
+          v-if="product.code && product.type !== 'equity' && product.navSource !== '' && product.navSource !== 'tiantian'"
           @click="handleFetchNavHistory"
           :disabled="fetchingNavHistory"
           class="apple-btn-primary text-[13px] min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
@@ -1667,7 +1639,7 @@ onUnmounted(() => {
           <span>{{ fetchingNavHistory ? '查询中...' : '查询历史净值' }}</span>
         </button>
         <button
-          v-if="product.code && (product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
+          v-if="product.code && (product.type === 'equity'  || (product.type === 'fixed_income' && product.navSource === 'tiantian'))"
           @click="handleBackfillNav"
           :disabled="backfillingNav"
           class="apple-btn-primary text-[13px] min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
@@ -1690,7 +1662,7 @@ onUnmounted(() => {
     <p v-if="navHistorySuccess" class="text-sm text-loss mt-2">{{ navHistorySuccess }}</p>
 
     <!-- 持仓概览 + 阶段涨幅/收益率 并排显示 -->
-    <div :class="(product.type === 'equity' || product.type === 'fund' || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6' : ''">
+    <div :class="(product.type === 'equity'  || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6' : ''">
       <!-- 持仓概览 -->
       <div v-if="position" class="glass-card md:p-6">
         <div class="flex items-center justify-between mb-1.5 md:mb-2">
@@ -1725,7 +1697,7 @@ onUnmounted(() => {
               {{ formatPercent(position?.profitRate || 0) }}
             </p>
           </div>
-          <div v-if="product.type !== 'equity' && product.type !== 'fund'" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
+          <div v-if="product.type !== 'equity'" class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
             <p class="text-[10px] font-medium text-apple-secondary truncate">年化收益率</p>
             <p :class="['text-[13px] font-semibold mt-0.5', (position?.annualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
               {{ formatPercent(position?.annualRate || 0) }}
@@ -1831,7 +1803,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 阶段涨幅 (仅权益产品显示) -->
-      <div v-if="(product.type === 'equity' || product.type === 'fund') && stageGains" class="glass-card md:p-5">
+      <div v-if="(product.type === 'equity' ) && stageGains" class="glass-card md:p-5">
         <div class="flex items-center justify-between mb-1.5 md:mb-2">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
@@ -1894,7 +1866,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !stageGains && !fetchingStageGains" class="glass-card md:p-5">
+      <div v-else-if="(product.type === 'equity' ) && !stageGains && !fetchingStageGains" class="glass-card md:p-5">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
@@ -1908,7 +1880,7 @@ onUnmounted(() => {
         </div>
         <p class="text-sm text-apple-secondary mt-2">点击加载查看权益阶段涨幅数据</p>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingStageGains" class="glass-card md:p-5">
+      <div v-else-if="(product.type === 'equity' ) && fetchingStageGains" class="glass-card md:p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">阶段涨幅</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
@@ -1960,9 +1932,9 @@ onUnmounted(() => {
     </div>
     
     <!-- 持仓信息 + 净值走势 并排显示 -->
-    <div :class="(product.type === 'equity' || product.type === 'fund') ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 items-stretch' : ''">
+    <div :class="(product.type === 'equity' ) ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 items-stretch' : ''">
       <!-- 持仓信息 (仅权益产品显示) -->
-      <div v-if="(product.type === 'equity' || product.type === 'fund') && holdingsData" class="glass-card md:p-5">
+      <div v-if="(product.type === 'equity' ) && holdingsData" class="glass-card md:p-5">
         <div class="flex items-center justify-between mb-2">
           <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <div class="flex items-center space-x-3">
@@ -1998,7 +1970,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && !holdingsData && !fetchingHoldings" class="glass-card md:p-5">
+      <div v-else-if="(product.type === 'equity' ) && !holdingsData && !fetchingHoldings" class="glass-card md:p-5">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold text-apple-text">持仓信息</h3>
           <button
@@ -2012,7 +1984,7 @@ onUnmounted(() => {
         </div>
         <p class="text-sm text-apple-secondary mt-2">点击加载查看权益持仓信息</p>
       </div>
-      <div v-else-if="(product.type === 'equity' || product.type === 'fund') && fetchingHoldings && !holdingsData" class="glass-card md:p-5">
+      <div v-else-if="(product.type === 'equity' ) && fetchingHoldings && !holdingsData" class="glass-card md:p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">持仓信息</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
@@ -2022,13 +1994,13 @@ onUnmounted(() => {
         <div class="flex flex-row items-center justify-between gap-2 md:gap-3 mb-2 md:mb-3 flex-nowrap">
           <h3 class="text-lg font-semibold text-apple-text flex-shrink-0">净值走势</h3>
           <div class="flex-1 min-w-0 flex justify-end">
-            <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible inline-flex">
+            <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible inline-flex max-w-full">
               <button
                 v-for="opt in navRangeOptions"
                 :key="opt.value"
                 @click="navRange = opt.value"
                 :class="[
-                  'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-colors md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
+                  'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-colors md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-0 flex-shrink-0',
                   navRange === opt.value
                     ? 'bg-white text-apple-text shadow-sm font-medium'
                     : 'text-apple-secondary hover:text-apple-text'
@@ -2044,9 +2016,29 @@ onUnmounted(() => {
     </div>
     
     <div>
-      <div class="flex items-center justify-between mb-3 md:mb-4">
-        <h3 class="text-lg font-semibold text-apple-text">历史交易</h3>
-        <button 
+      <!-- Tab 切换：交易记录 | 净值历史 | 分红历史 -->
+      <div class="flex items-center justify-between mb-3 md:mb-4 gap-2">
+        <div class="flex items-center -mx-1 px-1 bg-black/5 rounded-full p-[2px] md:p-0.5 flex-shrink-0">
+          <button
+            v-for="tab in ([
+              { value: 'transactions', label: '交易记录' },
+              { value: 'navHistory', label: '净值历史' },
+              { value: 'dividends', label: '分红历史' }
+            ] as const)"
+            :key="tab.value"
+            @click="historyTab = tab.value"
+            :class="[
+              'px-1.5 py-0.5 md:px-2.5 md:py-1 text-[10px] md:text-xs rounded-full transition-all duration-300 flex-shrink-0 !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px]',
+              historyTab === tab.value
+                ? 'bg-white text-apple-text shadow-sm font-medium'
+                : 'text-apple-secondary hover:text-apple-text'
+            ]"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+        <button
+          v-if="historyTab === 'transactions'"
           @click="handleAddTransaction"
           class="apple-btn-primary text-[13px] min-h-[36px] md:min-h-[40px] px-3 md:px-4 py-1.5 md:py-2 flex-shrink-0"
         >
@@ -2054,191 +2046,98 @@ onUnmounted(() => {
           <span>新增交易</span>
         </button>
       </div>
-      <!-- 日期区间选择 + 交易类型筛选 -->
-      <div class="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-2 md:gap-3 mb-2 md:mb-3">
-        <!-- 交易类型筛选 -->
-        <div class="w-full sm:w-auto flex items-center space-x-2">
-          <span class="text-[11px] md:text-xs text-apple-secondary flex-shrink-0">类型:</span>
-          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible">
-            <button
-              v-for="opt in txTypeOptions"
-              :key="opt.value"
-              @click="txType = opt.value"
-              :class="[
-                'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
-                txType === opt.value
-                  ? 'bg-white text-apple-text shadow-sm font-medium'
-                  : 'text-apple-secondary hover:text-apple-text'
-              ]"
-            >
-              {{ opt.label }}
-            </button>
-          </div>
-        </div>
-        
-        <!-- 日期区间选择 -->
-        <div class="w-full sm:w-auto flex items-center space-x-2">
-          <span class="text-[11px] md:text-xs text-apple-secondary flex-shrink-0">区间:</span>
-          <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible">
-            <button
-              v-for="opt in txDateRangeOptions"
-              :key="opt.value"
-              @click="txDateRange = opt.value"
-              :class="[
-                'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-all duration-300 md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-[44px] flex-shrink-0',
-                txDateRange === opt.value
-                  ? 'bg-white text-apple-text shadow-sm font-medium'
-                  : 'text-apple-secondary hover:text-apple-text'
-              ]"
-            >
-              {{ opt.label }}
-            </button>
-          </div>
-        </div>
-        
-        <div v-if="txDateRange === 'custom'" class="w-full sm:w-auto flex items-center space-x-2">
-          <input
-            v-model="txCustomStartDate"
-            type="date"
-            class="glass-input px-2.5 py-1.5 md:px-3 md:py-2 text-[11px] md:text-xs rounded-full outline-none md:touch-target !min-h-[32px] md:!min-h-[40px] flex-1 sm:flex-initial"
-          />
-          <span class="text-apple-secondary text-[11px] md:text-xs flex-shrink-0">至</span>
-          <input
-            v-model="txCustomEndDate"
-            type="date"
-            class="glass-input px-2.5 py-1.5 md:px-3 md:py-2 text-[11px] md:text-xs rounded-full outline-none md:touch-target !min-h-[32px] md:!min-h-[40px] flex-1 sm:flex-initial"
-          />
-        </div>
-        <span class="text-[11px] md:text-xs text-apple-secondary sm:ml-auto w-full sm:w-auto text-center sm:text-right">共 {{ sortedTransactions.length }} 条记录</span>
-      </div>
-      <!-- 移动端表格布局（固定日期列 + 横向滚动） -->
-      <div class="md:hidden">
-        <div v-if="sortedTransactions.length > 0" class="glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
-          <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
-            <div class="min-w-[780px]">
-              <table class="w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]" style="table-layout: fixed;">
-                <thead>
-                  <tr>
-                    <th class="sticky bg-[#FAFAFA] px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
-                      日期
-                    </th>
-                    <th class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 72px; min-width: 72px; max-width: 72px;">
-                      类型
-                    </th>
-                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
-                      金额
-                    </th>
-                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 95px; min-width: 95px; max-width: 95px;">
-                      单价/净值
-                    </th>
-                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 80px; min-width: 80px; max-width: 80px;">
-                      涨跌幅
-                    </th>
-                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 90px; min-width: 90px; max-width: 90px;">
-                      份额
-                    </th>
-                    <th class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 75px; min-width: 75px; max-width: 75px;">
-                      手续费
-                    </th>
-                    <th class="px-2 py-2 text-left text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 130px; min-width: 130px; max-width: 130px;">
-                      备注
-                    </th>
-                    <th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 56px; min-width: 56px; max-width: 56px;">
-                      操作
-                    </th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-apple-border/50">
-                  <tr 
-                    v-for="transaction in sortedTransactions" 
-                    :key="transaction.id"
-                    class="hover:bg-primary-50/30 transition-colors"
-                  >
-                    <td class="sticky bg-white dark:bg-apple-bg px-2 py-2 whitespace-nowrap" style="width: 100px; min-width: 100px; max-width: 100px;">
-                      <p class="text-[12px] text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</p>
-                    </td>
-                    <td class="px-2 py-2 whitespace-nowrap text-left">
-                      <span 
-                        class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0"
-                        :class="{
-                          'bg-loss/10 text-loss': transaction.type === 'buy',
-                          'bg-profit/10 text-profit': transaction.type === 'sell',
-                          'bg-yellow-50 text-yellow-600': transaction.type === 'dividend',
-                          'bg-primary-50 text-primary-500': transaction.type === 'nav_update'
-                        }"
-                      >
-                        {{ transaction.type === 'buy' ? '买入' : transaction.type === 'sell' ? '卖出' : transaction.type === 'dividend' ? '分红' : '净值更新' }}
-                      </span>
-                    </td>
-                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px]" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
-                      {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
-                    </td>
-                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
-                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] font-medium" :class="getNavChangeClass(transaction)">{{ getNavChange(transaction) }}</td>
-                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
-                    <td class="px-2 py-2 text-right whitespace-nowrap text-[12px] text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
-                    <td class="px-2 py-2 text-[12px] text-apple-secondary break-all min-w-0" style="width: 130px; min-width: 130px; max-width: 130px;">{{ transaction.note || '-' }}</td>
-                    <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop>
-                      <div class="flex items-center justify-center space-x-0">
-                        <button 
-                          @click="handleEditTransaction(transaction)"
-                          class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                        </button>
-                        <button 
-                          @click="handleDeleteTransaction(transaction.id)"
-                          class="w-6 h-6 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div v-else-if="transactions.length === 0" class="md:hidden glass-card p-8 text-center -mx-3 md:mx-0 mt-2">
-          <p class="text-apple-text text-[16px] font-medium">暂无交易记录</p>
-          <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加交易记录</p>
-        </div>
-        <div v-else class="md:hidden glass-card p-8 text-center -mx-3 md:mx-0 mt-2">
-          <p class="text-apple-text text-[16px] font-medium">当前日期区间内无交易记录</p>
-          <p class="text-apple-secondary text-[13px] mt-2">试试切换为"全部"查看更多</p>
-        </div>
-      </div>
-      
-      <!-- 桌面端表格布局 -->
-      <div class="hidden md:block">
-        <div class="glass-card overflow-hidden">
-          <div class="overflow-x-auto">
-          <table class="w-full apple-table" style="table-layout: fixed;">
+      <!-- 移动端交易记录 -->
+      <div v-if="historyTab === 'transactions'" class="md:hidden glass-card glass-table-card max-h-[720px] overflow-y-auto" @scroll.passive="handleTableScroll">
+        <div v-if="sortedTransactions.length > 0">
+          <table class="w-full apple-table mobile-product-table" style="table-layout: fixed;">
+            <colgroup>
+              <col style="width: 17%;">
+              <col style="width: 10%;">
+              <col style="width: 17%;">
+              <col style="width: 13%;">
+              <col style="width: 12%;">
+              <col style="width: 10%;">
+              <col style="width: 11%;">
+              <col style="width: 10%;">
+            </colgroup>
             <thead>
               <tr>
-                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 140px;">日期</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 105px;">类型</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 140px;">金额</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 130px;">单价/净值</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 110px;">涨跌幅</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 130px;">份额</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 110px;">手续费</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 180px;">备注</th>
-                <th class="px-4 py-2.5 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider" style="width: 80px;">操作</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">日期</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">类型</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">金额</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">单价</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">份额</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">手续费</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">备注</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-center text-[10px] font-semibold text-apple-secondary">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-apple-border/50">
-              <tr v-for="transaction in sortedTransactions" :key="transaction.id">
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</td>
+              <tr v-for="transaction in slicedTransactions" :key="transaction.id" class="hover:bg-primary-50/30 transition-colors">
+                <td class="px-1 py-1.5 text-left whitespace-nowrap text-[11px] text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</td>
+                <td class="px-1 py-1.5 whitespace-nowrap">
+                  <span class="inline-flex items-center px-1 py-px rounded text-[9px] font-medium"
+                    :class="{
+                      'bg-loss/10 text-loss': transaction.type === 'buy',
+                      'bg-profit/10 text-profit': transaction.type === 'sell',
+                      'bg-yellow-50 text-yellow-600': transaction.type === 'dividend'
+                    }">
+                    {{ transaction.type === 'buy' ? '买' : transaction.type === 'sell' ? '卖' : transaction.type === 'dividend' ? '分红' : '净值' }}
+                  </span>
+                </td>
+                <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px]"
+                  :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
+                  {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
+                </td>
+                <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] text-apple-secondary">{{ transaction.type === 'dividend' ? '-' : transaction.price.toFixed(4) }}</td>
+                <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] text-apple-secondary">{{ transaction.type === 'dividend' ? '-' : transaction.shares.toFixed(2) }}</td>
+                <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] text-apple-secondary">{{ transaction.fee > 0 ? formatCurrency(transaction.fee) : '-' }}</td>
+                <td class="px-1 py-1.5 text-left text-[11px] text-apple-secondary truncate">{{ transaction.note || '-' }}</td>
+                <td class="px-1 py-1.5 text-center whitespace-nowrap">
+                  <div class="flex items-center justify-center space-x-0.5">
+                    <button @click="handleEditTransaction(transaction)" class="w-5 h-5 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    </button>
+                    <button @click="handleDeleteTransaction(transaction.id)" class="w-5 h-5 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="p-8 text-center">
+          <p class="text-apple-text text-[16px] font-medium">暂无交易记录</p>
+          <p class="text-apple-secondary text-[13px] mt-2">点击上方按钮添加交易记录</p>
+        </div>
+      </div>
+
+      <div v-if="historyTab === 'transactions'" class="hidden md:block glass-card glass-table-card max-h-[720px] overflow-y-auto overflow-x-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-apple-border/50" @scroll.passive="handleTableScroll">
+        <div class="">
+          <table class="w-full apple-table" style="table-layout: fixed;">
+            <thead>
+              <tr>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 140px;">日期</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 105px;">类型</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 140px;">金额</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 130px;">单价/净值</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 130px;">份额</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 110px;">手续费</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 180px;">备注</th>
+                <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-2.5 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary" style="width: 80px;">操作</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-apple-border/50">
+              <tr v-for="transaction in slicedTransactions" :key="transaction.id">
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-left text-apple-text">{{ new Date(transaction.date).toLocaleDateString('zh-CN') }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-left">
                   <span 
                     class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
                     :class="{
                       'bg-loss/10 text-loss': transaction.type === 'buy',
                       'bg-profit/10 text-profit': transaction.type === 'sell',
-                      'bg-yellow-50 text-yellow-600': transaction.type === 'dividend',
-                      'bg-primary-50 text-primary-500': transaction.type === 'nav_update'
+                      'bg-yellow-50 text-yellow-600': transaction.type === 'dividend'
                     }"
                   >
                     {{ transaction.type === 'buy' ? '买入' : transaction.type === 'sell' ? '卖出' : transaction.type === 'dividend' ? '分红' : '净值更新' }}
@@ -2247,11 +2146,10 @@ onUnmounted(() => {
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-right" :class="transaction.type === 'buy' ? 'text-apple-text' : transaction.type === 'sell' ? 'text-profit' : 'text-yellow-600'">
                   {{ transaction.type === 'buy' ? '-' : '+' }}{{ formatCurrency(transaction.amount) }}
                 </td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.price.toFixed(4) }}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavChangeClass(transaction)">{{ getNavChange(transaction) }}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.shares.toFixed(4) }}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ formatCurrency(transaction.fee) }}</td>
-                <td class="px-4 py-3 text-sm text-apple-secondary break-words max-w-[180px]">{{ transaction.note || '-' }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.type === 'dividend' ? '-' : transaction.price.toFixed(4) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.type === 'dividend' ? '-' : transaction.shares.toFixed(4) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ transaction.fee > 0 ? formatCurrency(transaction.fee) : '-' }}</td>
+                <td class="px-4 py-3 text-sm text-apple-secondary truncate">{{ transaction.note || '-' }}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-center">
                   <div class="flex items-center justify-center space-x-2">
                     <button 
@@ -2271,7 +2169,6 @@ onUnmounted(() => {
               </tr>
             </tbody>
           </table>
-          </div>
           <div v-if="transactions.length === 0" class="px-6 py-12 text-center">
             <p class="text-apple-secondary">暂无交易记录</p>
             <p class="text-apple-secondary text-sm mt-2 opacity-70">点击上方按钮添加交易记录</p>
@@ -2282,8 +2179,172 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- 交易记录底部提示 -->
+      <div v-if="historyTab === 'transactions' && sortedTransactions.length > 0" class="text-center py-3 text-[11px] text-apple-secondary">
+        <span v-if="hasMoreTransactions">⬇️ 滚动加载更多（已显示 {{ txVisibleCount }} / {{ sortedTransactions.length }}）</span>
+        <span v-else>已加载全部 {{ sortedTransactions.length }} 条</span>
+      </div>
+
+      <!-- ============ 净值历史 Tab ============ -->
+      <div v-if="historyTab === 'navHistory'" class="glass-card glass-table-card max-h-[720px] overflow-y-auto" @scroll.passive="handleTableScroll">
+        <div v-if="productNavHistory.length > 0">
+          <!-- 移动端 -->
+          <div class="md:hidden">
+            <table class="w-full apple-table mobile-product-table" style="table-layout: fixed;">
+              <colgroup>
+                <col style="width: 22%;">
+                <col style="width: 20%;">
+                <col style="width: 16%;">
+                <col style="width: 18%;">
+                <col style="width: 24%;">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">日期</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">净值</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">日涨跌</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">累计</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">备注</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-apple-border/50">
+                <tr v-for="(nav, idx) in slicedNavHistory" :key="nav.id">
+                  <td class="px-1 py-1.5 text-left whitespace-nowrap text-[11px] text-apple-text">{{ new Date(nav.date).toLocaleDateString('zh-CN') }}</td>
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium text-apple-text">{{ nav.nav.toFixed(4) }}</td>
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium" :class="getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  </td>
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium" :class="getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  </td>
+                  <td class="px-1 py-1.5 text-left text-[11px] text-apple-secondary truncate">{{ nav.note || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 桌面端 -->
+          <div class="hidden md:block">
+            <table class="w-full apple-table" style="table-layout: fixed;">
+              <thead>
+                <tr>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 160px;">日期</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 140px;">净值</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 120px;">日涨跌</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 120px;">累计涨跌</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary">备注</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-apple-border/50">
+                <tr v-for="(nav, idx) in slicedNavHistory" :key="nav.id">
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-left text-apple-text">{{ new Date(nav.date).toLocaleDateString('zh-CN') }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-apple-text">{{ nav.nav.toFixed(4) }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  </td>
+                  <td class="px-4 py-3 text-sm text-left text-apple-secondary break-words">{{ nav.note || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div v-else class="p-8 text-center">
+          <p class="text-apple-secondary">暂无净值历史</p>
+          <p class="text-apple-secondary text-sm mt-2 opacity-70">点击上方"净值更新"按钮获取历史净值</p>
+        </div>
+      </div>
+
+      <!-- 净值历史底部提示 -->
+      <div v-if="historyTab === 'navHistory' && productNavHistory.length > 0" class="text-center py-3 text-[11px] text-apple-secondary">
+        <span v-if="hasMoreNavHistory">⬇️ 滚动加载更多（已显示 {{ navVisibleCount }} / {{ productNavHistory.length }}）</span>
+        <span v-else>已加载全部 {{ productNavHistory.length }} 条</span>
+      </div>
+
+      <!-- ============ 分红历史 Tab ============ -->
+      <div v-if="historyTab === 'dividends'" class="glass-card glass-table-card max-h-[720px] overflow-y-auto" @scroll.passive="handleTableScroll">
+        <div v-if="productDividendList.length > 0">
+          <!-- 移动端 -->
+          <div class="md:hidden">
+            <table class="w-full apple-table mobile-product-table" style="table-layout: fixed;">
+              <colgroup>
+                <col style="width: 20%;">
+                <col style="width: 20%;">
+                <col style="width: 13%;">
+                <col style="width: 23%;">
+                <col style="width: 24%;">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">登记日</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">除权日</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">类型</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">每10份派</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">派息日</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-apple-border/50">
+                <tr v-for="pd in slicedDividends" :key="pd.id">
+                  <td class="px-1 py-1.5 text-left whitespace-nowrap text-[11px] text-apple-text">{{ pd.registerDate ? new Date(pd.registerDate).toLocaleDateString('zh-CN') : '-' }}</td>
+                  <td class="px-1 py-1.5 text-left whitespace-nowrap text-[11px] text-apple-secondary">{{ pd.exDate ? new Date(pd.exDate).toLocaleDateString('zh-CN') : '-' }}</td>
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap">
+                    <span class="inline-flex items-center px-1 py-px rounded text-[9px] font-medium"
+                      :class="pd.dividendType === 'cash' ? 'bg-yellow-50 text-yellow-600' : 'bg-primary-50 text-primary-500'">
+                      {{ pd.dividendType === 'cash' ? '现' : '转' }}
+                    </span>
+                  </td>
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium text-apple-text">{{ pd.per10Shares.toFixed(2) }}</td>
+                  <td class="px-1 py-1.5 text-left whitespace-nowrap text-[11px] text-apple-secondary">{{ pd.payDate ? new Date(pd.payDate).toLocaleDateString('zh-CN') : '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 桌面端 -->
+          <div class="hidden md:block">
+            <table class="w-full apple-table" style="table-layout: fixed;">
+              <thead>
+                <tr>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 150px;">权益登记日</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 130px;">除权日</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary" style="width: 130px;">类型</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 140px;">每10份派</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 130px;">每份派</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 150px;">派息日</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-apple-border/50">
+                <tr v-for="pd in slicedDividends" :key="pd.id">
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-left text-apple-text">{{ pd.registerDate ? new Date(pd.registerDate).toLocaleDateString('zh-CN') : '-' }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-left text-apple-secondary">{{ pd.exDate ? new Date(pd.exDate).toLocaleDateString('zh-CN') : '-' }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-center">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+                      :class="pd.dividendType === 'cash' ? 'bg-yellow-50 text-yellow-600' : 'bg-primary-50 text-primary-500'">
+                      {{ pd.dividendType === 'cash' ? '现金分红' : '送股/转增' }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-apple-text">{{ pd.per10Shares.toFixed(4) }} 元</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ pd.perShare.toFixed(4) }} 元</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-left text-apple-secondary">{{ pd.payDate ? new Date(pd.payDate).toLocaleDateString('zh-CN') : '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div v-else class="p-8 text-center">
+          <p class="text-apple-secondary">暂无分红历史</p>
+          <p class="text-apple-secondary text-sm mt-2 opacity-70">可通过净值更新触发分红自动同步</p>
+        </div>
+      </div>
+      <!-- 分红历史底部提示 -->
+      <div v-if="historyTab === 'dividends' && productDividendList.length > 0" class="text-center py-3 text-[11px] text-apple-secondary">
+        <span v-if="hasMoreDividends">⬇️ 滚动加载更多（已显示 {{ divVisibleCount }} / {{ productDividendList.length }}）</span>
+        <span v-else>已加载全部 {{ productDividendList.length }} 条</span>
+      </div>
+
     </div>
-    
+
     <TransactionModal 
       :visible="showModal"
       :products="product ? [product] : []"

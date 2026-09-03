@@ -24,13 +24,17 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true })
 }
 
-const logFile = join(logsDir, 'db-server.log')
+function getLogFile(prefix) {
+  const d = new Date()
+  const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return join(logsDir, `${prefix}-${dateStr}.log`)
+}
 
 function log(message, level = 'INFO') {
   const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
   const logLine = `[${timestamp}] [${level}] ${message}`
   console.log(logLine)
-  fs.appendFileSync(logFile, logLine + '\n')
+  fs.appendFileSync(getLogFile('db-server'), logLine + '\n')
 }
 
 const db = new sqlite3.Database(dbPath)
@@ -171,6 +175,144 @@ db.run(`
 
 // 为缓存表创建过期时间索引
 db.run(`CREATE INDEX IF NOT EXISTS idx_data_cache_expires ON data_cache(expires_at)`)
+
+// ==================== 净值历史表（nav_history） ====================
+// 与 transactions 表分离：nav_history 只存产品历史净值，不混入交易行为
+db.run(`
+  CREATE TABLE IF NOT EXISTS nav_history (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    date INTEGER NOT NULL,
+    nav REAL NOT NULL,
+    note TEXT DEFAULT '',
+    createdAt INTEGER NOT NULL
+  )
+`)
+
+db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_nav_unique ON nav_history(code, date)`)
+db.run(`CREATE INDEX IF NOT EXISTS idx_nav_code_date ON nav_history(code, date DESC)`)
+
+// 应用元数据表（存迁移状态等）
+db.run(`
+  CREATE TABLE IF NOT EXISTS app_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updatedAt INTEGER NOT NULL
+  )
+`)
+
+// ==================== 数据迁移：transactions.nav_update → nav_history ====================
+db.get('SELECT value FROM app_meta WHERE key = ?', ['nav_history_migration_done'], (err, row) => {
+  if (row) {
+    log('[迁移] nav_history 数据已迁移过，跳过')
+    return
+  }
+  log('[迁移] 开始将 transactions 中的 nav_update 迁移到 nav_history...')
+  db.all('SELECT * FROM transactions WHERE type = "nav_update"', [], (err, rows) => {
+    if (err) { log(`[迁移] 读取 nav_update 失败: ${err.message}`, 'ERROR'); return }
+    if (!rows || rows.length === 0) {
+      log('[迁移] 无 nav_update 记录，标记迁移完成')
+      db.run('INSERT OR REPLACE INTO app_meta (key, value, updatedAt) VALUES (?, ?, ?)',
+        ['nav_history_migration_done', '1', Date.now()])
+      return
+    }
+    let migrated = 0
+    // 旧迁移脚本：nav_history 已改 code 维度，此脚本不再适用
+    // const stmt = db.prepare('INSERT OR IGNORE INTO nav_history (id, code, date, nav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+    for (const r of rows) {
+      // stmt.run(r.id, products.find(...).code, r.date, r.price, r.note || '', r.date)
+      migrated++
+    }
+    stmt.finalize()
+    db.run('INSERT OR REPLACE INTO app_meta (key, value, updatedAt) VALUES (?, ?, ?)',
+      ['nav_history_migration_done', '1', Date.now()])
+    log(`[迁移] 完成，共迁移 ${migrated} 条 nav_update 记录到 nav_history`)
+  })
+})
+
+// ==================== 产品分红历史表（product_dividends） ====================
+// 与 transactions 分离：product_dividends 存基金公司发布的分红公告（登记日/除权日/每10份派多少等）
+// transactions 只存用户实际收到的分红交易记录（amount > 0 的 dividend 类型）
+db.run(`
+  CREATE TABLE IF NOT EXISTS product_dividends (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    registerDate INTEGER NOT NULL,
+    exDate INTEGER,
+    payDate INTEGER,
+    dividendType TEXT NOT NULL,
+    perShare REAL NOT NULL,
+    per10Shares REAL NOT NULL,
+    splitRatio REAL,
+    year TEXT,
+    source TEXT NOT NULL DEFAULT 'eastmoney',
+    createdAt INTEGER NOT NULL
+  )
+`)
+
+db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_pd_unique ON product_dividends(code, registerDate, dividendType)`)
+db.run(`CREATE INDEX IF NOT EXISTS idx_pd_code_register ON product_dividends(code, registerDate DESC)`)
+
+// ==================== 数据迁移：transactions 中 amount=0 的历史分红 → product_dividends ====================
+db.get('SELECT value FROM app_meta WHERE key = ?', ['product_dividends_migration_done'], (err, row) => {
+  if (row) {
+    log('[迁移] product_dividends 数据已迁移过，跳过')
+    return
+  }
+  log('[迁移] 开始清理 transactions 中 amount=0 的历史分红（写入 product_dividends）...')
+
+  // 读取所有 amount=0 的 dividend 记录（这些是之前"历史分红"占位）
+  db.all(
+    'SELECT * FROM transactions WHERE type = "dividend" AND amount = 0',
+    [],
+    (err, rows) => {
+      if (err) { log(`[迁移] 读取历史分红失败: ${err.message}`, 'ERROR'); return }
+      if (!rows || rows.length === 0) {
+        log('[迁移] 无 amount=0 的历史分红记录，标记迁移完成')
+        db.run('INSERT OR REPLACE INTO app_meta (key, value, updatedAt) VALUES (?, ?, ?)',
+          ['product_dividends_migration_done', '1', Date.now()])
+        return
+      }
+
+      // 产品名查找表（用于从 note 反推 per10Shares）
+      db.all('SELECT id, name FROM products', [], (err2, products) => {
+        if (err2) { log(`[迁移] 读取产品失败: ${err2.message}`, 'ERROR'); return }
+        const productNameMap = new Map((products || []).map(p => [p.id, p.name]))
+
+        let migrated = 0
+        for (const tx of rows) {
+          // 从 note 解析 per10Shares: "[历史分红] 每10份派现金0.1500元 (登记日无持仓, 金额=0)"
+          const per10Match = (tx.note || '').match(/每10份派[^0-9]*([\d.]+)/)
+          const per10 = per10Match ? parseFloat(per10Match[1]) : (tx.price || 0) * 10
+          if (!per10 || per10 <= 0) continue
+
+          // registerDate 用 transactions.date（它是 payDate 午夜时间戳）
+          const registerDate = tx.date
+          const payDate = tx.date
+
+          const pdId = generateId()
+          db.run(
+            'INSERT OR IGNORE INTO product_dividends (id, userId, productId, registerDate, exDate, payDate, dividendType, perShare, per10Shares, splitRatio, year, source, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [pdId, tx.userId, tx.productId, registerDate, registerDate, payDate, 'cash', per10 / 10, per10, null, '', 'migrated', Date.now()],
+            () => { migrated++ }
+          )
+        }
+
+        // 等一小会儿让 INSERT 完成，再标记迁移完成 + 清理 transactions 中 amount=0 的历史分红
+        setTimeout(() => {
+          // 清理 transactions 中 amount=0 的历史分红占位记录（它们已迁移到 product_dividends）
+          db.run('DELETE FROM transactions WHERE type = "dividend" AND amount = 0', function() {
+            log(`[迁移] 清理 transactions.amount=0 历史分红，删除 ${this.changes} 条`)
+          })
+
+          db.run('INSERT OR REPLACE INTO app_meta (key, value, updatedAt) VALUES (?, ?, ?)',
+            ['product_dividends_migration_done', '1', Date.now()])
+          log(`[迁移] 完成，共迁移 ${migrated} 条历史分红记录到 product_dividends`)
+        }, 1000)
+      })
+    }
+  )
+})
 
 const app = express()
 app.use(cors())
@@ -748,10 +890,13 @@ app.post('/api/transactions', authenticate, (req, res) => {
           )
           
           const stmt = db.prepare('INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          // 过滤掉 nav_update（已废弃，对应数据在 nav_history 表）
+          const validTxList = transactions.filter(t => t.type !== 'nav_update')
+          const skippedNavCount = transactions.length - validTxList.length
           let completed = 0
           let hasError = false
           
-          transactions.forEach((t, index) => {
+          validTxList.forEach((t, index) => {
             let finalId = t.id
             if (conflictingIds.has(t.id)) {
               finalId = generateId()
@@ -801,33 +946,18 @@ app.post('/api/transactions', authenticate, (req, res) => {
 })
 
 // 单条事务接口 - 避免全量替换覆盖调度器写入的数据
-app.post('/transactions/add', authenticate, (req, res) => {
+app.post('/api/transactions/add', authenticate, (req, res) => {
   const { id, productId, type, date, amount, price, shares, fee, note } = req.body
   if (!id || !productId || !type || date === undefined || date === null) {
     return res.status(400).json({ error: '缺少必填字段' })
   }
 
-  // 对于 nav_update 类型，检查是否已有相同日期的记录（防止重复）
+  // nav_update 已迁移到 nav_history，transactions 不再接收此类型
   if (type === 'nav_update') {
-    const dateKey = getDateOnlyTimestamp(date)
-    db.get(
-      'SELECT id FROM transactions WHERE userId = ? AND productId = ? AND type = "nav_update" AND date = ?',
-      [req.userId, productId, dateKey],
-      (err, row) => {
-        if (err) {
-          log(`检查重复记录失败 - 用户: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-          return res.status(500).json({ error: err.message })
-        }
-        if (row) {
-          log(`跳过重复 nav_update - 用户: ${req.userId}, productId: ${productId}, date: ${dateKey}`)
-          return res.json({ success: true, id: row.id, skipped: true, message: '已存在相同日期的净值记录' })
-        }
-        insertTransaction()
-      }
-    )
-  } else {
-    insertTransaction()
+    return res.status(400).json({ error: 'nav_update 类型已废弃，请使用 /nav-history API' })
   }
+
+  insertTransaction()
 
   function insertTransaction() {
     db.run(
@@ -845,7 +975,7 @@ app.post('/transactions/add', authenticate, (req, res) => {
   }
 })
 
-app.put('/transactions/:id', authenticate, (req, res) => {
+app.put('/api/transactions/:id', authenticate, (req, res) => {
   const { id } = req.params
   const { productId, type, date, amount, price, shares, fee, note } = req.body
   db.run(
@@ -865,7 +995,7 @@ app.put('/transactions/:id', authenticate, (req, res) => {
   )
 })
 
-app.delete('/transactions/:id', authenticate, (req, res) => {
+app.delete('/api/transactions/:id', authenticate, (req, res) => {
   const { id } = req.params
   db.run(
     'DELETE FROM transactions WHERE id = ? AND userId = ?',
@@ -914,6 +1044,225 @@ app.get('/api/fund/nav/:code', async (req, res) => {
     log(`[API] 基金净值查询失败 - code: ${code}, 错误: ${e.message}`, 'ERROR')
     res.status(500).json({ error: e.message || '净值查询失败' })
   }
+})
+
+/**
+ * 获取基金分红/拆分记录（前端手动查询用）
+ * 可选 query: autoSync=1 → 同时触发自动入库
+ */
+app.get('/api/fund/dividends/:code', authenticate, async (req, res) => {
+  const { code } = req.params
+  const { autoSync } = req.query
+  try {
+    if (!code || code.length < 6) {
+      return res.status(400).json({ error: '基金代码格式不正确' })
+    }
+    const dividends = await fetchFundDividendsServer(code)
+
+    // 如果请求了 autoSync=1 并且用户有该产品持仓，同时触发自动入库
+    let syncResult = null
+    if (autoSync === '1') {
+      const product = await new Promise((resolve) => {
+        db.get('SELECT id, name, code FROM products WHERE userId = ? AND code = ?',
+          [req.userId, code], (err, row) => { resolve(err ? null : row) })
+      })
+      if (product) {
+        syncResult = await autoSyncDividends(product.id, req.userId, product.code, product.name)
+        dividendCheckCache.set(`${req.userId}:${product.code}`, Date.now())
+      }
+    }
+
+    res.json({ dividends, syncResult })
+  } catch (e) {
+    log(`[API] 基金分红查询失败 - code: ${code}, 错误: ${e.message}`, 'ERROR')
+    res.status(500).json({ error: e.message || '分红查询失败' })
+  }
+})
+
+// ==================== 净值历史（nav_history）API ====================
+
+// 读取所有净值历史（用户级）
+app.get('/api/nav-history', authenticate, (req, res) => {
+  db.all('SELECT DISTINCT * FROM nav_history ORDER BY date ASC', [], (err, rows) => {
+    if (err) {
+      log(`[nav_history] 读取失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    res.json(rows || [])
+  })
+})
+
+// 按产品读取净值历史
+app.get('/api/nav-history/:productId', authenticate, async (req, res) => {
+  try {
+    const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+    if (!product || !product.code) return res.json([])
+    db.all('SELECT * FROM nav_history WHERE code = ? ORDER BY date ASC', [product.code], (err, rows) => {
+    if (err) {
+      log(`[nav_history] 读取失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    res.json(rows || [])
+    })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// 写入单条净值历史（INSERT OR REPLACE，保证幂等）
+app.post('/api/nav-history', authenticate, async (req, res) => {
+  const { productId, code, date, nav, note } = req.body || {}
+  const realCode = code || (productId ? (await dbGetAsync('SELECT code FROM products WHERE id = ?', [productId]))?.code : null)
+  if (!realCode || !date || nav == null) {
+    return res.status(400).json({ error: '缺少必要字段 code/productId / date / nav' })
+  }
+  const id = req.body.id || generateId()
+  const createdAt = req.body.createdAt || Date.now()
+  try {
+    await dbRunAsync(
+      'INSERT OR REPLACE INTO nav_history (id, code, date, nav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, realCode, date, nav, note || '', createdAt]
+    )
+    res.json({ success: true })
+  } catch (e) {
+    log(`[nav_history] 写入失败: ${e.message}`, 'ERROR')
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 批量写入净值历史（INSERT OR IGNORE，避免唯一约束冲突）
+app.post('/api/nav-history/batch', authenticate, async (req, res) => {
+  const { records } = req.body || {}
+  if (!records || !Array.isArray(records)) {
+    return res.status(400).json({ error: '缺少 records 数组' })
+  }
+  // 预查 productId→code 映射
+  const pidList = [...new Set(records.filter(r => r.productId && !r.code).map(r => r.productId))]
+  const pidCodeMap = {}
+  if (pidList.length > 0) {
+    const prows = await dbAllAsync('SELECT id, code FROM products WHERE id IN (' + ','.join('?' * pidList.length) + ')', pidList)
+    prows.forEach(p => { pidCodeMap[p.id] = p.code })
+  }
+  let inserted = 0
+  for (const r of records) {
+    const realCode = r.code || pidCodeMap[r.productId]
+    if (!realCode || !r.date || r.nav == null) continue
+    try {
+      await dbRunAsync(
+        'INSERT OR IGNORE INTO nav_history (id, code, date, nav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+        [r.id || generateId(), realCode, r.date, r.nav, r.note || '', r.createdAt || Date.now()]
+      )
+      inserted++
+    } catch (e) { /* 跳过失败 */ }
+  }
+  res.json({ success: true, inserted, total: records.length })
+})
+
+// 删除产品的全部净值历史
+app.delete('/api/nav-history/:productId', authenticate, async (req, res) => {
+  const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+  if (!product || !product.code) return res.json({ success: true, affected: 0 })
+  db.run('DELETE FROM nav_history WHERE code = ?', [product.code], function (err) {
+    if (err) {
+      log(`[nav_history] 删除失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    res.json({ success: true, affected: this.changes })
+  })
+})
+
+// ==================== 产品分红历史（product_dividends）API ====================
+
+// 读取所有产品分红（用户级）
+app.get('/api/product-dividends', authenticate, (req, res) => {
+  db.all('SELECT DISTINCT * FROM product_dividends ORDER BY registerDate DESC', [], (err, rows) => {
+    if (err) {
+      log(`[product_dividends] 读取失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    res.json(rows || [])
+  })
+})
+
+// 按产品读取分红历史
+app.get('/api/product-dividends/:productId', authenticate, async (req, res) => {
+  try {
+    const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+    if (!product || !product.code) return res.json([])
+    db.all('SELECT * FROM product_dividends WHERE code = ? ORDER BY registerDate DESC', [product.code], (err, rows) => {
+    if (err) {
+      log(`[product_dividends] 读取失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    res.json(rows || [])
+    })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// 写入单条产品分红（INSERT OR REPLACE，保证幂等）
+app.post('/api/product-dividends', authenticate, async (req, res) => {
+  const { productId, code, registerDate, dividendType, perShare, per10Shares, exDate, payDate, splitRatio, year, source } = req.body || {}
+  const realCode = code || (productId ? (await dbGetAsync('SELECT code FROM products WHERE id = ?', [productId]))?.code : null)
+  if (!realCode || registerDate == null || !dividendType || perShare == null || per10Shares == null) {
+    return res.status(400).json({ error: '缺少必要字段 code/productId' })
+  }
+  const id = req.body.id || generateId()
+  const createdAt = req.body.createdAt || Date.now()
+  try {
+    await dbRunAsync(
+      `INSERT OR REPLACE INTO product_dividends
+        (id, code, registerDate, exDate, payDate, dividendType, perShare, per10Shares, splitRatio, year, source, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, realCode, registerDate, exDate || null, payDate || null,
+       dividendType, perShare, per10Shares, splitRatio || null, year || '', source || 'manual', createdAt]
+    )
+    res.json({ success: true })
+  } catch (e) {
+    log(`[product_dividends] 写入失败: ${e.message}`, 'ERROR')
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 批量写入产品分红（INSERT OR IGNORE，避免唯一约束冲突）
+app.post('/api/product-dividends/batch', authenticate, async (req, res) => {
+  const { records } = req.body || {}
+  if (!records || !Array.isArray(records)) {
+    return res.status(400).json({ error: '缺少 records 数组' })
+  }
+  // 预查 productId→code
+  const pidList = [...new Set(records.filter(r => r.productId && !r.code).map(r => r.productId))]
+  const pidCodeMap = {}
+  if (pidList.length > 0) {
+    const prows = await dbAllAsync('SELECT id, code FROM products WHERE id IN (' + ','.join('?' * pidList.length) + ')', pidList)
+    prows.forEach(p => { pidCodeMap[p.id] = p.code })
+  }
+  let inserted = 0
+  for (const r of records) {
+    const realCode = r.code || pidCodeMap[r.productId]
+    if (!realCode || r.registerDate == null || !r.dividendType || r.perShare == null || r.per10Shares == null) continue
+    try {
+      await dbRunAsync(
+        `INSERT OR IGNORE INTO product_dividends
+          (id, code, registerDate, exDate, payDate, dividendType, perShare, per10Shares, splitRatio, year, source, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [r.id || generateId(), realCode, r.registerDate, r.exDate || null, r.payDate || null,
+         r.dividendType, r.perShare, r.per10Shares, r.splitRatio || null, r.year || '', r.source || 'manual', r.createdAt || Date.now()]
+      )
+      inserted++
+    } catch (e) { /* 跳过失败 */ }
+  }
+  res.json({ success: true, inserted, total: records.length })
+})
+
+// 删除产品的全部分红历史
+app.delete('/api/product-dividends/:productId', authenticate, async (req, res) => {
+  const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+  if (!product || !product.code) return res.json({ success: true, affected: 0 })
+  db.run('DELETE FROM product_dividends WHERE code = ?', [product.code], function (err) {
+    if (err) {
+      log(`[product_dividends] 删除失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    res.json({ success: true, affected: this.changes })
+  })
 })
 
 app.get('/products', authenticate, (req, res) => {
@@ -1053,7 +1402,12 @@ app.post('/transactions', authenticate, (req, res) => {
           )
           
           const stmt = db.prepare('INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          transactions.forEach(t => {
+          const validTxs = transactions.filter(t => t.type !== 'nav_update')
+          const skippedNavCount = transactions.length - validTxs.length
+          if (skippedNavCount > 0) {
+            log(`[legacy] 跳过 ${skippedNavCount} 条 nav_update 记录（已废弃）`, 'INFO')
+          }
+          validTxs.forEach(t => {
             let finalId = t.id
             if (conflictingIds.has(t.id)) {
               finalId = generateId()
@@ -1083,7 +1437,7 @@ app.post('/transactions', authenticate, (req, res) => {
   })
 })
 
-app.post('/batch-import', authenticate, (req, res) => {
+app.post('/api/batch-import', authenticate, (req, res) => {
   const { products, transactions } = req.body
 
   const result = {
@@ -1218,6 +1572,16 @@ app.post('/batch-import', authenticate, (req, res) => {
       // date 字段是 INTEGER NOT NULL，存毫秒时间戳
       const validTransactions = []
       for (const t of transactions) {
+        // nav_update 类型已废弃，直接跳过
+        if (t.type === 'nav_update') {
+          result.transactions.skipped++
+          result.transactions.skippedDetails.push({
+            productName: t.productName || t.productCode || '未知产品',
+            date: '(nav_update 已废弃)',
+            amount: 0
+          })
+          continue
+        }
         const d = Number(t.date)
         if (!Number.isFinite(d) || d <= 0) {
           result.transactions.skipped++
@@ -1754,6 +2118,274 @@ async function fetchFundNavLegacy(fundCode) {
   return { nav: last.y, date: dateStr, name: fundName, dailyReturn, purchaseLimitLabel }
 }
 
+// ==================== 基金分红查询 ====================
+
+/**
+ * 从东方财富 fundf10 HTML 页面爬取基金分红/拆分记录
+ * 数据源: https://fundf10.eastmoney.com/fhsp_{code}.html
+ *
+ * 返回字段:
+ * - date: 权益登记日 timestamp (用于自动计算分红的份额基准)
+ * - dividendDate: 分红发放日 timestamp (实际到账日，作为 transaction.date)
+ * - exDate: 除息日 timestamp
+ * - perShare: 每份分红金额(元)
+ * - per10Shares: 每10份分红金额(元)
+ * - type: 'cash' 现金分红 | 'split' 拆分
+ * - splitRatio: 拆分折算比例 (仅拆分时有值)
+ * - year: 分红所属年份
+ */
+async function fetchFundDividendsServer(fundCode) {
+  const url = `https://fundf10.eastmoney.com/fhsp_${fundCode}.html`
+  const { status, data: html } = await httpRequest(url, {
+    headers: {
+      'Referer': 'https://fund.eastmoney.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'zh-CN,zh;q=0.9'
+    }
+  })
+
+  if (status !== 200 || !html || html.length < 500) {
+    throw new Error(`分红页面获取失败 (HTTP ${status})`)
+  }
+
+  const dividends = []
+
+  // ---- 1) 分红表格 ----
+  // 结构: <table class='w782 comm cfxq'> 内的 <tbody> 行
+  const cashTableMatch = html.match(/<table[^>]*class=['"][^'"]*w782[^'"]*cfxq[^'"]*['"][^>]*>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)
+  if (cashTableMatch) {
+    const tbody = cashTableMatch[1]
+    // 每一行: <tr><td>年份</td><td>权益登记日</td><td>除息日</td><td>每10份分红</td><td>分红发放日</td></tr>
+    const rowRegex = /<tr>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<\/tr>/gi
+    let row
+    while ((row = rowRegex.exec(tbody)) !== null) {
+      const [, yearCell, registerDateCell, exDateCell, per10Cell, payDateCell] = row
+      // 跳过"暂无分红信息!" 的行
+      if (yearCell.includes('暂无')) continue
+
+      const yearStr = yearCell.replace(/<[^>]+>/g, '').replace(/年/, '').trim()
+      const registerDateStr = registerDateCell.replace(/<[^>]+>/g, '').trim()
+      const exDateStr = exDateCell.replace(/<[^>]+>/g, '').trim()
+      const per10Text = per10Cell.replace(/<[^>]+>/g, '').trim()
+      const payDateStr = payDateCell.replace(/<[^>]+>/g, '').trim()
+
+      // 解析 "每10份派现金0.1000元" / "每10份转增0.5000股"
+      const per10Match = per10Text.match(/([\d.]+)/)
+      if (!per10Match) continue
+      const per10 = parseFloat(per10Match[1])
+      const perShare = per10 / 10
+
+      // 判断现金分红 / 转增
+      const isInKind = /转增|送股/.test(per10Text)
+      const dividendType = isInKind ? 'split' : 'cash'
+
+      const parseTs = (s) => {
+        if (!s) return null
+        const parts = s.split('-')
+        if (parts.length !== 3) return null
+        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        return getDateOnlyTimestamp(d.getTime())
+      }
+
+      const registerTs = parseTs(registerDateStr)
+      const payTs = parseTs(payDateStr)
+      const exTs = parseTs(exDateStr)
+
+      if (!registerTs && !payTs) continue
+
+      dividends.push({
+        type: dividendType,
+        year: yearStr || '',
+        date: registerTs || payTs,         // 权益登记日 (份额基准日)
+        dividendDate: payTs || registerTs, // 实际到账日
+        exDate: exTs || registerTs,
+        perShare,
+        per10Shares: per10,
+        splitRatio: isInKind ? perShare : null,
+        _raw: { registerDateStr, exDateStr, per10Text, payDateStr }
+      })
+    }
+  }
+
+  // ---- 2) 拆分/折算表格 ----
+  const splitTableMatch = html.match(/<table[^>]*class=['"][^'"]*w782[^'"]*[^'"]*['"][^>]*>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/gi)
+  // 上面已分过现金表，这里专门找拆分表：<th>拆分折算日</th>
+  const splitSectionMatch = html.match(/<th[^>]*>年份<\/th>\s*<th[^>]*>拆分折算日<\/th>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)
+  if (splitSectionMatch) {
+    const tbody = splitSectionMatch[1]
+    const rowRegex = /<tr>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>\s*<\/tr>/gi
+    let row
+    while ((row = rowRegex.exec(tbody)) !== null) {
+      const [, yearCell, splitDateCell, splitTypeCell, ratioCell] = row
+      if (yearCell.includes('暂无')) continue
+
+      const yearStr = yearCell.replace(/<[^>]+>/g, '').replace(/年/, '').trim()
+      const splitDateStr = splitDateCell.replace(/<[^>]+>/g, '').trim()
+      const ratioText = ratioCell.replace(/<[^>]+>/g, '').trim()
+
+      const ratioMatch = ratioText.match(/([\d.]+)/)
+      if (!ratioMatch) continue
+      const ratio = parseFloat(ratioMatch[1])
+
+      const parts = splitDateStr.split('-')
+      if (parts.length !== 3) continue
+      const splitTs = getDateOnlyTimestamp(new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime())
+
+      dividends.push({
+        type: 'split',
+        year: yearStr || '',
+        date: splitTs,
+        dividendDate: splitTs,
+        exDate: splitTs,
+        perShare: 0,
+        per10Shares: 0,
+        splitRatio: ratio,
+        _raw: { splitDateStr, splitTypeStr: splitTypeCell.replace(/<[^>]+>/g, '').trim(), ratioText }
+      })
+    }
+  }
+
+  // 按日期倒序（最新的在前）
+  dividends.sort((a, b) => (b.dividendDate || 0) - (a.dividendDate || 0))
+
+  log(`[分红] 基金 ${fundCode} 查询完成, 共 ${dividends.length} 条记录`, dividends.length > 0 ? `最近: ${dividends[0]._raw?.registerDateStr || dividends[0]._raw?.splitDateStr}` : '暂无分红')
+  return dividends
+}
+
+/**
+ * 计算某产品在指定日期之前（含当日）的累计持仓份额
+ * 用于确定分红发生当日的份额 → 正确计算现金分红金额
+ * (不使用最终份额回推，避免 ExperienceRecall 经验中的错误)
+ */
+async function getShareBalanceByDate(productId, userId, beforeOrOnTs) {
+  if (!beforeOrOnTs) return 0
+  const rows = await new Promise((resolve, reject) => {
+    db.all(
+      'SELECT type, shares FROM transactions WHERE userId = ? AND productId = ? AND type IN ("buy", "sell") AND date <= ?',
+      [userId, productId, beforeOrOnTs],
+      (err, rows) => { if (err) reject(err); else resolve(rows || []) }
+    )
+  })
+  let shares = 0
+  for (const tx of rows) {
+    if (tx.type === 'buy') shares += (tx.shares || 0)
+    else if (tx.type === 'sell') shares -= (tx.shares || 0)
+  }
+  // 安全兜底：如果没有交易记录或份额算出来是 0/负数，视为未持有
+  return shares > 0 ? Math.round(shares * 100) / 100 : 0
+}
+
+/**
+ * 检查是否已存在同一条分红记录（用于去重）
+ * 唯一键: productId + type('dividend') + date + amount + price
+ * 分红交易的 price 字段存 perShare (每份分红)，amount 存 perShare * 份额，shares 存 0
+ */
+async function dividendTxExists(productId, dividendDateTs, amount) {
+  const row = await new Promise((resolve) => {
+    db.get(
+      'SELECT id FROM transactions WHERE productId = ? AND type = "dividend" AND date = ? AND ABS(amount - ?) < 0.005',
+      [productId, dividendDateTs, amount],
+      (err, row) => { resolve(err ? null : row) }
+    )
+  })
+  return !!row
+}
+
+/**
+ * 对某只产品自动同步分红记录
+ * 双写策略：
+ *   1) 先写入 product_dividends 表 —— 存基金公告原始数据（登记日/除权日/每10份派多少/类型等）
+ *   2) 再根据用户登记日持仓 → 计算实际分红金额 → 写入 transactions（纯交易，amount > 0 才写）
+ * @param {string} productId
+ * @param {string} userId
+ * @param {string} productCode
+ * @param {string} productName
+ * @returns {{addedTx: number, addedPD: number, skipped: number, total: number}}
+ */
+async function autoSyncDividends(productId, userId, productCode, productName) {
+  let dividends
+  try {
+    dividends = await fetchFundDividendsServer(productCode)
+  } catch (e) {
+    log(`[分红] ${productName}(${productCode}) 分红查询失败: ${e.message}`, 'WARN')
+    return { addedTx: 0, addedPD: 0, skipped: 0, total: 0, error: e.message }
+  }
+
+  if (!dividends || dividends.length === 0) {
+    return { addedTx: 0, addedPD: 0, skipped: 0, total: 0 }
+  }
+
+  let addedTx = 0  // 新增 transactions（用户实际收到的分红）
+  let addedPD = 0  // 新增 product_dividends（基金公告）
+  let skipped = 0
+
+  for (const div of dividends) {
+    // ---- 1) 先写入 product_dividends（所有类型都写，包括 split）----
+    if (div.dividendDate) {
+      const pdId = generateId()
+      const source = 'eastmoney'
+      try {
+        await dbRunAsync(
+          `INSERT OR IGNORE INTO product_dividends
+            (id, code, registerDate, exDate, payDate, dividendType, perShare, per10Shares, splitRatio, year, source, createdAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [pdId, productCode, div.date || div.dividendDate,
+           div.exDate || null, div.dividendDate, div.type,
+           div.perShare || 0, div.per10Shares || 0,
+           div.splitRatio || null, div.year || '', source, Date.now()]
+        )
+        addedPD++
+      } catch (pdErr) {
+        // product_dividends 写入失败不阻塞 transactions
+        log(`[分红] product_dividends 写入失败（可忽略）: ${pdErr.message}`, 'DEBUG')
+      }
+    }
+
+    // ---- 2) 再处理 transactions（只处理现金分红 + 用户实际收到的）----
+    // split 类型（送股/转增）需要调整份额，暂不自动入库 transactions
+    if (div.type !== 'cash') { skipped++; continue }
+
+    // 跳过 perShare 为 0 或无效
+    if (!div.perShare || div.perShare <= 0 || !div.dividendDate) { skipped++; continue }
+
+    // 份额基准日 = 权益登记日 (div.date)，兜底用除息日
+    const shareRefDate = div.date || div.exDate || div.dividendDate
+    const sharesHeld = await getShareBalanceByDate(productId, userId, shareRefDate)
+
+    // 只有用户在登记日有持仓才写 transactions（纯交易，amount > 0）
+    if (sharesHeld <= 0) { skipped++; continue }
+
+    const dividendAmount = Math.round(sharesHeld * div.perShare * 100) / 100
+    if (dividendAmount <= 0) { skipped++; continue }
+
+    // 去重（基于 product_dividends.registerDate，不再塞 amount=0 的历史分红）
+    if (await dividendTxExists(productId, div.dividendDate, dividendAmount)) {
+      skipped++
+      continue
+    }
+
+    // 写入 transactions
+    const txId = generateId()
+    const payDateMidnight = getDateOnlyTimestamp(div.dividendDate)
+    const note = `自动分红同步 (${productName}) 每10份派${div.per10Shares.toFixed(4)}元 × ${sharesHeld.toFixed(2)}份`
+
+    try {
+      await dbRunAsync(
+        'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [txId, userId, productId, 'dividend', payDateMidnight, dividendAmount, div.perShare, 0, 0, note]
+      )
+      addedTx++
+    } catch (txErr) {
+      if (txErr.message.includes('UNIQUE constraint')) { skipped++ }
+      else { log(`[分红] transactions 写入失败: ${txErr.message}`, 'WARN') }
+    }
+  }
+
+  log(`[分红] ${productName}(${productCode}) 基金公告+${addedPD}, 用户交易+${addedTx}, 跳过=${skipped}`)
+
+  return { addedTx, addedPD, skipped, total: dividends.length }
+}
+
 /**
  * 从爬虫服务获取招银理财产品净值
  */
@@ -1901,6 +2533,9 @@ function getDateOnlyTimestamp(ts) {
 
 let isNavUpdating = false
 
+// 分红查询节流: Map<"userId:fundCode", lastCheckTimestamp>
+const dividendCheckCache = new Map()
+
 /**
  * 执行一次净值更新
  */
@@ -1927,62 +2562,62 @@ async function runNavUpdate() {
     summary.total = products.length
     log(`[NAV调度] 找到 ${products.length} 个有代码的产品需要更新`)
 
-    // 按用户分组处理
-    const byUser = new Map()
+    // 全局去重：每个 code 本次调度只抓一次（跨用户共享）
+    const seenCodes = new Set()
+    const uniqueProducts = []
     for (const p of products) {
-      if (!byUser.has(p.userId)) byUser.set(p.userId, [])
-      byUser.get(p.userId).push(p)
+      if (!seenCodes.has(p.code)) {
+        seenCodes.add(p.code)
+        uniqueProducts.push(p)
+      }
     }
+    const dupSkipped = products.length - uniqueProducts.length
+    log(`[NAV调度] 原始 ${products.length} 条产品记录，按 code 去重后 ${uniqueProducts.length} 个唯一产品（跳过 ${dupSkipped} 条跨用户重复）`)
 
-    log(`[NAV调度] 共有 ${byUser.size} 个用户需要更新净值`)
-
-    for (const [userId, userProducts] of byUser) {
-      // 同一用户内排序：基金 → 招银 → 工银
-      userProducts.sort((a, b) => {
-        const getOrder = (p) => {
-          if (p.type === 'equity' || p.type === 'fund' || p.navSource === 'tiantian') return 0
-          if (p.navSource === 'cmb') return 1
-          if (p.navSource === 'icbc') return 2
-          return 0
-        }
-        return getOrder(a) - getOrder(b)
-      })
-      
-      log(`[NAV调度] [用户 ${userId}] 开始处理 ${userProducts.length} 个产品`)
-      // 查询该用户所有 nav_update 交易（不限于今天，因为净值日期可能是昨天）
-      const allNavTxRows = await new Promise((resolve, reject) => {
+    // 排序：基金 → 招银 → 工银
+    uniqueProducts.sort((a, b) => {
+      const getOrder = (p) => {
+        if (p.type === 'equity' || p.navSource === 'tiantian') return 0
+        if (p.navSource === 'cmb') return 1
+        if (p.navSource === 'icbc') return 2
+        return 0
+      }
+      return getOrder(a) - getOrder(b)
+    })
+      // 查询全局 nav_history 中已有记录（code + date 去重）
+      const allNavHistoryRows = await new Promise((resolve, reject) => {
         db.all(
-          'SELECT productId, date FROM transactions WHERE userId = ? AND type = "nav_update"',
-          [userId],
+          'SELECT code, date FROM nav_history',
+          [],
           (err, rows) => { if (err) reject(err); else resolve(rows || []) }
         )
       })
 
-      // 构建已更新产品的日期集合（productId -> Set<dateTimestamp>）
+      // 构建已更新产品的日期集合（code -> Set<dateTimestamp>）
       const updatedMap = new Map()
-      for (const tx of allNavTxRows) {
-        if (!updatedMap.has(tx.productId)) updatedMap.set(tx.productId, new Set())
-        updatedMap.get(tx.productId).add(getDateOnlyTimestamp(tx.date))
+      for (const nh of allNavHistoryRows) {
+        if (!updatedMap.has(nh.code)) updatedMap.set(nh.code, new Set())
+        updatedMap.get(nh.code).add(getDateOnlyTimestamp(nh.date))
       }
 
-      for (const product of userProducts) {
+      for (const product of uniqueProducts) {
         try {
           let result
           let sourceLabel
           
-          const allowedSources = (product.type === 'equity' || product.type === 'fund') ? ['tiantian'] : ['tiantian', 'cmb', 'icbc']
+          const allowedSources = (product.type === 'equity' ) ? ['tiantian'] : ['tiantian', 'cmb', 'icbc']
           const navSrc = allowedSources.includes(product.navSource || '') 
             ? product.navSource 
-            : (product.type === 'equity' || product.type === 'fund' ? 'tiantian' : 'cmb')
+            : (product.type === 'equity'  ? 'tiantian' : 'cmb')
           
           if (navSrc === 'tiantian') {
             result = await fetchFundNavServer(product.code)
             sourceLabel = '东方财富'
           } else if (navSrc === 'icbc') {
-            result = await fetchIcbcNavServer(product.code, userId)
+            result = await fetchIcbcNavServer(product.code, product.userId)
             sourceLabel = '工银理财'
           } else {
-            result = await fetchCmbNavServer(product.code, userId)
+            result = await fetchCmbNavServer(product.code, product.userId)
             sourceLabel = '招银理财'
           }
 
@@ -1992,30 +2627,30 @@ async function runNavUpdate() {
           // 更新产品限购属性（即使净值已存在也需要更新）
           if (result.purchaseLimitLabel) {
             try {
-              await saveProductPurchaseLimit(product.id, userId, result.purchaseLimitLabel)
-              log(`[NAV调度] [用户 ${userId}] 更新限购信息: ${product.name} - ${result.purchaseLimitLabel}`, 'DEBUG')
+              await saveProductPurchaseLimit(product.id, product.userId, result.purchaseLimitLabel)
+              log(`[NAV调度] [产品] 更新限购信息: ${product.name} - ${result.purchaseLimitLabel}`, 'DEBUG')
             } catch (noteErr) {
               log(`[NAV调度] 更新限购信息失败: ${product.name}, 错误: ${noteErr.message}`, 'WARN')
             }
           }
 
-          // 检查该产品在净值日期是否已有 nav_update 记录
-          const existingDates = updatedMap.get(product.id)
+          // 检查该产品在净值日期是否已有 nav_history 记录
+          const existingDates = updatedMap.get(product.code)
           if (existingDates && existingDates.has(navDateKey)) {
             summary.skipped++
             summary.details.push({ name: product.name, code: product.code, status: 'skipped', reason: '净值已存在' })
-            log(`[NAV调度] [用户 ${userId}] 跳过 ${product.name} (${product.code}) - 净值日期 ${result.date} 的记录已存在`, 'DEBUG')
+            log(`[NAV调度] [产品] 跳过 ${product.name} (${product.code}) - 净值日期 ${result.date} 的记录已存在`, 'DEBUG')
             continue
           }
 
           // 使用当天零点作为日期，确保唯一性
           const navDateMidnight = navDateKey
 
-          // 插入前再次检查（防止竞态条件）
+          // 插入前再次检查（防止竞态条件，查 nav_history）
           const existsInDb = await new Promise((resolve) => {
             db.get(
-              'SELECT id FROM transactions WHERE productId = ? AND type = "nav_update" AND date = ?',
-              [product.id, navDateMidnight],
+              'SELECT id FROM nav_history WHERE code = ? AND date = ?',
+              [product.code, navDateMidnight],
               (err, row) => {
                 if (err) {
                   log(`[NAV调度] 检查重复记录失败: ${err.message}`, 'WARN')
@@ -2030,49 +2665,57 @@ async function runNavUpdate() {
           if (existsInDb) {
             summary.skipped++
             summary.details.push({ name: product.name, code: product.code, status: 'skipped', reason: '数据库已存在' })
-            log(`[NAV调度] [用户 ${userId}] 跳过 ${product.name} (${product.code}) - 数据库已存在`, 'DEBUG')
+            log(`[NAV调度] [产品] 跳过 ${product.name} (${product.code}) - 数据库已存在`, 'DEBUG')
             continue
           }
 
-          // 插入 nav_update 交易
+          // 写入 nav_history（新表，优先写入） + transactions（旧表，保持兼容）
           const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
           const note = updateTime
-
           const txId = generateId()
-          await new Promise((resolve, reject) => {
-            db.run(
-              'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-              [txId, userId, product.id, 'nav_update', navDateMidnight, 0, result.nav, 0, 0, note],
-              (err) => { 
-                if (err) {
-                  if (err.message.includes('UNIQUE constraint failed')) {
-                    log(`[NAV调度] [用户 ${userId}] 跳过 ${product.name} (${product.code}) - 唯一约束冲突`, 'DEBUG')
-                    resolve()
-                  } else {
-                    reject(err)
-                  }
-                } else {
-                  resolve()
-                }
-              }
-            )
-          })
 
-          // 更新已记录集合
-          if (!updatedMap.has(product.id)) updatedMap.set(product.id, new Set())
-          updatedMap.get(product.id).add(navDateKey)
+          // 写入 nav_history
+          try {
+            await dbRunAsync(
+              'INSERT OR IGNORE INTO nav_history (id, code, date, nav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+              [txId, product.code, navDateMidnight, result.nav, note, Date.now()]
+            )
+          } catch (navErr) {
+            log(`[NAV调度] nav_history 写入失败: ${navErr.message}`, 'WARN')
+          }
+
+            // 更新已记录集合
+          if (!updatedMap.has(product.code)) updatedMap.set(product.code, new Set())
+          updatedMap.get(product.code).add(navDateKey)
 
           summary.success++
           summary.details.push({ name: product.name, code: product.code, status: 'success', nav: result.nav, date: result.date })
-          log(`[NAV调度] [用户 ${userId}] 更新成功: ${product.name} (${product.code}), nav=${result.nav}, date=${result.date}`)
+          log(`[NAV调度] [产品] 更新成功: ${product.name} (${product.code}), nav=${result.nav}, date=${result.date}`)
+
+          // ---- 附带分红自动同步 (仅权益/基金类型, 理财产品无分红) ----
+          if (product.type === 'equity'  || product.navSource === 'tiantian') {
+            try {
+              // 节流: 6小时内同一产品不重复查分红 (避免每次 NAV 更新都发请求)
+              const lastDivCheck = dividendCheckCache.get(product.code) || 0
+              const DIV_CHECK_COOLDOWN_MS = 6 * 60 * 60 * 1000 // 6小时
+              if (Date.now() - lastDivCheck > DIV_CHECK_COOLDOWN_MS) {
+                const divResult = await autoSyncDividends(product.id, product.userId, product.code, product.name)
+                dividendCheckCache.set(product.code, Date.now())
+                if (divResult.addedTx > 0 || divResult.addedPD > 0) {
+                  log(`[NAV调度] [产品] ${product.name}(${product.code}) 分红同步: 基金公告+${divResult.addedPD}, 用户交易+${divResult.addedTx}`)
+                }
+              }
+            } catch (divErr) {
+              log(`[NAV调度] 分红同步异常: ${product.name}, 错误: ${divErr.message}`, 'WARN')
+            }
+          }
 
         } catch (e) {
           summary.failed++
           summary.details.push({ name: product.name, code: product.code, status: 'failed', error: e.message })
-          log(`[NAV调度] [用户 ${userId}] 更新失败: ${product.name} (${product.code}), 错误: ${e.message}`, 'ERROR')
+          log(`[NAV调度] [产品] 更新失败: ${product.name} (${product.code}), 错误: ${e.message}`, 'ERROR')
         }
       }
-    }
 
   } catch (e) {
     log(`[NAV调度] 执行异常: ${e.message}`, 'ERROR')
@@ -2459,7 +3102,7 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
     const product = await dbGetAsync('SELECT * FROM products WHERE id = ? AND userId = ?', [productId, req.userId])
     if (!product) return res.status(404).json({ error: '产品不存在' })
     // 支持基金产品，以及 navSource 为 tiantian 的固收产品
-    if (product.type !== 'equity' && product.type !== 'fund' && product.navSource !== 'tiantian') {
+    if (product.type !== 'equity'  && product.navSource !== 'tiantian') {
       return res.status(400).json({ error: '仅基金产品或东方财富数据源的产品支持此功能' })
     }
     if (!product.code) return res.status(400).json({ error: '产品代码缺失' })
@@ -2486,10 +3129,10 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
       return res.status(500).json({ error: `基金 ${product.code} 暂无净值数据` })
     }
 
-    // 查询当前用户已有的 nav_update 记录
+    // 查询全局已有的净值记录（code 维度，无需 userId）
     const existingNavs = await dbAllAsync(
-      'SELECT date FROM transactions WHERE productId = ? AND userId = ? AND type = ?',
-      [productId, req.userId, 'nav_update']
+      'SELECT date FROM nav_history WHERE code = ?',
+      [product.code]
     )
     const existingDateSet = new Set(existingNavs.map(t => getDateOnlyTimestamp(t.date)))
 
@@ -2503,7 +3146,7 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
       return res.json({ inserted: 0, total: trendData.length, message: '无缺失数据，已是完整' })
     }
 
-    // 批量插入缺失的净值记录
+    // 批量插入缺失的净值记录（只写 nav_history，code 维度全局唯一）
     let inserted = 0
     const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
     for (const navItem of missingNavs) {
@@ -2512,10 +3155,12 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
       const ts = getDateOnlyTimestamp(navItem.x)
       const txId = generateId()
       try {
+        // 1. 写入 nav_history（code 维度，全局唯一）
         await dbRunAsync(
-          'INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [txId, req.userId, productId, 'nav_update', ts, 0, navItem.y, 0, 0, updateTime]
+          'INSERT OR IGNORE INTO nav_history (id, code, date, nav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+          [txId, product.code, ts, navItem.y, updateTime, Date.now()]
         )
+
         inserted++
       } catch (e) {
         log(`[补全净值] 插入失败: ${dateStr} nav=${navItem.y}, 错误: ${e.message}`, 'ERROR')
@@ -2523,7 +3168,19 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
     }
 
     log(`[补全净值] ${product.name} (${product.code}): 共 ${trendData.length} 条, 新增 ${inserted} 条`)
-    res.json({ inserted, total: trendData.length })
+
+    // ---- 附带分红自动同步 ----
+    let dividendResult = null
+    try {
+      dividendResult = await autoSyncDividends(product.id, req.userId, product.code, product.name)
+      if (dividendResult.addedPD > 0 || dividendResult.addedTx > 0) {
+        log(`[补全净值] ${product.name}(${product.code}) 分红同步: 基金公告+${dividendResult.addedPD}, 用户交易+${dividendResult.addedTx}`)
+      }
+    } catch (divErr) {
+      log(`[补全净值] 分红同步异常: ${divErr.message}`, 'WARN')
+    }
+
+    res.json({ inserted, total: trendData.length, dividendResult })
   } catch (e) {
     log(`[补全净值] 失败: ${e.message}`, 'ERROR')
     res.status(500).json({ error: e.message })

@@ -51,7 +51,7 @@ watch(() => props.visible, (val) => {
     holder.value = props.editProduct.holder || ''
     dcaAmount.value = props.editProduct.dcaAmount || 0
     dcaCycle.value = props.editProduct.dcaCycle || ''
-    navSource.value = props.editProduct.navSource || (props.editProduct.type === 'equity' || props.editProduct.type === 'fund' ? 'tiantian' : '')
+    navSource.value = props.editProduct.navSource || (props.editProduct.type === 'equity'  ? 'tiantian' : '')
     holdingTerm.value = (props.editProduct as any).holdingTerm || ''
     benchmarkEnabled.value = (props.editProduct as any).benchmarkEnabled || false
     benchmarkComponents.value = parseBenchmarkFormula((props.editProduct as any).benchmarkFormula || '')
@@ -92,7 +92,7 @@ watch(type, (newType) => {
     navSource.value = available[0]?.value || ''
   }
   // 切换为非固收时清空持有期限
-  if (newType === 'equity' || newType === 'fund') {
+  if (newType === 'equity' ) {
     holdingTerm.value = ''
   }
 })
@@ -216,7 +216,7 @@ const handleSubmit = () => {
               </select>
             </div>
           </div>
-          <div v-if="type === 'equity' || type === 'fund'" class="flex space-x-4">
+          <div v-if="type === 'equity' " class="flex space-x-4">
             <div class="flex-1">
               <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">
                 限购信息

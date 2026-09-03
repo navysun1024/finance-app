@@ -17,13 +17,13 @@ withDefaults(defineProps<{
 const router = useRouter()
 
 const getProductTypeLabel = (type: string) => {
-  const normalized = type === 'fund' ? 'equity' : type
+  const normalized = type
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.label : type
 }
 
 const getProductTypeColor = (type: string) => {
-  const normalized = type === 'fund' ? 'equity' : type
+  const normalized = type
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.color : '#86868b'
 }

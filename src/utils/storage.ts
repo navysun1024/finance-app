@@ -1,9 +1,9 @@
-import type { Product, Transaction } from '@/types'
+import type { Product, Transaction, NavHistory, ProductDividend } from '@/types'
 import { createLogger } from './logger'
 
 const logger = createLogger('Storage')
 
-const API_BASE = '/api/db'
+const API_BASE = '/api'
 
 export function getAuthHeaders() {
   const token = localStorage.getItem('token')
@@ -119,6 +119,127 @@ export async function saveTransactions(transactions: Transaction[]): Promise<voi
   })
 }
 
+// ==================== 净值历史（nav_history）API ====================
+
+export async function getNavHistory(): Promise<NavHistory[]> {
+  return logger.withTiming('GET /nav-history', async () => {
+    const response = await fetch(`${API_BASE}/nav-history`, {
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      logger.error(`获取净值历史失败: ${response.status} ${response.statusText}`)
+      throw new Error('Failed to fetch nav history')
+    }
+    const data = await response.json()
+    logger.debug(`获取净值历史成功, 数量: ${data?.length || 0}`)
+    return data as NavHistory[]
+  })
+}
+
+export async function getNavHistoryByProduct(productId: string): Promise<NavHistory[]> {
+  return logger.withTiming(`GET /nav-history/${productId}`, async () => {
+    const response = await fetch(`${API_BASE}/nav-history/${productId}`, {
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      logger.error(`获取产品净值历史失败: ${response.status}`)
+      throw new Error('Failed to fetch product nav history')
+    }
+    const data = await response.json()
+    logger.debug(`产品 ${productId} 净值历史: ${data?.length || 0} 条`)
+    return data as NavHistory[]
+  })
+}
+
+export async function addNavHistoryRecord(record: Omit<NavHistory, 'id' | 'userId' | 'createdAt'> & { id?: string }): Promise<void> {
+  return logger.withTiming('POST /nav-history', async () => {
+    const response = await fetch(`${API_BASE}/nav-history`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(record)
+    })
+    if (!response.ok) {
+      logger.error(`写入净值历史失败: ${response.status}`)
+      throw new Error('Failed to add nav history record')
+    }
+  })
+}
+
+export async function batchAddNavHistory(records: Array<Omit<NavHistory, 'userId' | 'createdAt'>>): Promise<{ inserted: number; total: number }> {
+  return logger.withTiming(`POST /nav-history/batch (${records.length} 条)`, async () => {
+    const response = await fetch(`${API_BASE}/nav-history/batch`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ records })
+    })
+    if (!response.ok) {
+      logger.error(`批量写入净值历史失败: ${response.status}`)
+      throw new Error('Failed to batch add nav history')
+    }
+    return response.json()
+  })
+}
+
+export async function deleteNavHistory(productId: string): Promise<void> {
+  return logger.withTiming(`DELETE /nav-history/${productId}`, async () => {
+    const response = await fetch(`${API_BASE}/nav-history/${productId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      logger.error(`删除净值历史失败: ${response.status}`)
+      throw new Error('Failed to delete nav history')
+    }
+  })
+}
+
+// ==================== 产品分红历史（product_dividends）API ====================
+
+export async function getProductDividends(): Promise<ProductDividend[]> {
+  return logger.withTiming('GET /product-dividends', async () => {
+    const response = await fetch(`${API_BASE}/product-dividends`, {
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      logger.error(`获取产品分红历史失败: ${response.status} ${response.statusText}`)
+      throw new Error('Failed to fetch product dividends')
+    }
+    const data = await response.json()
+    logger.debug(`获取产品分红历史成功, 数量: ${data?.length || 0}`)
+    return data as ProductDividend[]
+  })
+}
+
+export async function getProductDividendsByProduct(productId: string): Promise<ProductDividend[]> {
+  return logger.withTiming(`GET /product-dividends/${productId}`, async () => {
+    const response = await fetch(`${API_BASE}/product-dividends/${productId}`, {
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      logger.error(`获取产品分红历史失败: ${response.status}`)
+      throw new Error('Failed to fetch product dividends by product')
+    }
+    const data = await response.json()
+    logger.debug(`产品 ${productId} 分红历史: ${data?.length || 0} 条`)
+    return data as ProductDividend[]
+  })
+}
+
+export async function batchAddProductDividends(records: Array<Omit<ProductDividend, 'userId' | 'createdAt'>>): Promise<{ inserted: number; total: number }> {
+  return logger.withTiming(`POST /product-dividends/batch (${records.length} 条)`, async () => {
+    const response = await fetch(`${API_BASE}/product-dividends/batch`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ records })
+    })
+    if (!response.ok) {
+      logger.error(`批量写入产品分红历史失败: ${response.status}`)
+      throw new Error('Failed to batch add product dividends')
+    }
+    return response.json()
+  })
+}
+
 export async function addTransactionToServer(transaction: Transaction): Promise<void> {
   return logger.withTiming(`POST /transactions/add`, async () => {
     const response = await fetch(`${API_BASE}/transactions/add`, {
@@ -196,16 +317,9 @@ export async function exportData(): Promise<string> {
   logger.info('开始导出数据...')
   const products = await getProducts()
   const allTransactions = await getTransactions()
-  // 获取权益产品ID列表
-  const equityProductIds = new Set(products.filter(p => p.type === 'equity' || p.type === 'fund').map(p => p.id))
-  // 导出时仅排除权益产品的 nav_update 历史净值数据（可通过定时调度器重新获取）
-  // 固收产品的净值数据保留在导出中
-  const transactions = allTransactions.filter(t => {
-    if (t.type === 'nav_update' && equityProductIds.has(t.productId)) {
-      return false // 排除权益产品的净值更新记录
-    }
-    return true
-  })
+  const allNavHistory = await getNavHistory()
+  // 导出时过滤掉 nav_update 类型（已迁移到 nav_history 表独立导出）
+  const transactions = allTransactions.filter(t => t.type !== 'nav_update')
   // 确保产品包含定投、净值查询源、持有期限字段（兼容旧数据）
   const productsWithDca = products.map(p => ({
     ...p,
@@ -216,9 +330,9 @@ export async function exportData(): Promise<string> {
     benchmarkEnabled: (p as any).benchmarkEnabled ?? false,
     benchmarkFormula: (p as any).benchmarkFormula || ''
   }))
-  const excludedCount = allTransactions.length - transactions.length
-  logger.info(`导出完成: 产品 ${productsWithDca.length} 条, 交易 ${transactions.length} 条 (已排除 ${excludedCount} 条权益净值更新记录)`)
-  return JSON.stringify({ products: productsWithDca, transactions }, null, 2)
+  const excludedNavCount = allTransactions.length - transactions.length
+  logger.info(`导出完成: 产品 ${productsWithDca.length} 条, 交易 ${transactions.length} 条, 净值历史 ${allNavHistory.length} 条 (已分离 ${excludedNavCount} 条 nav_update 记录)`)
+  return JSON.stringify({ products: productsWithDca, transactions, navHistory: allNavHistory }, null, 2)
 }
 
 export async function importData(jsonString: string): Promise<{ success: boolean; message: string }> {
@@ -234,6 +348,7 @@ export async function importData(jsonString: string): Promise<{ success: boolean
     
     let productCount = 0
     let transactionCount = 0
+    let navHistoryCount = 0
     let idMapping: Record<string, string> = {}
     
     if (data.products && Array.isArray(data.products)) {
@@ -267,9 +382,26 @@ export async function importData(jsonString: string): Promise<{ success: boolean
       await saveTransactions(transactions)
       transactionCount = transactions.length
     }
+    // 导入 navHistory（新表独立导入）
+    if (data.navHistory && Array.isArray(data.navHistory)) {
+      const records = Object.keys(idMapping).length > 0
+        ? data.navHistory.map((n: any) => ({
+            ...n,
+            productId: idMapping[n.productId] || n.productId
+          }))
+        : data.navHistory
+      logger.info(`导入净值历史: ${records.length} 条`)
+      // 分批写入避免单次请求过大
+      const BATCH_SIZE = 500
+      for (let i = 0; i < records.length; i += BATCH_SIZE) {
+        const batch = records.slice(i, i + BATCH_SIZE)
+        await batchAddNavHistory(batch)
+      }
+      navHistoryCount = records.length
+    }
     
     logger.info('数据导入成功')
-    return { success: true, message: `导入成功: 产品 ${productCount} 条, 交易 ${transactionCount} 条` }
+    return { success: true, message: `导入成功: 产品 ${productCount} 条, 交易 ${transactionCount} 条, 净值历史 ${navHistoryCount} 条` }
   } catch (e: any) {
     logger.error(`数据导入失败: ${e.message}`, e)
     return { success: false, message: `数据解析失败: ${e.message}` }

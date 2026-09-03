@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOff, Scale, X, TrendingUp, TrendingDown } from 'lucide-vue-next'
+import { Plus, Search, ArrowUp, ArrowDown, ChevronsUpDown, RefreshCw, Eye, EyeOff, Scale, X, TrendingUp, TrendingDown, ExternalLink } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
 import { useFinance } from '@/composables/useFinance'
 import { useCompare } from '@/composables/useCompare'
@@ -10,6 +10,7 @@ import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
 import { formatCurrency, formatCurrency1, formatPercent, getDateOnly } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
 import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult, type AggregatedStock } from '@/utils/equityApi'
+import { addNavHistoryRecord } from '@/utils/storage'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
@@ -20,7 +21,7 @@ const props = defineProps<{
   type?: ProductType
 }>()
 
-const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, addTransaction, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
+const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getNavHistoryByProductId, PRODUCT_TYPE_OPTIONS, transactions, equitySettings, fixedIncomeSettings, saveDisplaySettings, refresh } = useFinance()
 
 const { toggleCompare, isInCompare, compareType, compareIds, switchType, clearCompare } = useCompare()
 
@@ -113,9 +114,8 @@ interface CompareItem {
 const DAY_MS = 24 * 60 * 60 * 1000
 
 function getAllNavSeries(productId: string): NavPoint[] {
-  return transactions.value
-    .filter(t => t.productId === productId && t.type === 'nav_update')
-    .map(t => ({ date: getDateOnly(t.date), nav: t.price }))
+  return getNavHistoryByProductId(productId)
+    .map(n => ({ date: getDateOnly(n.date), nav: n.nav }))
     .sort((a, b) => a.date - b.date)
 }
 
@@ -436,7 +436,7 @@ const getCompareProductTypeLabel = (type: string) => {
 }
 
 const getCompareType = (product: Product): 'equity' | 'fixed_income' | 'term_deposit' => {
-  if (product.type === 'equity' || product.type === 'fund') return 'equity'
+  if (product.type === 'equity' ) return 'equity'
   if (product.type === 'term_deposit') return 'term_deposit'
   return 'fixed_income'
 }
@@ -519,7 +519,7 @@ const batchNavResult = ref<{ success: number; total: number; skip?: number } | n
 const handleBatchUpdateNav = async () => {
   if (!props.type) return
   
-  const targetProducts = products.value.filter(p => (p.type === 'fund' ? 'equity' : p.type) === props.type && p.code)
+  const targetProducts = products.value.filter(p => p.type === props.type && p.code)
   if (targetProducts.length === 0) {
     return
   }
@@ -552,62 +552,46 @@ const handleBatchUpdateNav = async () => {
     
     let successCount = 0
     let skipCount = 0
-    
-    // 为每个成功查询到净值的产品创建 nav_update 交易
+
+    // 写入 nav_history 表（不再写入 transactions）
     for (const result of results) {
       if (result.nav !== null && result.code) {
         const product = codeToProductMap.get(result.code)
         if (product) {
-          // 解析日期（权益格式：2026-06-23，固收理财格式：20260623）
           let dateTimestamp = Date.now()
           if (result.date) {
             if (result.date.includes('-')) {
-              // 权益日期格式：2026-06-23
               const parts = result.date.split('-')
               dateTimestamp = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime()
             } else if (result.date.length === 8) {
-              // 固收理财日期格式：20260623
               const year = parseInt(result.date.substring(0, 4))
               const month = parseInt(result.date.substring(4, 6)) - 1
               const day = parseInt(result.date.substring(6, 8))
               dateTimestamp = new Date(year, month, day).getTime()
             }
           }
-          
-          // 检查当天是否已经存在净值更新记录
-          const dayStart = new Date(dateTimestamp)
-          dayStart.setHours(0, 0, 0, 0)
-          const dayEnd = new Date(dateTimestamp)
-          dayEnd.setHours(23, 59, 59, 999)
-          
-          const existingNavUpdates = getTransactionsByProductId(product.id)
-            .filter(t => 
-              t.type === 'nav_update' && 
-              t.date >= dayStart.getTime() && 
-              t.date <= dayEnd.getTime()
-            )
-          
-          // 如果当天已存在相同净值，跳过；如果净值不同，更新记录
-          if (existingNavUpdates.length > 0) {
-            const hasSameNav = existingNavUpdates.some(t => Math.abs(t.price - result.nav) < 0.0001)
-            if (hasSameNav) {
-              skipCount++
-              continue // 当天已存在相同净值，跳过
-            }
-            // 如果净值不同，继续创建新记录（视为净值修正）
+
+          const dayStart = new Date(dateTimestamp); dayStart.setHours(0, 0, 0, 0)
+          const dayEnd = new Date(dateTimestamp); dayEnd.setHours(23, 59, 59, 999)
+
+          const existingNavs = getNavHistoryByProductId(product.id)
+            .filter(n => n.date >= dayStart.getTime() && n.date <= dayEnd.getTime())
+
+          if (existingNavs.length > 0) {
+            const hasSameNav = existingNavs.some(n => Math.abs(n.nav - result.nav) < 0.0001)
+            if (hasSameNav) { skipCount++; continue }
           }
-          
-          // 创建净值更新交易
-          // amount 和 shares 对于 nav_update 类型不重要，使用 0
+
           const now = new Date()
           const timeStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
-          await addTransaction(product.id, 'nav_update', dateTimestamp, 0, result.nav, 0, 0, timeStr)
+          await addNavHistoryRecord({ code: product.code, date: dateTimestamp, nav: result.nav, note: timeStr })
           successCount++
         }
       }
     }
-    
-    batchNavResult.value = { success: successCount, total: targetProducts.length, skip: skipCount }
+
+    await refresh()
+
     
     // 3秒后清除提示
     setTimeout(() => {
@@ -620,7 +604,7 @@ const handleBatchUpdateNav = async () => {
   }
 }
 
-// ==================== 当日收益率（从 nav_update 交易记录计算）====================
+// ==================== 当日收益率（从 nav_history 计算）====================
 const dailyReturnMap = computed(() => {
   const map = new Map<string, { dailyReturn: number | null; date: string }>()
 
@@ -628,27 +612,26 @@ const dailyReturnMap = computed(() => {
   if (props.type !== 'equity' && props.type !== 'fixed_income') return map
 
   for (const product of products.value) {
-    const normalizedType = product.type === 'fund' ? 'equity' : product.type
+    const normalizedType = product.type
     if (normalizedType !== 'equity' && normalizedType !== 'fixed_income') continue
     if (!product.code) continue
 
-    const navUpdates = getTransactionsByProductId(product.id)
-      .filter(t => t.type === 'nav_update')
+    const navList = getNavHistoryByProductId(product.id)
       .sort((a, b) => b.date - a.date) // 按日期降序
 
-    if (navUpdates.length < 2) {
-      if (navUpdates.length === 1) {
-        const d = new Date(navUpdates[0].date)
+    if (navList.length < 2) {
+      if (navList.length === 1) {
+        const d = new Date(navList[0].date)
         const dateStr = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         map.set(product.code, { dailyReturn: null, date: dateStr })
       }
       continue
     }
 
-    const latest = navUpdates[0]
-    const prev = navUpdates[1]
-    const dailyReturn = prev.price > 0
-      ? Math.round(((latest.price - prev.price) / prev.price) * 10000) / 100
+    const latest = navList[0]
+    const prev = navList[1]
+    const dailyReturn = prev.nav > 0
+      ? Math.round(((latest.nav - prev.nav) / prev.nav) * 10000) / 100
       : null
 
     const d = new Date(latest.date)
@@ -662,26 +645,16 @@ const dailyReturnMap = computed(() => {
 // 当天有净值更新的产品 ID 集合
 // 通过交易 ID 前缀（Date.now().toString(36)）判断交易创建时间
 const todayNavUpdateSet = computed(() => {
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-  const todayEnd = new Date()
-  todayEnd.setHours(23, 59, 59, 999)
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const todayEnd = todayStart + 24 * 60 * 60 * 1000
 
   const set = new Set<string>()
-  // 只在权益页用到此集合
-  if (props.type !== 'equity') return set
-
   for (const product of products.value) {
-    const normalizedType = product.type === 'fund' ? 'equity' : product.type
-    if (normalizedType !== 'equity' || !product.code) continue
-    const navUpdates = getTransactionsByProductId(product.id)
-      .filter(t => t.type === 'nav_update')
-    // 检查是否有净值更新交易的创建时间在今天
-    const hasTodayUpdate = navUpdates.some(t => {
-      // ID 前 8 位是 Date.now().toString(36) 的时间戳
-      const creationTime = parseInt(t.id.substring(0, 8), 36)
-      return creationTime >= todayStart.getTime() && creationTime <= todayEnd.getTime()
-    })
+    if (!product.code) continue
+    const navList = getNavHistoryByProductId(product.id)
+    // 检查是否有净值记录在今天被更新过（用 createdAt，不是 date）
+    const hasTodayUpdate = navList.some(n => n.createdAt >= todayStart && n.createdAt < todayEnd)
     if (hasTodayUpdate) {
       set.add(product.id)
     }
@@ -693,7 +666,7 @@ const todayNavUpdateSet = computed(() => {
 const fetchAllStageGains = async () => {
   if (props.type !== 'equity') return
   
-  const equityProducts = products.value.filter(p => (p.type === 'equity' || p.type === 'fund') && p.code)
+  const equityProducts = products.value.filter(p => (p.type === 'equity' ) && p.code)
   if (equityProducts.length === 0) return
   
   // 找出未缓存的权益产品代码
@@ -767,12 +740,11 @@ const fixedIncomeAnnualRateMap = computed(() => {
   for (const product of products.value) {
     if (product.type !== 'fixed_income' || !product.code) continue
 
-    const navUpdates = getTransactionsByProductId(product.id)
-      .filter(t => t.type === 'nav_update')
+    const navList = getNavHistoryByProductId(product.id)
 
-    if (navUpdates.length < 2) continue
+    if (navList.length < 2) continue
 
-    const latest = navUpdates[navUpdates.length - 1]
+    const latest = navList[navList.length - 1]
     const result: FixedIncomeAnnualRate = {}
 
     const timeRanges: Record<string, number> = {
@@ -785,9 +757,9 @@ const fixedIncomeAnnualRateMap = computed(() => {
       const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
 
       let navBefore = null
-      for (let i = navUpdates.length - 1; i >= 0; i--) {
-        if (navUpdates[i].date <= cutoff) {
-          navBefore = navUpdates[i]
+      for (let i = navList.length - 1; i >= 0; i--) {
+        if (navList[i].date <= cutoff) {
+          navBefore = navList[i]
           break
         }
       }
@@ -795,7 +767,7 @@ const fixedIncomeAnnualRateMap = computed(() => {
       if (navBefore) {
         const actualDays = (latest.date - navBefore.date) / (24 * 60 * 60 * 1000)
         if (actualDays >= 7) {
-          const simpleReturn = latest.price / navBefore.price
+          const simpleReturn = latest.nav / navBefore.nav
           result[key as keyof FixedIncomeAnnualRate] = (Math.pow(simpleReturn, 365 / actualDays) - 1) * 100
         }
       }
@@ -918,7 +890,7 @@ const fetchAllAggregatedHoldings = async (force = false) => {
 
   // 无缓存或强制刷新时才需要最新的 products 数据
   const equityData = products.value
-    .filter(p => (p.type === 'equity' || p.type === 'fund') && p.code)
+    .filter(p => (p.type === 'equity' ) && p.code)
     .map(p => {
       const pos = calculatePosition(p)
       return { code: p.code!, marketValue: pos?.marketValue || 0 }
@@ -1066,7 +1038,7 @@ const productStatusMap = computed(() => {
 const filteredProducts = computed(() => {
   let result = [...products.value]
   // 兼容旧数据：将 'fund' 类型视为 'equity'
-  const normalizeType = (t: string) => t === 'fund' ? 'equity' : t
+  const normalizeType = (t: string) => t
   // 如果指定了类型过滤，只显示该类型
   if (props.type) {
     result = result.filter(p => normalizeType(p.type) === props.type)
@@ -1157,7 +1129,7 @@ const handleSort = (key: typeof sortKey.value) => {
 }
 
 const getProductTypeLabel = (type: string) => {
-  const normalized = type === 'fund' ? 'equity' : type
+  const normalized = type
   const option = PRODUCT_TYPE_OPTIONS.find(o => o.value === normalized)
   return option ? option.label : type
 }
@@ -1293,7 +1265,7 @@ const getTermDepositMaturityProfit = (product: any, position: any = null): numbe
 const positionMap = computed(() => {
   const map = new Map<string, ReturnType<typeof calculatePosition>>()
   for (const product of products.value) {
-    const normalizedType = product.type === 'fund' ? 'equity' : product.type
+    const normalizedType = product.type
     if (props.type && normalizedType !== props.type) continue
     map.set(product.id, calculatePosition(product))
   }
@@ -2139,7 +2111,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                         v-if="!props.type"
                         class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-medium shrink-0"
                         :class="{
-                          'bg-primary-50 text-primary-500': product.type === 'equity' || product.type === 'fund',
+                          'bg-primary-50 text-primary-500': product.type === 'equity' ,
                           'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income',
                           'bg-amber-50 text-amber-600': product.type === 'term_deposit'
                         }"
@@ -2157,7 +2129,19 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                         <span v-if="product.bankName" class="text-[10px] text-apple-secondary shrink-0">{{ product.bankName }}</span>
                       </template>
                       <template v-else>
-                        <span v-if="product.code" class="text-[10px] font-mono text-apple-secondary shrink-0">{{ product.code }}</span>
+                        <span v-if="product.code" class="text-[10px] font-mono text-apple-secondary shrink-0 inline-flex items-center gap-1">
+                          {{ product.code }}
+                          <a
+                            v-if="product.type === 'equity'"
+                            :href="`https://www.morningstar.cn/fund/${product.code}.html`"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="text-primary-500 hover:text-primary-600 opacity-50 hover:opacity-100 transition-opacity"
+                            title="查看晨星基金详情"
+                          >
+                            <ExternalLink class="w-2.5 h-2.5" />
+                          </a>
+                        </span>
                       </template>
                     </div>
                     <div v-if="props.type === 'equity' && product.purchaseLimit" class="mt-0.5">
@@ -2685,7 +2669,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                       v-if="!props.type"
                       class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0"
                       :class="{
-                        'bg-primary-50 text-primary-500': product.type === 'equity' || product.type === 'fund',
+                        'bg-primary-50 text-primary-500': product.type === 'equity' ,
                         'bg-fixed-income/10 text-fixed-income': product.type === 'fixed_income',
                         'bg-amber-50 text-amber-600': product.type === 'term_deposit'
                       }"
@@ -2699,7 +2683,19 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     </template>
                     <!-- 其他产品类型信息 -->
                     <template v-else>
-                      <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0">代码: {{ product.code }}</span>
+                      <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0 inline-flex items-center gap-1">
+                        代码: {{ product.code }}
+                        <a
+                          v-if="product.type === 'equity'"
+                          :href="`https://www.morningstar.cn/fund/${product.code}.html`"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="text-primary-500 hover:text-primary-600 opacity-50 hover:opacity-100 transition-opacity"
+                          title="查看晨星基金详情"
+                        >
+                          <ExternalLink class="w-3 h-3" />
+                        </a>
+                      </span>
                       <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-[11px] text-fixed-income shrink-0 bg-fixed-income/5 px-1.5 py-0.5 rounded">期限: {{ (product as any).holdingTerm }}</span>
                       <!-- PC端权益产品显示限购信息（不显示备注） -->
                       <span v-if="props.type === 'equity' && product.purchaseLimit" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.purchaseLimit">{{ product.purchaseLimit }}</span>

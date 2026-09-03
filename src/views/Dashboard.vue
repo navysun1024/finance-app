@@ -14,7 +14,7 @@ echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasR
 
 const refreshRef = ref<InstanceType<typeof PullRefresh> | null>(null)
 
-const { portfolioSummary, getProfitHistory, getMarketValueHistory, getTransactionsByProductId, transactions, refresh, dashboardSettings, equitySettings, fixedIncomeSettings, saveDisplaySettings } = useFinance()
+const { portfolioSummary, getProfitHistory, getMarketValueHistory, transactions, refresh, dashboardSettings, equitySettings, fixedIncomeSettings, saveDisplaySettings, getNavHistoryByProductId } = useFinance()
 
 const typeChartRefs = ref<Record<string, HTMLDivElement>>({})
 const mvChartRefs = ref<Record<string, HTMLDivElement>>({})
@@ -28,7 +28,7 @@ const positionsByType = computed(() => {
   const map = new Map<string, typeof positions>()
   for (const pos of positions) {
     // 兼容旧数据：将 'fund' 类型视为 'equity'
-    const type = pos.product.type === 'fund' ? 'equity' : pos.product.type
+    const type = pos.product.type
     if (!map.has(type)) map.set(type, [])
     map.get(type)!.push(pos)
   }
@@ -49,14 +49,13 @@ const dailyReturnMap = computed(() => {
   for (const pos of positions) {
     const product = pos.product
     if (!product.code) continue
-    const navUpdates = getTransactionsByProductId(product.id)
-      .filter(t => t.type === 'nav_update')
+    const navList = getNavHistoryByProductId(product.id)
       .sort((a, b) => b.date - a.date)
-    if (navUpdates.length < 2) continue
-    const latest = navUpdates[0]
-    const prev = navUpdates[1]
-    const dailyReturn = prev.price > 0
-      ? Math.round(((latest.price - prev.price) / prev.price) * 10000) / 100
+    if (navList.length < 2) continue
+    const latest = navList[0]
+    const prev = navList[1]
+    const dailyReturn = prev.nav > 0
+      ? Math.round(((latest.nav - prev.nav) / prev.nav) * 10000) / 100
       : null
     map.set(product.code, { dailyReturn })
   }
@@ -142,7 +141,7 @@ const getRawHistory = (days: number) => {
 const buildCalendarData = (history: ReturnType<typeof getProfitHistory>, type: string): CalendarDayData[] => {
   const typeProductIds = new Set(
     portfolioSummary.value.positions
-      .filter(p => (p.product.type === 'fund' ? 'equity' : p.product.type) === type)
+      .filter(p => p.product.type === type)
       .map(p => p.product.id)
   )
   return history.map(h => {

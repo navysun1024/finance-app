@@ -33,7 +33,7 @@ export interface BenchmarkPoint {
   value: number  // 基准净值（已按产品起始净值缩放）
 }
 
-export type ProductType = 'equity' | 'fixed_income' | 'fund' | 'term_deposit'
+export type ProductType = 'equity' | 'fixed_income'  | 'term_deposit'
 
 export type ProductStatus = 'holding' | 'closed' | 'watchlist' | 'matured'
 
@@ -47,8 +47,8 @@ export const PRODUCT_STATUS_OPTIONS: { value: ProductStatus; label: string; colo
 export type NavSource = 'tiantian' | 'cmb' | 'icbc' | ''
 
 export const NAV_SOURCE_OPTIONS: { value: NavSource; label: string; applicableTypes: ProductType[] }[] = [
-  { value: '', label: '不查询', applicableTypes: ['equity', 'fund', 'fixed_income'] },
-  { value: 'tiantian', label: '东方财富', applicableTypes: ['equity', 'fund', 'fixed_income'] },
+  { value: '', label: '不查询', applicableTypes: ['equity', 'fixed_income'] },
+  { value: 'tiantian', label: '东方财富', applicableTypes: ['equity', 'fixed_income'] },
   { value: 'cmb', label: '招银理财', applicableTypes: ['fixed_income'] },
   { value: 'icbc', label: '工银理财', applicableTypes: ['fixed_income'] }
 ]
@@ -63,6 +63,34 @@ export const DCA_CYCLE_OPTIONS: { value: DcaCycle; label: string }[] = [
   { value: 'monthly', label: '每月' }
 ]
 
+// 净值历史（独立于 transactions，存储产品历史净值时间序列）
+export interface NavHistory {
+  id: string
+  code: string          // 产品代码（全局唯一维度）
+  date: number          // 净值日期（零点时间戳）
+  nav: number           // 单位净值
+  note: string          // 更新说明
+  createdAt: number     // 记录创建时间
+}
+
+// 产品分红历史（独立于 transactions，存储基金公司发布的分红公告）
+// 前端产品详情页"分红派息表"展示用
+export interface ProductDividend {
+  id: string
+  code: string           // 产品代码（全局唯一维度）
+  registerDate: number   // 权益登记日 timestamp
+  exDate: number | null   // 除权除息日 timestamp
+  payDate: number | null  // 分红发放日 timestamp
+  dividendType: 'cash' | 'split'  // cash=现金分红, split=送股/转增
+  perShare: number        // 每份分红(元)
+  per10Shares: number     // 每10份分红(元)
+  splitRatio: number | null // 送转比例（仅 split 类型有值）
+  year: string            // 分红所属年份
+  source: string          // 数据来源
+  createdAt: number
+}
+
+// 过渡期：TransactionType 暂时保留 nav_update（后端双写期），后续清理时移除
 export type TransactionType = 'buy' | 'sell' | 'dividend' | 'nav_update'
 
 export interface Transaction {

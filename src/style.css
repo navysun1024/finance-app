@@ -187,7 +187,6 @@ input[type="date"].glass-input::-webkit-date-and-time-value {
   background: var(--apple-bg);
   color: var(--apple-text-secondary);
   font-weight: 600;
-  text-transform: uppercase;
   border-bottom: 1px solid var(--apple-border);
   position: sticky;
   top: 0;
@@ -327,6 +326,17 @@ input[type="date"].glass-input::-webkit-date-and-time-value {
   .glass-card.glass-table-card {
     padding: 0 !important;
   }
+}
+
+/* Hide scrollbar on table cards — keep scrollable, no gutter reserve */
+.glass-card.glass-table-card {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.glass-card.glass-table-card::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Apple-style scrollbar */
