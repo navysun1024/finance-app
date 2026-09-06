@@ -1,5 +1,17 @@
 import type { Product, Transaction, Position } from '@/types'
+import { PRODUCT_SUB_TYPE_OPTIONS } from '@/types'
 import { PRODUCT_TYPE_OPTIONS, TRANSACTION_TYPE_OPTIONS } from '@/composables/useFinance'
+
+// 判断是否为自选产品（与 Products.vue 中 productStatusMap 逻辑一致）
+// 非定期存款、无持仓份额（≤0.01）、且无买入交易记录的产品视为自选
+function isWatchlist(product: Product, positions: Position[], transactions: Transaction[]): boolean {
+  if (product.type === 'term_deposit') return false
+  const position = positions.find(pos => pos.productId === product.id)
+  if (position && position.totalShares > 0.01) return false
+  const hasBuy = transactions.some(t => t.productId === product.id && t.type === 'buy')
+  if (hasBuy) return false
+  return true
+}
 
 export async function exportToExcel(
   products: Product[],
@@ -8,16 +20,23 @@ export async function exportToExcel(
 ): Promise<void> {
   const XLSX = await import('xlsx')
 
+  // 导出时排除自选产品
+  const filteredProducts = products.filter(p => !isWatchlist(p, positions, transactions))
+  const filteredProductIds = new Set(filteredProducts.map(p => p.id))
+  const filteredTransactions = transactions.filter(t => filteredProductIds.has(t.productId))
+
   const workbook = XLSX.utils.book_new()
 
-  const productsData = products.map(p => {
+  const productsData = filteredProducts.map(p => {
     const position = positions.find(pos => pos.productId === p.id)
     const typeOption = PRODUCT_TYPE_OPTIONS.find(t => t.value === p.type)
+    const subTypeOption = PRODUCT_SUB_TYPE_OPTIONS.find(s => s.value === (p.subType || ''))
     return {
       '产品名称': p.name,
       '产品类型': typeOption?.label || p.type,
+      '子类型': subTypeOption?.label || '',
+      '产品代码': p.code || '',
       '持有人': p.holder || '',
-      '备注': p.note || '',
       '持有份额': { v: position?.totalShares || 0, t: 'n', z: '0.0000' },
       '平均成本': { v: position?.avgCost || 0, t: 'n', z: '0.0000' },
       '当前净值': { v: position?.currentNav || 0, t: 'n', z: '0.0000' },
@@ -25,23 +44,24 @@ export async function exportToExcel(
       '盈亏金额': { v: position?.profit || 0, t: 'n', z: '0.00' },
       '收益率(%)': { v: position?.profitRate || 0, t: 'n', z: '0.00' },
       '年化收益率(%)': { v: position?.annualRate || 0, t: 'n', z: '0.00' },
-      '持有天数': { v: position?.holdingDays || 0, t: 'n', z: '0' }
+      '持有天数': { v: position?.holdingDays || 0, t: 'n', z: '0' },
+      '备注': p.note || ''
     }
   })
   const productsSheet = XLSX.utils.json_to_sheet(productsData)
   productsSheet['!cols'] = [
-    { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 20 },
+    { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+    { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
     { wch: 12 }, { wch: 12 }, { wch: 12 },
-    { wch: 12 }, { wch: 12 }, { wch: 12 },
-    { wch: 12 }, { wch: 12 }
+    { wch: 12 }, { wch: 12 }, { wch: 20 }
   ]
   XLSX.utils.book_append_sheet(workbook, productsSheet, '产品汇总')
 
-  const transactionsData = transactions
+  const transactionsData = filteredTransactions
     .filter(t => t.type !== 'nav_update')
     .sort((a, b) => b.date - a.date)
     .map(t => {
-      const product = products.find(p => p.id === t.productId)
+      const product = filteredProducts.find(p => p.id === t.productId)
       const typeOption = TRANSACTION_TYPE_OPTIONS.find(type => type.value === t.type)
       return {
         '日期': new Date(t.date).toLocaleDateString('zh-CN'),
@@ -66,12 +86,12 @@ export async function exportToExcel(
   const totalProfit = positions.reduce((sum, p) => sum + (p.profit || 0), 0)
   const totalInvestment = positions.reduce((sum, p) => sum + (p.totalInvestment || 0), 0)
   const summaryData = [
-    { '指标': '总资产', '数值': { v: totalAssets, t: 'n', z: '0.00' } },
+    { '指标': '总资产', '数值': { v: totalAssets, t: 'n', z: '0.0' } },
     { '指标': '累计投入', '数值': { v: totalInvestment, t: 'n', z: '0.00' } },
     { '指标': '总盈亏', '数值': { v: totalProfit, t: 'n', z: '0.00' } },
     { '指标': '总收益率(%)', '数值': { v: totalInvestment > 0 ? ((totalProfit / totalInvestment) * 100) : 0, t: 'n', z: '0.00' } },
-    { '指标': '产品数量', '数值': { v: products.length, t: 'n', z: '0' } },
-    { '指标': '交易记录数', '数值': { v: transactions.length, t: 'n', z: '0' } },
+    { '指标': '产品数量', '数值': { v: filteredProducts.length, t: 'n', z: '0' } },
+    { '指标': '交易记录数', '数值': { v: filteredTransactions.length, t: 'n', z: '0' } },
     { '指标': '导出时间', '数值': new Date().toLocaleString('zh-CN') }
   ]
   const summarySheet = XLSX.utils.json_to_sheet(summaryData)

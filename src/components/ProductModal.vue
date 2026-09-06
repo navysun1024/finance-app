@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { X } from 'lucide-vue-next'
-import type { Product, ProductType, NavSource, InterestMethod } from '@/types'
+import type { Product, ProductType, NavSource, InterestMethod, ProductSubType } from '@/types'
 import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
-import { DCA_CYCLE_OPTIONS, NAV_SOURCE_OPTIONS, INTEREST_METHOD_OPTIONS, DURATION_OPTIONS } from '@/types'
+import { DCA_CYCLE_OPTIONS, NAV_SOURCE_OPTIONS, INTEREST_METHOD_OPTIONS, DURATION_OPTIONS, PRODUCT_SUB_TYPE_OPTIONS } from '@/types'
 import { INDEX_DEFINITIONS } from '@/utils/indexApi'
 import { parseBenchmarkFormula, serializeBenchmarkFormula, type BenchmarkComponent } from '@/utils/benchmark'
 
@@ -15,11 +15,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'submit', data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: InterestMethod | string; bankName: string; purchaseLimit: string }): void
+  (e: 'submit', data: { name: string; type: ProductType; subType: ProductSubType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: NavSource; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: InterestMethod | string; bankName: string; purchaseLimit: string }): void
 }>()
 
 const name = ref('')
 const type = ref<ProductType>('equity')
+const subType = ref<ProductSubType>('')
 const code = ref('')
 const note = ref('')
 const holder = ref('')
@@ -42,10 +43,15 @@ const availableNavSources = computed(() => {
   return NAV_SOURCE_OPTIONS.filter(opt => opt.applicableTypes.includes(type.value))
 })
 
+const availableSubTypes = computed(() => {
+  return PRODUCT_SUB_TYPE_OPTIONS.filter(opt => opt.applicableTypes.includes(type.value))
+})
+
 watch(() => props.visible, (val) => {
   if (val && props.editProduct) {
     name.value = props.editProduct.name
     type.value = props.editProduct.type
+    subType.value = props.editProduct.subType || ''
     code.value = props.editProduct.code || ''
     note.value = props.editProduct.note
     holder.value = props.editProduct.holder || ''
@@ -66,6 +72,7 @@ watch(() => props.visible, (val) => {
   } else if (val) {
     name.value = ''
     type.value = props.defaultType || 'equity'
+    subType.value = ''
     code.value = ''
     note.value = ''
     holder.value = ''
@@ -90,6 +97,11 @@ watch(type, (newType) => {
   const available = NAV_SOURCE_OPTIONS.filter(opt => opt.applicableTypes.includes(newType))
   if (!available.some(opt => opt.value === navSource.value)) {
     navSource.value = available[0]?.value || ''
+  }
+  // 切换类型时，如果当前二级属性不适配，清空
+  const availableSubs = PRODUCT_SUB_TYPE_OPTIONS.filter(opt => opt.applicableTypes.includes(newType))
+  if (!availableSubs.some(opt => opt.value === subType.value)) {
+    subType.value = ''
   }
   // 切换为非固收时清空持有期限
   if (newType === 'equity' ) {
@@ -136,6 +148,7 @@ const handleSubmit = () => {
   emit('submit', { 
     name: name.value.trim(), 
     type: type.value, 
+    subType: subType.value,
     note: note.value.trim(), 
     code: code.value.trim(),
     holder: holder.value.trim(),
@@ -190,6 +203,17 @@ const handleSubmit = () => {
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             >
               <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">二级属性</label>
+            <select 
+              v-model="subType"
+              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+            >
+              <option v-for="option in availableSubTypes" :key="option.value" :value="option.value">
                 {{ option.label }}
               </option>
             </select>

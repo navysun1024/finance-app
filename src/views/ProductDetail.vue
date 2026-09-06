@@ -38,15 +38,15 @@ const handleEdit = () => {
   showProductModal.value = true
 }
 
-const handleSubmit = (data: { name: string; type: string; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string }) => {
+const handleSubmit = (data: { name: string; type: string; subType: string; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string; purchaseLimit: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type as any, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName)
+    updateProduct(editingProduct.value.id, data.name, data.type as any, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName, data.purchaseLimit, data.subType as any)
   }
   showProductModal.value = false
 }
 
 const handleFetchStageGains = async () => {
-  if (!product.value?.code || product.value.type !== 'equity') return
+  if (!product.value?.code) return
 
   fetchingStageGains.value = true
   try {
@@ -118,6 +118,12 @@ const handleFetchNav = async () => {
     // 统一使用当天零点作为日期，确保唯一性
     const navDateMidnight = getDateOnly(dateTimestamp)
 
+    // 查询到的限购信息写入产品限购属性（不写入备注）
+    // 放在净值重复检查之前：即使当天净值已存在，也始终刷新限购信息
+    if (result.purchaseLimitLabel) {
+      updateProductPurchaseLimit(product.value.id, result.purchaseLimitLabel)
+    }
+
     const existingNavs = getNavHistoryByProductId(productId.value)
     if (existingNavs.some(n => getDateOnly(n.date) === navDateMidnight)) {
       fetchingNav.value = false
@@ -126,11 +132,6 @@ const handleFetchNav = async () => {
 
     const updateTime = new Date().toLocaleString('zh-CN')
     await addNavHistoryRecord({ code: product.value.code, date: navDateMidnight, nav: result.nav, note: updateTime })
-
-    // 查询到的限购信息写入产品限购属性（不写入备注）
-    if (result.purchaseLimitLabel) {
-      updateProductPurchaseLimit(product.value.id, result.purchaseLimitLabel)
-    }
   } catch (e: any) {
     navFetchError.value = e.message || '查询失败'
   } finally {
@@ -667,10 +668,14 @@ const allNavTransactions = computed(() =>
     .map(n => ({
       date: formatDate(n.date),
       timestamp: n.date,
-      nav: n.nav
+      nav: n.nav,
+      accNav: n.accNav && n.accNav > 0 ? n.accNav : n.nav  // 无累计净值时兜底用 nav
     }))
     .sort((a, b) => a.date.localeCompare(b.date))
 )
+
+// 净值显示口径：单位净值 / 累计净值
+const navMode = ref<'nav' | 'accNav'>('accNav')
 
 const filteredNavTransactions = computed(() => {
   const opt = navRangeOptions.find(o => o.value === navRange.value)
@@ -680,15 +685,30 @@ const filteredNavTransactions = computed(() => {
   return allNavTransactions.value.filter(t => t.date >= cutoffStr)
 })
 
+// 能否从外部获取阶段涨幅：权益产品 或 固收非银行理财（有code）
+const canFetchExternalStageGains = computed(() => {
+  const p = product.value
+  if (!p?.code) return false
+  return p.type === 'equity' || (p.type === 'fixed_income' && p.subType !== 'bank_wm')
+})
+
+// 内部计算阶段涨幅：仅银行理财（银行理财在东方财富无数据）
+const isInternalStageGains = computed(() => {
+  const p = product.value
+  return p?.type === 'fixed_income' && p.subType === 'bank_wm'
+})
+
 const fixedIncomeStageGains = computed(() => {
   if (product.value?.type !== 'fixed_income') return null
-  
+
   const navList = allNavTransactions.value
   if (navList.length < 2) return null
-  
+
   const latest = navList[navList.length - 1]
   const result: Record<string, number | undefined> = {}
-  
+  const navField = navMode.value  // 当前口径
+  const getVal = (t: typeof latest) => navField === 'accNav' ? (t.accNav || t.nav) : t.nav
+
   const timeRanges: Record<string, number> = {
     '1m': 30,
     '3m': 90,
@@ -697,11 +717,11 @@ const fixedIncomeStageGains = computed(() => {
     '2y': 730,
     '3y': 1095
   }
-  
+
   for (const [key, days] of Object.entries(timeRanges)) {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
     const cutoffStr = formatDate(cutoff)
-    
+
     let navBefore = null
     for (let i = navList.length - 1; i >= 0; i--) {
       if (navList[i].date <= cutoffStr) {
@@ -712,21 +732,21 @@ const fixedIncomeStageGains = computed(() => {
     if (navBefore) {
       const actualDays = (latest.timestamp - navBefore.timestamp) / (24 * 60 * 60 * 1000)
       if (actualDays >= 7) {
-        const simpleReturn = latest.nav / navBefore.nav
+        const simpleReturn = getVal(latest) / getVal(navBefore)
         result[key] = (Math.pow(simpleReturn, 365 / actualDays) - 1) * 100
       }
     }
   }
-  
+
   const first = navList[0]
   if (first) {
     const actualDays = (latest.timestamp - first.timestamp) / (24 * 60 * 60 * 1000)
     if (actualDays >= 7) {
-      const simpleReturn = latest.nav / first.nav
+      const simpleReturn = getVal(latest) / getVal(first)
       result.sinceInception = (Math.pow(simpleReturn, 365 / actualDays) - 1) * 100
     }
   }
-  
+
   return result
 })
 
@@ -927,18 +947,18 @@ const renderTermDepositChart = () => {
 
 // ========== 净值历史辅助函数 ==========
 // 根据 NavHistory 数组（时间升序）和索引计算日涨跌幅
-const getNavDailyChange = (navList: NavHistory[], idx: number): number => {
+const getNavDailyChange = (navList: NavHistory[], idx: number, navField: 'nav' | 'accNav' = 'nav'): number => {
   if (!navList || idx <= 0 || idx >= navList.length) return 0
-  const prev = navList[idx - 1].nav
-  const curr = navList[idx].nav
+  const prev = navList[idx - 1][navField] || (navField === 'accNav' ? navList[idx - 1].nav : 0)
+  const curr = navList[idx][navField] || (navField === 'accNav' ? navList[idx].nav : 0)
   if (!prev) return 0
   return ((curr - prev) / prev) * 100
 }
 // 根据 NavHistory 数组和索引计算累计涨跌幅（从最早一条到当前）
-const getNavCumulativeChange = (navList: NavHistory[], idx: number): number => {
+const getNavCumulativeChange = (navList: NavHistory[], idx: number, navField: 'nav' | 'accNav' = 'nav'): number => {
   if (!navList || idx < 0 || idx >= navList.length) return 0
-  const first = navList[0].nav
-  const curr = navList[idx].nav
+  const first = navList[0][navField] || (navField === 'accNav' ? navList[0].nav : 0)
+  const curr = navList[idx][navField] || (navField === 'accNav' ? navList[idx].nav : 0)
   if (!first) return 0
   return ((curr - first) / first) * 100
 }
@@ -951,16 +971,24 @@ const updateChart = () => {
     chart.clear()
     return
   }
-  
-  const navValues = navData.map(t => t.nav)
+
+  // 根据 navMode 选择单位净值或累计净值
+  const navField = navMode.value === 'accNav' ? 'accNav' : 'nav'
+  const navValues = navData.map(t => t[navField] as number)
   // 包含比较基准值在 Y 轴范围内
   const benchmarkSeriesData = getBenchmarkSeriesData(navData)
   const benchmarkValues = benchmarkSeriesData.filter((v): v is number => v !== null)
   const allValues = benchmarkValues.length > 0
     ? [...navValues, ...benchmarkValues]
     : navValues
-  const minNav = Math.min(...allValues, position.value?.currentNav || 1)
-  const maxNav = Math.max(...allValues, position.value?.currentNav || 1)
+  // Y 轴范围：累计净值模式下不混入 position.currentNav（它永远是单位净值）
+  const positionNav = navField === 'nav' ? (position.value?.currentNav || null) : null
+  const minNav = positionNav != null
+    ? Math.min(...allValues, positionNav)
+    : Math.min(...allValues)
+  const maxNav = positionNav != null
+    ? Math.max(...allValues, positionNav)
+    : Math.max(...allValues)
   const navSpread = maxNav - minNav
   const padding = navSpread * 0.1 || 0.02
   const hasBenchmark = benchmarkSeriesData.length > 0
@@ -975,8 +1003,8 @@ const updateChart = () => {
   )
 
   // 美化调色：净值主色与渐变填充，基于终值相对初值的涨跌换色
-  const startNavVal = navData[0]?.nav || 1
-  const endNav = navData[navData.length - 1]?.nav || startNavVal
+  const startNavVal = navData[0]?.[navField] || 1
+  const endNav = navData[navData.length - 1]?.[navField] || startNavVal
   const isUp = endNav >= startNavVal
   const lineColor = isUp ? '#ef4444' : '#16a34a'
   const lineColorSoft = isUp ? 'rgba(239, 68, 68, ' : 'rgba(22, 163, 74, '
@@ -1006,7 +1034,7 @@ const updateChart = () => {
     return new Date(normalized + 'T00:00:00').getTime()
   }
   const navTimestampByIndex = navData.map(t => toTimestamp(t.date))
-  const navSeriesData = navData.map(t => [toTimestamp(t.date), t.nav] as [number, number])
+  const navSeriesData = navData.map(t => [toTimestamp(t.date), t[navField]] as [number, number])
   const benchmarkSeriesTimeData = benchmarkSeriesData.map((v, i) => (v === null || v === undefined)
     ? null
     : ([navTimestampByIndex[i], v] as [number, number])
@@ -1037,8 +1065,9 @@ const updateChart = () => {
   // 固收产品不再在净值走势图中展示区间年化/累计收益率标题（原 titleOption 已删除）
   let titleOption: any = {}
   
+    const navSeriesName = navMode.value === 'accNav' ? '累计净值' : '单位净值'
     const seriesList: any[] = [{
-      name: '净值',
+      name: navSeriesName,
       type: 'line',
       data: navSeriesData,
       smooth: true,
@@ -1084,9 +1113,10 @@ const updateChart = () => {
             const ts = coord?.[0] ?? datum.xAxis
             const nav = coord?.[1] ?? datum.yAxis
             const date = ts ? new Date(ts).toLocaleDateString('zh-CN') : ''
+            const navLabel = navMode.value === 'accNav' ? '累计净值' : '单位净值'
             return `<div style="font-weight:600;margin-bottom:2px">${params.name}</div>
                      <div style="color:#6b7280;font-size:11px">${date}</div>
-                     <div style="margin-top:4px">净值: <b>${typeof nav === 'number' ? nav.toFixed(4) : nav}</b></div>`
+                     <div style="margin-top:4px">${navLabel}: <b>${typeof nav === 'number' ? nav.toFixed(4) : nav}</b></div>`
           }
         }
       } : undefined
@@ -1358,12 +1388,14 @@ const initChart = () => {
     
     if (visibleData.length === 0) return
     
-    // 收集可见区间内的净值范围
+    // 收集可见区间内的净值范围（跟随当前 navMode）
+    const nzf = navMode.value === 'accNav' ? 'accNav' : 'nav'
     let min = Infinity
     let max = -Infinity
     for (const item of visibleData) {
-      if (item.nav < min) min = item.nav
-      if (item.nav > max) max = item.nav
+      const v = item[nzf] as number
+      if (v < min) min = v
+      if (v > max) max = v
     }
 
     // 同步重新归一化基准线，并将基准值纳入 Y 轴范围
@@ -1532,9 +1564,13 @@ onMounted(async () => {
   }
   initChart()
   window.addEventListener('resize', handleResize)
-  // 权益产品自动加载阶段涨幅和持仓信息
-  if ((product.value.type === 'equity' ) && product.value.code) {
+  // 权益产品 + 固收非银行理财 自动加载阶段涨幅（银行理财在东方财富无数据）
+  if (product.value.code && (product.value.type === 'equity' ||
+      (product.value.type === 'fixed_income' && product.value.subType !== 'bank_wm'))) {
     handleFetchStageGains()
+  }
+  // 权益产品自动加载持仓信息
+  if (product.value.type === 'equity' && product.value.code) {
     handleFetchHoldings()
   }
   // 加载比较基准数据
@@ -1550,7 +1586,7 @@ onMounted(async () => {
   }
 })
 
-watch([navRange, filteredNavTransactions], () => {
+watch([navRange, filteredNavTransactions, navMode], () => {
   updateChart()
 })
 
@@ -1608,7 +1644,7 @@ onUnmounted(() => {
             <span v-if="product.code" class="text-xs font-mono bg-black/5 text-apple-secondary px-2 py-0.5 rounded-full inline-flex items-center gap-1">
               {{ product.code }}
               <a
-                v-if="product.type === 'equity'"
+                v-if="product.code && product.subType !== 'bank_wm'"
                 :href="`https://www.morningstar.cn/fund/${product.code}.html`"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -1662,7 +1698,7 @@ onUnmounted(() => {
     <p v-if="navHistorySuccess" class="text-sm text-loss mt-2">{{ navHistorySuccess }}</p>
 
     <!-- 持仓概览 + 阶段涨幅/收益率 并排显示 -->
-    <div :class="(product.type === 'equity'  || (product.type === 'fixed_income' && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6' : ''">
+    <div :class="((canFetchExternalStageGains && stageGains) || (isInternalStageGains && fixedIncomeStageGains)) ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6' : ''">
       <!-- 持仓概览 -->
       <div v-if="position" class="glass-card md:p-6">
         <div class="flex items-center justify-between mb-1.5 md:mb-2">
@@ -1802,8 +1838,8 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 阶段涨幅 (仅权益产品显示) -->
-      <div v-if="(product.type === 'equity' ) && stageGains" class="glass-card md:p-5">
+      <!-- 阶段涨幅 (权益 + 固收非银行理财，从外部获取) -->
+      <div v-if="canFetchExternalStageGains && stageGains" class="glass-card md:p-5">
         <div class="flex items-center justify-between mb-1.5 md:mb-2">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
@@ -1866,7 +1902,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="(product.type === 'equity' ) && !stageGains && !fetchingStageGains" class="glass-card md:p-5">
+      <div v-else-if="canFetchExternalStageGains && !stageGains && !fetchingStageGains" class="glass-card md:p-5">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold text-apple-text">阶段涨幅</h3>
           <button
@@ -1878,15 +1914,15 @@ onUnmounted(() => {
             <span>加载</span>
           </button>
         </div>
-        <p class="text-sm text-apple-secondary mt-2">点击加载查看权益阶段涨幅数据</p>
+        <p class="text-sm text-apple-secondary mt-2">点击加载阶段涨幅数据</p>
       </div>
-      <div v-else-if="(product.type === 'equity' ) && fetchingStageGains" class="glass-card md:p-5">
+      <div v-else-if="canFetchExternalStageGains && fetchingStageGains" class="glass-card md:p-5">
         <h3 class="text-lg font-semibold text-apple-text mb-2">阶段涨幅</h3>
         <p class="text-sm text-apple-secondary">加载中...</p>
       </div>
 
-      <!-- 年化收益率统计 (仅固收产品显示) -->
-      <div v-if="product.type === 'fixed_income' && fixedIncomeStageGains" class="glass-card md:p-5">
+      <!-- 阶段收益率 (银行理财专用，从内部 nav_history 计算) -->
+      <div v-if="isInternalStageGains && fixedIncomeStageGains" class="glass-card md:p-5">
         <div class="flex items-center justify-between mb-1.5 md:mb-2 flex-wrap gap-2">
           <div class="flex items-center gap-2 flex-wrap">
             <h3 class="text-lg font-semibold text-apple-text">年化收益率统计</h3>
@@ -1992,15 +2028,42 @@ onUnmounted(() => {
       <!-- 净值走势 -->
       <div class="glass-card md:p-4 flex flex-col min-h-[240px] md:min-h-[340px]">
         <div class="flex flex-row items-center justify-between gap-2 md:gap-3 mb-2 md:mb-3 flex-nowrap">
-          <h3 class="text-lg font-semibold text-apple-text flex-shrink-0">净值走势</h3>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <h3 class="text-lg font-semibold text-apple-text">净值走势</h3>
+            <!-- 净值口径切换：单位净值 / 累计净值 -->
+            <div class="hidden sm:flex items-center bg-black/5 rounded-full p-[2px]">
+              <button
+                @click="navMode = 'nav'"
+                :class="[
+                  'px-2 py-0.5 text-[10px] md:text-xs rounded-full transition-colors !min-h-[24px]',
+                  navMode === 'nav'
+                    ? 'bg-white text-apple-text shadow-sm font-medium'
+                    : 'text-apple-secondary hover:text-apple-text'
+                ]"
+              >
+                单位净值
+              </button>
+              <button
+                @click="navMode = 'accNav'"
+                :class="[
+                  'px-2 py-0.5 text-[10px] md:text-xs rounded-full transition-colors !min-h-[24px]',
+                  navMode === 'accNav'
+                    ? 'bg-white text-apple-text shadow-sm font-medium'
+                    : 'text-apple-secondary hover:text-apple-text'
+                ]"
+              >
+                累计净值
+              </button>
+            </div>
+          </div>
           <div class="flex-1 min-w-0 flex justify-end">
-            <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-1 bg-black/5 rounded-full p-[2px] md:p-0.5 sm:overflow-x-visible inline-flex max-w-full">
+            <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-0.5 bg-black/5 rounded-full p-[1px] sm:overflow-x-visible inline-flex max-w-full">
               <button
                 v-for="opt in navRangeOptions"
                 :key="opt.value"
                 @click="navRange = opt.value"
                 :class="[
-                  'px-1.5 py-0.5 text-[10px] md:px-2.5 md:py-1 md:text-xs rounded-full transition-colors md:touch-target !min-h-[24px] md:!min-h-[32px] !min-w-0 md:!min-w-0 flex-shrink-0',
+                  'px-1 py-0 text-[10px] rounded-full transition-colors md:touch-target !min-h-[20px] !min-w-0 md:!min-w-0 flex-shrink-0',
                   navRange === opt.value
                     ? 'bg-white text-apple-text shadow-sm font-medium'
                     : 'text-apple-secondary hover:text-apple-text'
@@ -2193,18 +2256,20 @@ onUnmounted(() => {
           <div class="md:hidden">
             <table class="w-full apple-table mobile-product-table" style="table-layout: fixed;">
               <colgroup>
-                <col style="width: 22%;">
-                <col style="width: 20%;">
-                <col style="width: 16%;">
                 <col style="width: 18%;">
+                <col style="width: 15%;">
+                <col style="width: 15%;">
+                <col style="width: 14%;">
+                <col style="width: 14%;">
                 <col style="width: 24%;">
               </colgroup>
               <thead>
                 <tr>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">日期</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">净值</th>
-                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">日涨跌</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">累计</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">日涨跌</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-right text-[10px] font-semibold text-apple-secondary">总涨跌</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-1 py-1.5 text-left text-[10px] font-semibold text-apple-secondary">备注</th>
                 </tr>
               </thead>
@@ -2212,11 +2277,12 @@ onUnmounted(() => {
                 <tr v-for="(nav, idx) in slicedNavHistory" :key="nav.id">
                   <td class="px-1 py-1.5 text-left whitespace-nowrap text-[11px] text-apple-text">{{ new Date(nav.date).toLocaleDateString('zh-CN') }}</td>
                   <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium text-apple-text">{{ nav.nav.toFixed(4) }}</td>
-                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium" :class="getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
-                    {{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium text-apple-text">{{ nav.accNav && nav.accNav > 0 ? nav.accNav.toFixed(4) : '-' }}</td>
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium" :class="getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? '+' : '' }}{{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx, navMode).toFixed(2) }}%
                   </td>
-                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium" :class="getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
-                    {{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  <td class="px-1 py-1.5 text-right whitespace-nowrap text-[11px] font-medium" :class="getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? '+' : '' }}{{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode).toFixed(2) }}%
                   </td>
                   <td class="px-1 py-1.5 text-left text-[11px] text-apple-secondary truncate">{{ nav.note || '-' }}</td>
                 </tr>
@@ -2228,9 +2294,10 @@ onUnmounted(() => {
             <table class="w-full apple-table" style="table-layout: fixed;">
               <thead>
                 <tr>
-                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 160px;">日期</th>
-                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 140px;">净值</th>
-                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 120px;">日涨跌</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 140px;">日期</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 120px;">单位净值</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 120px;">累计净值</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 100px;">日涨跌</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 120px;">累计涨跌</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary">备注</th>
                 </tr>
@@ -2239,11 +2306,12 @@ onUnmounted(() => {
                 <tr v-for="(nav, idx) in slicedNavHistory" :key="nav.id">
                   <td class="px-4 py-3 whitespace-nowrap text-sm text-left text-apple-text">{{ new Date(nav.date).toLocaleDateString('zh-CN') }}</td>
                   <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-apple-text">{{ nav.nav.toFixed(4) }}</td>
-                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
-                    {{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-apple-text">{{ nav.accNav && nav.accNav > 0 ? nav.accNav.toFixed(4) : '-' }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? '+' : '' }}{{ getNavDailyChange(productNavHistory, productNavHistory.length - 1 - idx, navMode).toFixed(2) }}%
                   </td>
-                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? 'text-profit' : 'text-loss'">
-                    {{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx) >= 0 ? '+' : '' }}{{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx).toFixed(2) }}%
+                  <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium" :class="getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? 'text-profit' : 'text-loss'">
+                    {{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? '+' : '' }}{{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode).toFixed(2) }}%
                   </td>
                   <td class="px-4 py-3 text-sm text-left text-apple-secondary break-words">{{ nav.note || '-' }}</td>
                 </tr>
@@ -2350,7 +2418,6 @@ onUnmounted(() => {
       :products="product ? [product] : []"
       :current-product="product || null"
       :current-position="position || null"
-      :transactions="transactions"
       :edit-transaction="editingTransaction"
       @close="showModal = false"
       @submit="handleSubmitTransaction"

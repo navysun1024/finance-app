@@ -58,7 +58,8 @@ export function calculateXIRR(
   for (const t of buyTransactions) {
     cashFlows.push({
       date: new Date(t.date),
-      amount: -(t.amount + t.fee)
+      // amount 已包含手续费，不再重复加 fee
+      amount: -t.amount
     })
   }
   

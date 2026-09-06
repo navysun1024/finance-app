@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue';
-import type { Product, Transaction, Position, PortfolioSummary, ProductType, TransactionType, InterestMethod, NavHistory, ProductDividend } from '@/types';
+import type { Product, Transaction, Position, PortfolioSummary, ProductType, TransactionType, InterestMethod, NavHistory, ProductDividend, ProductSubType } from '@/types';
 import { getProducts, saveProducts, getTransactions, generateId, addTransactionToServer, updateTransactionOnServer, deleteTransactionFromServer, getNavHistory, getProductDividends } from '@/utils/storage';
 import { calculateXIRR } from '@/utils/xirr';
 export const PRODUCT_TYPE_OPTIONS: {
@@ -147,11 +147,9 @@ async function ensureDataLoaded() {
 export async function initFinance() {
  await ensureDataLoaded();
 }
-export function useFinance() {
- // 自动初始化：首次调用时若数据为空则加载
- ensureDataLoaded();
 
- const refresh = async () => {
+// 模块级 refresh 函数（autoRefresh 和 useFinance 内部共用）
+const refresh = async () => {
   const [nextProducts, nextTransactions, nextNavHistory, nextPD] = await Promise.all([getProducts(), getTransactions(), getNavHistory(), getProductDividends()])
   products.value = nextProducts
   transactions.value = nextTransactions
@@ -160,12 +158,57 @@ export function useFinance() {
   buildTransactionMap(nextTransactions)
   buildNavHistoryMap(nextNavHistory, products.value)
   buildProductDividendsMap(nextPD, products.value)
-  };
- const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '') => {
+};
+
+// ==================== 定时自动刷新 ====================
+// 模块级单例，避免多个组件重复启动
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+let lastRefreshAt = 0
+const REFRESH_INTERVAL = 5 * 60 * 1000  // 5 分钟，对齐后台每小时更新节奏
+const MIN_REFRESH_GAP = 30 * 1000       // 两次 refresh 最小间隔，避免抖动
+let refreshInFlight: Promise<void> | null = null
+
+function startAutoRefresh() {
+  if (autoRefreshTimer) return  // 已启动
+
+  const doRefresh = async () => {
+    if (document.visibilityState !== 'visible') return   // 页面不可见时跳过
+    const now = Date.now()
+    if (now - lastRefreshAt < MIN_REFRESH_GAP) return    // 防抖
+    if (refreshInFlight) return                          // 正在跑，跳过
+
+    refreshInFlight = (async () => {
+      try {
+        await refresh()
+        lastRefreshAt = Date.now()
+      } finally {
+        refreshInFlight = null
+      }
+    })()
+  }
+
+  autoRefreshTimer = setInterval(doRefresh, REFRESH_INTERVAL)
+
+  // 页面从后台切回前台时主动刷一次
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      doRefresh()
+    }
+  })
+}
+
+export function useFinance() {
+ // 自动初始化：首次调用时若数据为空则加载
+ ensureDataLoaded();
+
+ // 首次使用 useFinance 时启动自动刷新
+ startAutoRefresh()
+ const addProduct = async (name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '', subType: ProductSubType = '') => {
  const product: Product = {
   id: generateId(),
   name,
   type,
+  subType,
   code,
   note,
   purchaseLimit,
@@ -188,13 +231,14 @@ export function useFinance() {
  await saveProducts(products.value);
  return product;
  };
- const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '') => {
+ const updateProduct = async (id: string, name: string, type: ProductType, note: string = '', code: string = '', holder: string = '', dcaAmount: number = 0, dcaCycle: string = '', navSource: string = '', holdingTerm: string = '', benchmarkEnabled: boolean = false, benchmarkFormula: string = '', interestRate: number = 0, durationMonths: number = 0, minAmount: number = 0, maturityDate: string = '', interestMethod: InterestMethod | '' = '', bankName: string = '', purchaseLimit: string = '', subType: ProductSubType = '') => {
  const index = products.value.findIndex(p => p.id === id);
  if (index !== -1) {
  products.value[index] = {
  ...products.value[index],
  name,
  type,
+ subType,
  code,
  note,
  holder,
@@ -321,7 +365,8 @@ export function useFinance() {
  for (const t of productTransactions) {
  if (t.type === 'buy') {
  buyTransactions.push(t);
- totalInvestment += t.amount + t.fee;
+ // amount 已包含手续费（amount = 份额 × 净值 + 手续费），不再重复加 fee
+ totalInvestment += t.amount;
  totalShares += t.shares;
  if (firstBuyDate === 0 || t.date < firstBuyDate) {
  firstBuyDate = t.date;
@@ -342,7 +387,8 @@ export function useFinance() {
  let cumulativeCostBasis = 0;
  let cumulativeShares = 0;
  for (const t of buyTransactions) {
- cumulativeCostBasis += t.amount + t.fee;
+ // amount 已包含手续费，不再重复加 fee
+ cumulativeCostBasis += t.amount;
  cumulativeShares += t.shares;
  if (cumulativeShares > 0) {
  avgCost = cumulativeCostBasis / cumulativeShares;
@@ -358,6 +404,10 @@ export function useFinance() {
  } else if (t.type === 'dividend') {
  totalDividend += t.amount;
  }
+ }
+ // 处理因卖出份额精度截断产生的极小残留份额（< 0.01），视为完全清仓
+ if (remainingShares > 0 && remainingShares < 0.01) {
+ remainingShares = 0;
  }
 
  // 定期存款特殊计算
@@ -436,10 +486,13 @@ export function useFinance() {
  };
  }
 
- const marketValue = Math.round(remainingShares * currentNav);
+ const marketValue = Math.round(remainingShares * currentNav * 100) / 100;
  const unrealizedProfit = marketValue - (remainingShares * avgCost);
  const profit = unrealizedProfit + realizedProfit + totalDividend;
- const profitRate = remainingShares > 0 ? (unrealizedProfit / (remainingShares * avgCost)) * 100 : 0;
+ // 已清仓产品（remainingShares=0）的收益率基于已实现盈亏/总投入计算
+ const profitRate = remainingShares > 0
+  ? (unrealizedProfit / (remainingShares * avgCost)) * 100
+  : (totalInvestment > 0 ? (realizedProfit / totalInvestment) * 100 : 0);
  const holdingDays = firstBuyDate > 0 ? Math.max(1, Math.ceil((Date.now() - firstBuyDate) / (1000 * 60 * 60 * 24))) : 0;
  const xirrRate = calculateXIRR(
  buyTransactions.map(t => ({ date: t.date, amount: t.amount, fee: t.fee })),

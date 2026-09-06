@@ -15,7 +15,7 @@ const schedulerStatus = ref<any>(null)
 const loadingScheduler = ref(false)
 const manualRunning = ref(false)
 
-const { products, transactions, portfolioSummary, refresh } = useFinance()
+const { products, transactions, calculatePosition, refresh } = useFinance()
 
 // 获取调度器状态
 const fetchSchedulerStatus = async () => {
@@ -104,9 +104,12 @@ const handleExport = async () => {
 
 const handleExportExcel = async () => {
   try {
+    // 为每个产品计算完整的 position（不过滤 totalShares > 0），
+    // 确保已清仓产品的已实现盈亏也能正确导出
+    const allPositions = products.value.map(p => calculatePosition(p))
     await exportToExcel(
       products.value,
-      portfolioSummary.value.positions,
+      allPositions,
       transactions.value
     )
     showMessage('Excel导出成功', 'success')

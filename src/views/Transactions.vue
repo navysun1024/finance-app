@@ -529,7 +529,6 @@ const handleBatchImport = async (data: { products: any[]; transactions: any[] })
     <TransactionModal 
       :visible="showModal"
       :products="products"
-      :transactions="transactions"
       :edit-transaction="editingTransaction"
       @close="showModal = false"
       @submit="handleSubmit"

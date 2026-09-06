@@ -6,8 +6,8 @@ import { useFinance } from '@/composables/useFinance'
 import { useCompare } from '@/composables/useCompare'
 import { useRouter, useRoute } from 'vue-router'
 import type { ProductType, ProductStatus, Product } from '@/types'
-import { PRODUCT_STATUS_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
-import { formatCurrency, formatCurrency1, formatPercent, getDateOnly } from '@/utils/format'
+import { PRODUCT_STATUS_OPTIONS, PRODUCT_SUB_TYPE_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
+import { formatCurrency1, formatPercent, getDateOnly } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
 import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult, type AggregatedStock } from '@/utils/equityApi'
 import { addNavHistoryRecord } from '@/utils/storage'
@@ -21,7 +21,7 @@ const props = defineProps<{
   type?: ProductType
 }>()
 
-const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getNavHistoryByProductId, PRODUCT_TYPE_OPTIONS, transactions, equitySettings, fixedIncomeSettings, saveDisplaySettings, refresh } = useFinance()
+const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getNavHistoryByProductId, getProductDividendsByProduct, PRODUCT_TYPE_OPTIONS, transactions, equitySettings, fixedIncomeSettings, saveDisplaySettings, refresh } = useFinance()
 
 const { toggleCompare, isInCompare, compareType, compareIds, switchType, clearCompare } = useCompare()
 
@@ -91,7 +91,11 @@ const compareAvailableTypes = computed(() => {
 interface NavPoint {
   date: number
   nav: number
+  accNav: number
 }
+
+// 净值口径切换：单位净值 / 累计净值
+const navMode = ref<'nav' | 'accNav'>('accNav')
 
 interface RangeReturn {
   totalReturn: number | null
@@ -115,7 +119,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 function getAllNavSeries(productId: string): NavPoint[] {
   return getNavHistoryByProductId(productId)
-    .map(n => ({ date: getDateOnly(n.date), nav: n.nav }))
+    .map(n => ({
+      date: getDateOnly(n.date),
+      nav: n.nav,
+      accNav: n.accNav && n.accNav > 0 ? n.accNav : n.nav  // 无累计净值兜底用 nav
+    }))
     .sort((a, b) => a.date - b.date)
 }
 
@@ -123,11 +131,12 @@ function getProductNavSeries(productId: string, bounds: { start: number; end: nu
   return getAllNavSeries(productId).filter(p => !bounds || (p.date >= bounds.start && p.date <= bounds.end))
 }
 
-function calcRangeReturn(allNavSeries: NavPoint[], cutoff: number | null): RangeReturn {
+function calcRangeReturn(allNavSeries: NavPoint[], cutoff: number | null, productDividends: { registerDate: number; perShare: number }[]): RangeReturn {
   const empty: RangeReturn = { totalReturn: null, annualReturn: null }
   if (allNavSeries.length < 2) return empty
   const endNav = allNavSeries[allNavSeries.length - 1]
   let startNav: NavPoint | null = null
+  let startDate: number
   if (cutoff !== null) {
     for (let i = allNavSeries.length - 1; i >= 0; i--) {
       if (allNavSeries[i].date <= cutoff) {
@@ -135,13 +144,23 @@ function calcRangeReturn(allNavSeries: NavPoint[], cutoff: number | null): Range
         break
       }
     }
+    if (!startNav) startNav = allNavSeries[0]
   } else {
     startNav = allNavSeries[0]
   }
-  if (!startNav) return empty
-  const days = (endNav.date - startNav.date) / DAY_MS
-  if (startNav.nav <= 0 || days < 1) return empty
-  const ratio = endNav.nav / startNav.nav
+  startDate = startNav.date
+  const days = (endNav.date - startDate) / DAY_MS
+  const startVal = startNav.nav
+  const endVal = endNav.nav
+  if (startVal <= 0 || days < 1) return empty
+  // 累加区间内分红（登记日在 [startDate, endNav.date] 之间）
+  let dividendsInRange = 0
+  for (const d of productDividends) {
+    if (d.registerDate >= startDate && d.registerDate <= endNav.date) {
+      dividendsInRange += d.perShare
+    }
+  }
+  const ratio = (endVal + dividendsInRange) / startVal
   return {
     totalReturn: (ratio - 1) * 100,
     annualReturn: (Math.pow(ratio, 365 / days) - 1) * 100
@@ -161,15 +180,16 @@ const compareData = computed<CompareItem[]>(() => {
     const color = getCompareProductColor(id)
     const allNavSeries = getAllNavSeries(id)
     const navSeries = getProductNavSeries(id, compareDateBounds.value)
+    const dividends = getProductDividendsByProduct(id).map(d => ({ registerDate: d.registerDate, perShare: d.perShare }))
     return {
       product,
       color,
       navSeries,
-      r1m: calcRangeReturn(allNavSeries, now - 30 * DAY_MS),
-      r3m: calcRangeReturn(allNavSeries, now - 90 * DAY_MS),
-      r6m: calcRangeReturn(allNavSeries, now - 180 * DAY_MS),
-      r1y: calcRangeReturn(allNavSeries, now - 365 * DAY_MS),
-      rInception: calcRangeReturn(allNavSeries, null),
+      r1m: calcRangeReturn(allNavSeries, now - 30 * DAY_MS, dividends),
+      r3m: calcRangeReturn(allNavSeries, now - 90 * DAY_MS, dividends),
+      r6m: calcRangeReturn(allNavSeries, now - 180 * DAY_MS, dividends),
+      r1y: calcRangeReturn(allNavSeries, now - 365 * DAY_MS, dividends),
+      rInception: calcRangeReturn(allNavSeries, null, dividends),
       inceptionDays: getCompareInceptionDays(allNavSeries),
       hasData: navSeries.length >= 2
     }
@@ -262,17 +282,18 @@ const updateCompareChart = () => {
   }
   const sortedDates = Array.from(allDatesSet).sort((a, b) => a - b)
 
+  const navField = navMode.value  // 当前口径
   const series = items.map(item => {
     const navMap = new Map<number, number>()
     for (const point of item.navSeries) {
-      navMap.set(point.date, point.nav)
+      navMap.set(point.date, point[navField])
     }
     let firstNav: number
     if (zoomStartValue !== null) {
       const firstInRange = item.navSeries.find(p => p.date >= zoomStartValue!)
-      firstNav = firstInRange ? firstInRange.nav : item.navSeries[0].nav
+      firstNav = firstInRange ? firstInRange[navField] : item.navSeries[0][navField]
     } else {
-      firstNav = item.navSeries[0].nav
+      firstNav = item.navSeries[0][navField]
     }
     let lastNav: number | null = null
 
@@ -337,7 +358,7 @@ const updateCompareChart = () => {
             <span style="flex:1">${p.seriesName}</span>
             <span style="font-weight:600">${normalized.toFixed(2)}</span>
             <span style="color:${changeColor};font-size:11px;margin-left:4px">${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%</span>
-            ${originalNav !== undefined ? `<span style="color:#9ca3af;font-size:11px;margin-left:6px">净值 ${originalNav.toFixed(4)}</span>` : ''}
+            ${originalNav !== undefined ? `<span style="color:#9ca3af;font-size:11px;margin-left:6px">${navMode.value === 'accNav' ? '累计净值' : '净值'} ${originalNav.toFixed(4)}</span>` : ''}
           </div>`
         })
         return result
@@ -450,6 +471,12 @@ const closeComparePanel = () => {
   clearCompare()
 }
 
+const openComparePanel = async () => {
+  // 先拉一次最新数据，确保 navHistory 是后台更新后的完整数据
+  await refresh()
+  showComparePanel.value = true
+}
+
 // 根据当前页面类型选择对应的显示设置
 const pageSettings = computed(() => {
   return props.type === 'equity' ? equitySettings.value : fixedIncomeSettings.value
@@ -486,6 +513,15 @@ const editingProduct = ref<typeof products.value[0] | null>(null)
 const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 const filterStatus = ref<ProductStatus | 'all'>(props.type === 'term_deposit' ? 'holding' : 'holding')
+const filterSubType = ref<string>('all')
+
+// 当前页面适用的子类型选项
+const filteredSubTypeOptions = computed(() => {
+  const currentType = props.type || filterType.value
+  return PRODUCT_SUB_TYPE_OPTIONS.filter(opt =>
+    opt.applicableTypes.includes(currentType as ProductType)
+  )
+})
 
 const filterStatusOptions = computed(() => {
   if (props.type === 'term_deposit') {
@@ -739,6 +775,8 @@ const fixedIncomeAnnualRateMap = computed(() => {
 
   for (const product of products.value) {
     if (product.type !== 'fixed_income' || !product.code) continue
+    // 银行理财无东方财富数据，跳过（其阶段涨幅走内部 nav_history 计算）
+    if (product.subType === 'bank_wm') continue
 
     const navList = getNavHistoryByProductId(product.id)
 
@@ -746,6 +784,7 @@ const fixedIncomeAnnualRateMap = computed(() => {
 
     const latest = navList[navList.length - 1]
     const result: FixedIncomeAnnualRate = {}
+    const dividends = getProductDividendsByProduct(product.id)
 
     const timeRanges: Record<string, number> = {
       '1m': 30,
@@ -767,7 +806,14 @@ const fixedIncomeAnnualRateMap = computed(() => {
       if (navBefore) {
         const actualDays = (latest.date - navBefore.date) / (24 * 60 * 60 * 1000)
         if (actualDays >= 7) {
-          const simpleReturn = latest.nav / navBefore.nav
+          // 用单位净值 + 区间内分红计算收益率
+          let dividendsInRange = 0
+          for (const d of dividends) {
+            if (d.registerDate >= navBefore.date && d.registerDate <= latest.date) {
+              dividendsInRange += d.perShare
+            }
+          }
+          const simpleReturn = (latest.nav + dividendsInRange) / navBefore.nav
           result[key as keyof FixedIncomeAnnualRate] = (Math.pow(simpleReturn, 365 / actualDays) - 1) * 100
         }
       }
@@ -1047,15 +1093,23 @@ const filteredProducts = computed(() => {
   }
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
-    result = result.filter(p => 
-      p.name.toLowerCase().includes(query) || 
-      p.note.toLowerCase().includes(query) ||
-      (p.code && p.code.toLowerCase().includes(query)) ||
-      (p.holder && p.holder.toLowerCase().includes(query))
-    )
+    result = result.filter(p => {
+      // subType 中文标签匹配（如输入"债券"匹配"债券基金"/"债券ETF"）
+      const subTypeLabel = PRODUCT_SUB_TYPE_OPTIONS.find(o => o.value === p.subType)?.label || ''
+      return (
+        p.name.toLowerCase().includes(query) ||
+        p.note.toLowerCase().includes(query) ||
+        (p.code && p.code.toLowerCase().includes(query)) ||
+        (p.holder && p.holder.toLowerCase().includes(query)) ||
+        subTypeLabel.toLowerCase().includes(query)
+      )
+    })
   }
   if (filterStatus.value !== 'all') {
     result = result.filter(p => productStatusMap.value.get(p.id) === filterStatus.value)
+  }
+  if (filterSubType.value !== 'all') {
+    result = result.filter(p => (p.subType || '') === filterSubType.value)
   }
   result.sort((a, b) => {
     const posA = positionMap.value.get(a.id)
@@ -1117,6 +1171,47 @@ const filteredProducts = computed(() => {
     return sortOrder.value === 'asc' ? comparison : -comparison
   })
   return result
+})
+
+// 按 subtype 分组，用于多表格展示
+interface SubTypeGroup {
+  subType: string
+  label: string
+  products: typeof filteredProducts.value
+}
+const subTypeGroups = computed<SubTypeGroup[]>(() => {
+  const groupMap = new Map<string, typeof filteredProducts.value>()
+  for (const p of filteredProducts.value) {
+    const key = p.subType || ''
+    const list = groupMap.get(key)
+    if (list) list.push(p)
+    else groupMap.set(key, [p])
+  }
+  // 按 PRODUCT_SUB_TYPE_OPTIONS 定义的顺序输出
+  const result: SubTypeGroup[] = []
+  for (const opt of PRODUCT_SUB_TYPE_OPTIONS) {
+    // 只有当前页面类型适用的 subtype 才显示
+    if (props.type && !opt.applicableTypes.includes(props.type)) continue
+    const list = groupMap.get(opt.value)
+    if (list && list.length > 0) {
+      result.push({ subType: opt.value, label: opt.label, products: list })
+    }
+  }
+  // 兜底：未匹配到的 subtype 也加进来
+  for (const [key, list] of groupMap) {
+    if (!PRODUCT_SUB_TYPE_OPTIONS.find(o => o.value === key)) {
+      result.push({ subType: key, label: key || '未设置', products: list })
+    }
+  }
+  return result
+})
+
+/** 根据产品类型计算表格总列数，用于分组标题行的 colspan */
+const tableColSpan = computed(() => {
+  if (props.type === 'equity') return 11
+  if (props.type === 'fixed_income') return 12
+  if (props.type === 'term_deposit') return 10
+  return 1
 })
 
 const handleSort = (key: typeof sortKey.value) => {
@@ -1334,7 +1429,7 @@ watch(filterType, (val) => {
 })
 
 // 对比面板 watch - 处理图表初始化和更新
-watch([compareIds, compareRangeType, compareCustomStart, compareCustomEnd, showComparePanel], async () => {
+watch([compareIds, compareRangeType, compareCustomStart, compareCustomEnd, showComparePanel, navMode], async () => {
   await nextTick()
   zoomStartValue = null
   zoomEndValue = null
@@ -1352,11 +1447,11 @@ watch([compareIds, compareRangeType, compareCustomStart, compareCustomEnd, showC
   }
 }, { deep: true })
 
-const handleSubmit = (data: { name: string; type: ProductType; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string; purchaseLimit: string }) => {
+const handleSubmit = (data: { name: string; type: ProductType; subType: string; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string; purchaseLimit: string }) => {
   if (editingProduct.value) {
-    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName, data.purchaseLimit)
+    updateProduct(editingProduct.value.id, data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName, data.purchaseLimit, data.subType as any)
   } else {
-    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName, data.purchaseLimit)
+    addProduct(data.name, data.type, data.note, data.code, data.holder, data.dcaAmount, data.dcaCycle, data.navSource, data.holdingTerm, data.benchmarkEnabled, data.benchmarkFormula, data.interestRate, data.durationMonths, data.minAmount, data.maturityDate, data.interestMethod as any, data.bankName, data.purchaseLimit, data.subType as any)
   }
   showModal.value = false
 }
@@ -1401,7 +1496,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           <!-- 对比按钮 -->
           <button 
             v-if="compareIds.length > 0 && props.type !== 'term_deposit'"
-            @click="showComparePanel = true"
+            @click="openComparePanel"
             class="flex items-center space-x-2 px-4 py-2 text-[13px] rounded-full border border-primary-500 text-primary-500 bg-white hover:bg-primary-50 transition-colors min-h-[36px] whitespace-nowrap"
           >
             <Scale class="w-3.5 h-3.5 hidden sm:block" />
@@ -1621,7 +1716,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </td>
               <td class="px-2 py-2.5 text-apple-secondary text-[12px]">{{ stock.code }}</td>
-              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatCurrency(stock.totalValue) }}</td>
+              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatCurrency1(stock.totalValue) }}</td>
               <td class="px-2 py-2.5 text-right whitespace-nowrap">
                 <span class="apple-tag bg-primary-50 text-primary-500 text-[11px]">
                   {{ stock.ratio.toFixed(2) }}%
@@ -1666,7 +1761,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </td>
               <td class="px-2 py-2.5 text-apple-secondary/50 text-[12px]">—</td>
-              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatCurrency(cat.totalValue) }}</td>
+              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatCurrency1(cat.totalValue) }}</td>
               <td class="px-2 py-2.5 text-right whitespace-nowrap">
                 <span 
                   class="apple-tag text-[11px]"
@@ -1752,7 +1847,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             class="inline-flex items-center px-2 py-1 rounded-md bg-orange-100 text-orange-700 text-[11px] gap-1.5 cursor-pointer hover:bg-orange-200 transition-colors select-none"
           >
             <span class="font-mono">{{ fund.code }}</span>
-            <span class="text-orange-500/70">{{ formatCurrency(fund.marketValue) }}</span>
+            <span class="text-orange-500/70">{{ formatCurrency1(fund.marketValue) }}</span>
           </span>
         </div>
       </div>
@@ -1814,6 +1909,17 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
           {{ option.label }}
         </option>
       </select>
+      <!-- 二级属性筛选（仅固定类型页面或已选择类型时显示） -->
+      <select
+        v-if="filteredSubTypeOptions.length > 2"
+        v-model="filterSubType"
+        class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px] flex-shrink-0 min-w-[110px] touch-target min-h-[44px]"
+      >
+        <option value="all">全部属性</option>
+        <option v-for="option in filteredSubTypeOptions" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
       <!-- 状态按钮组（全部/持有/清仓/自选） -->
       <div class="flex rounded-xl overflow-hidden border border-apple-border/50 bg-white flex-shrink-0">
         <button
@@ -1831,7 +1937,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
     </div>
     
     <!-- 移动端表格布局（固定产品列 + 横向滚动） -->
-    <div v-if="filteredProducts.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
+    <div v-if="subTypeGroups.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
       <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
         <div :class="props.type === 'term_deposit' ? 'min-w-[750px]' : props.type === 'fixed_income' ? 'min-w-[830px]' : 'min-w-[770px]'">
           <table :class="['w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]', { 'term-deposit-table': props.type === 'term_deposit' }]">
@@ -1849,7 +1955,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
                   </div>
                 </th>
-                <th 
+                <th
                   v-if="props.type !== 'term_deposit'"
                   class="px-2 py-2 text-right text-[10px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none whitespace-nowrap relative pr-3"
                   style="width: 58px; min-width: 58px; max-width: 58px;"
@@ -2094,13 +2200,17 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </tr>
             </thead>
             <tbody class="divide-y divide-apple-border/50">
-              <tr 
-                v-for="product in filteredProducts" 
-                :key="product.id" 
-                class="hover:bg-primary-50/30 transition-colors"
-                :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
-                @click="product.type !== 'term_deposit' && openProductDetail(product.id)"
-              >
+              <template v-for="group in subTypeGroups" :key="group.subType">
+                <tr class="bg-gray-50 border-t border-apple-border/30">
+                  <td :colspan="tableColSpan" class="px-2 py-1.5 text-[10px] text-apple-secondary font-medium">{{ group.label }} ({{ group.products.length }})</td>
+                </tr>
+                <tr 
+                  v-for="product in group.products" 
+                  :key="product.id" 
+                  class="hover:bg-primary-50/30 transition-colors"
+                  :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
+                  @click="product.type !== 'term_deposit' && openProductDetail(product.id)"
+                >
                 <td class="sticky bg-white dark:bg-apple-bg px-2 py-2" style="width: 155px; min-width: 155px; max-width: 155px;">
                   <div>
                     <div class="flex items-center gap-1.5">
@@ -2132,12 +2242,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                         <span v-if="product.code" class="text-[10px] font-mono text-apple-secondary shrink-0 inline-flex items-center gap-1">
                           {{ product.code }}
                           <a
-                            v-if="product.type === 'equity'"
+                            v-if="product.subType !== 'bank_wm'"
                             :href="`https://www.morningstar.cn/fund/${product.code}.html`"
                             target="_blank"
                             rel="noopener noreferrer"
                             class="text-primary-500 hover:text-primary-600 opacity-50 hover:opacity-100 transition-opacity"
                             title="查看晨星基金详情"
+                            @click.stop
                           >
                             <ExternalLink class="w-2.5 h-2.5" />
                           </a>
@@ -2185,7 +2296,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </td>
                 <td class="px-2 py-2 text-right whitespace-nowrap" style="width: 80px; min-width: 80px; max-width: 80px;">
                   <template v-if="getPosition(product.id) && pageSettings.showMarketValue">
-                    <p class="text-[12px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }}</p>
+                    <p class="text-[12px] font-semibold text-apple-text">{{ ((getPosition(product.id) as any).marketValue).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }}</p>
                   </template>
                   <template v-else-if="getPosition(product.id) && !pageSettings.showMarketValue">
                     <p class="text-[12px] font-semibold text-apple-secondary">****</p>
@@ -2382,18 +2493,19 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   </div>
                 </td>
               </tr>
+              </template>
             </tbody>
           </table>
         </div>
       </div>
     </div>
-    <div v-else class="md:hidden glass-card p-6 text-center -mx-3 md:mx-0">
+    <div v-if="subTypeGroups.length === 0" class="md:hidden glass-card p-6 text-center -mx-3 md:mx-0">
       <p class="text-apple-text text-[15px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}数据</p>
       <p class="text-apple-secondary text-[12px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
     </div>
-    
+
     <!-- 桌面端表格布局 -->
-    <div class="hidden md:block glass-card overflow-hidden">
+    <div v-if="subTypeGroups.length > 0" class="hidden md:block glass-card overflow-hidden">
       <div class="overflow-x-auto">
         <table :class="['w-full apple-table', { 'term-deposit-table': props.type === 'term_deposit' }]">
           <thead>
@@ -2409,7 +2521,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
-              <th 
+              <th
                 v-if="props.type !== 'term_deposit'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none relative pr-3"
                 @click="handleSort('dailyReturn')"
@@ -2645,17 +2757,38 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
             </tr>
           </thead>
           <tbody class="divide-y divide-apple-border/50">
-            <tr 
-              v-for="product in filteredProducts" 
-              :key="product.id" 
-              class="hover:bg-primary-50/30 transition-colors"
-              :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
-              @click="product.type !== 'term_deposit' && openProductDetail(product.id)"
-            >
+            <template v-for="group in subTypeGroups" :key="group.subType">
+              <tr class="bg-gray-50 border-t border-apple-border/30">
+                <td :colspan="tableColSpan" class="px-2 py-2 text-[11px] text-apple-secondary font-medium">{{ group.label }} ({{ group.products.length }})</td>
+              </tr>
+              <tr 
+                v-for="product in group.products" 
+                :key="product.id" 
+                class="hover:bg-primary-50/30 transition-colors"
+                :class="product.type === 'term_deposit' ? '' : 'cursor-pointer'"
+                @click="product.type !== 'term_deposit' && openProductDetail(product.id)"
+              >
               <td class="px-2 py-3">
                 <div>
                   <div class="flex items-center gap-1.5">
-                    <h3 class="text-[14px] font-semibold text-apple-text truncate sm:truncate-none sm:max-w-none max-w-[140px]">{{ product.name }}</h3>
+                    <div class="product-name-wrapper">
+                      <h3 class="text-[14px] font-semibold text-apple-text truncate sm:truncate-none sm:max-w-none max-w-[140px]">{{ product.name }}</h3>
+                      <!-- 悬停 tooltip：备注 + 业绩基准 -->
+                      <div 
+                        v-if="product.note || (product.benchmarkEnabled && product.benchmarkFormula)"
+                        class="product-hover-tooltip"
+                        @click.stop
+                      >
+                        <div v-if="product.note" class="tooltip-row">
+                          <span class="tooltip-label">备注</span>
+                          <span class="tooltip-value">{{ product.note }}</span>
+                        </div>
+                        <div v-if="product.benchmarkEnabled && product.benchmarkFormula" class="tooltip-row">
+                          <span class="tooltip-label">业绩基准</span>
+                          <span class="tooltip-value">{{ product.benchmarkFormula }}</span>
+                        </div>
+                      </div>
+                    </div>
                     <span 
                       v-if="productStatusMap.get(product.id)"
                       class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium shrink-0"
@@ -2686,12 +2819,13 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                       <span v-if="product.code" class="text-[11px] font-mono text-apple-secondary shrink-0 inline-flex items-center gap-1">
                         代码: {{ product.code }}
                         <a
-                          v-if="product.type === 'equity'"
+                          v-if="product.subType !== 'bank_wm'"
                           :href="`https://www.morningstar.cn/fund/${product.code}.html`"
                           target="_blank"
                           rel="noopener noreferrer"
                           class="text-primary-500 hover:text-primary-600 opacity-50 hover:opacity-100 transition-opacity"
                           title="查看晨星基金详情"
+                          @click.stop
                         >
                           <ExternalLink class="w-3 h-3" />
                         </a>
@@ -2737,7 +2871,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
               </td>
               <td class="px-2 py-3 text-right whitespace-nowrap">
                 <template v-if="getPosition(product.id) && pageSettings.showMarketValue">
-                  <p class="text-[14px] font-semibold text-apple-text">{{ Math.round((getPosition(product.id) as any).marketValue).toLocaleString() }}</p>
+                  <p class="text-[14px] font-semibold text-apple-text">{{ ((getPosition(product.id) as any).marketValue).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }}</p>
                 </template>
                 <template v-else-if="getPosition(product.id) && !pageSettings.showMarketValue">
                   <p class="text-[14px] font-semibold text-apple-secondary">****</p>
@@ -2949,15 +3083,18 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                 </div>
               </td>
             </tr>
+            </template>
           </tbody>
         </table>
       </div>
-      <div v-if="filteredProducts.length === 0" class="p-10 text-center">
+    </div>
+    <div v-if="subTypeGroups.length === 0" class="hidden md:block glass-card overflow-hidden">
+      <div class="p-10 text-center">
         <p class="text-apple-text text-[17px] font-medium">暂无{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}数据</p>
         <p class="text-apple-secondary text-[14px] mt-2">点击上方按钮添加{{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '理财产品' }}</p>
       </div>
     </div>
-    
+
     <ProductModal 
       :visible="showModal"
       :edit-product="editingProduct"
@@ -3043,8 +3180,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                     <table class="w-full apple-table" style="table-layout: fixed;">
                       <thead>
                         <tr>
-                          <th class="px-4 py-2.5 w-[180px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('name')">
-                            <div class="flex items-center justify-center space-x-1"><span>产品</span><component :is="getCompareSortIcon('name')" class="w-4 h-4" :class="compareSortKey === 'name' ? 'text-primary-500' : ''" /></div>
+                          <th class="px-4 py-2.5 w-[180px] whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('name')">
+                            <div class="flex items-center justify-start space-x-1"><span>产品</span><component :is="getCompareSortIcon('name')" class="w-4 h-4" :class="compareSortKey === 'name' ? 'text-primary-500' : ''" /></div>
                           </th>
                           <th class="px-4 py-2.5 w-[80px] whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer select-none" @click="handleCompareSort('r1m')">
                             <div class="flex items-center justify-center space-x-1"><span>近1月</span><component :is="getCompareSortIcon('r1m')" class="w-4 h-4" :class="compareSortKey === 'r1m' ? 'text-primary-500' : ''" /></div>
@@ -3068,8 +3205,8 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                       </thead>
                       <tbody class="divide-y divide-apple-border/50 whitespace-nowrap">
                         <tr v-for="item in sortedCompareData" :key="item.product.id">
-                          <td class="px-4 py-3 w-[180px] text-center">
-                            <div class="flex items-center justify-center space-x-2">
+                          <td class="px-4 py-3 w-[180px] text-left">
+                            <div class="flex items-center justify-start space-x-2">
                               <span class="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" :style="{ backgroundColor: item.color }"></span>
                               <div class="min-w-0 flex-1">
                                 <p class="text-sm text-apple-text font-medium truncate" :title="item.product.name">{{ item.product.name }}</p>
@@ -3103,14 +3240,37 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
 
                 <!-- 净值曲线对比图 -->
                 <div class="glass-card p-4">
-                  <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center justify-between mb-3 gap-2">
                     <div>
                       <h3 class="text-base font-semibold text-apple-text">净值走势对比</h3>
                       <p class="text-xs text-apple-secondary mt-0.5">归一化起点 = 100，支持滚轮缩放与拖动平移</p>
                     </div>
-                    <div class="flex items-center space-x-1 text-xs text-apple-secondary">
-                      <component :is="compareData.length > 0 && (getCompareReturnValue(compareData[0].r1y) ?? 0) >= 0 ? TrendingUp : TrendingDown" class="w-4 h-4" />
-                      <span>{{ compareData.filter(d => d.hasData).length }} 只产品</span>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <!-- 净值口径切换 -->
+                      <div class="inline-flex items-center rounded-full bg-apple-secondary/10 p-0.5">
+                        <button
+                          @click="navMode = 'nav'"
+                          :class="[
+                            'px-2 md:px-2.5 py-0.5 md:py-1 text-[10px] md:text-xs rounded-full transition-all',
+                            navMode === 'nav'
+                              ? 'bg-apple-card shadow-sm text-apple-text font-medium'
+                              : 'text-apple-secondary hover:text-apple-text'
+                          ]"
+                        >单位净值</button>
+                        <button
+                          @click="navMode = 'accNav'"
+                          :class="[
+                            'px-2 md:px-2.5 py-0.5 md:py-1 text-[10px] md:text-xs rounded-full transition-all',
+                            navMode === 'accNav'
+                              ? 'bg-apple-card shadow-sm text-apple-text font-medium'
+                              : 'text-apple-secondary hover:text-apple-text'
+                          ]"
+                        >累计净值</button>
+                      </div>
+                      <div class="flex items-center space-x-1 text-xs text-apple-secondary">
+                        <component :is="compareData.length > 0 && (getCompareReturnValue(compareData[0].r1y) ?? 0) >= 0 ? TrendingUp : TrendingDown" class="w-4 h-4" />
+                        <span>{{ compareData.filter(d => d.hasData).length }} 只产品</span>
+                      </div>
                     </div>
                   </div>
                   <!-- 区间选择器 -->
@@ -3122,7 +3282,7 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
                         :key="opt.value"
                         @click="compareRangeType = opt.value"
                         :class="[
-                          'px-2.5 py-1 text-xs rounded-full transition-all duration-200',
+                          'px-2 md:px-2.5 py-0.5 md:py-1 text-[10px] md:text-xs rounded-full transition-all duration-200',
                           compareRangeType === opt.value
                             ? 'bg-white text-apple-text shadow-sm font-medium'
                             : 'text-apple-secondary hover:text-apple-text'
@@ -3186,5 +3346,86 @@ const handleSubmit = (data: { name: string; type: ProductType; note: string; cod
 .term-deposit-table td {
   padding-left: 0.75rem !important;
   padding-right: 0.75rem !important;
+}
+
+/* 产品名称悬停 tooltip */
+.product-name-wrapper {
+  position: relative;
+  display: inline-flex;
+  max-width: 200px;
+}
+
+.product-hover-tooltip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  z-index: 100;
+  min-width: 180px;
+  max-width: 320px;
+  padding: 11px 15px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border-radius: 12px;
+  border: 0.5px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 10px 24px rgba(0, 0, 0, 0.1),
+    0 24px 48px rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s;
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #1d1d1f;
+}
+
+/* 小三角指示器 */
+.product-hover-tooltip::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  border-radius: 2px;
+  border-left: 0.5px solid rgba(0, 0, 0, 0.06);
+  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+}
+
+.product-name-wrapper:hover .product-hover-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) translateX(0);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
+  pointer-events: auto;
+}
+
+.tooltip-row {
+  margin-bottom: 6px;
+}
+.tooltip-row:last-child {
+  margin-bottom: 0;
+}
+
+.tooltip-label {
+  display: block;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+  margin-bottom: 2px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tooltip-value {
+  display: block;
+  word-break: break-all;
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 </style>

@@ -2,6 +2,7 @@ export interface Product {
   id: string
   name: string
   type: ProductType
+  subType?: ProductSubType
   code: string
   note: string
   // 限购属性：单日上限 / 暂停申购 / 不限购 等，独立于备注 note
@@ -34,6 +35,18 @@ export interface BenchmarkPoint {
 }
 
 export type ProductType = 'equity' | 'fixed_income'  | 'term_deposit'
+
+// 产品二级属性
+export type ProductSubType = '' | 'qdii_fund' | 'bond_fund' | 'bond_etf' | 'bank_wm' | 'other'
+
+export const PRODUCT_SUB_TYPE_OPTIONS: { value: ProductSubType; label: string; applicableTypes: ProductType[] }[] = [
+  { value: '', label: '未设置', applicableTypes: ['equity', 'fixed_income', 'term_deposit'] },
+  { value: 'qdii_fund', label: 'QDII基金', applicableTypes: ['equity', 'fixed_income'] },
+  { value: 'bond_fund', label: '债券基金', applicableTypes: ['fixed_income'] },
+  { value: 'bond_etf', label: '债券ETF', applicableTypes: ['fixed_income'] },
+  { value: 'bank_wm', label: '银行理财', applicableTypes: ['fixed_income'] },
+  { value: 'other', label: '其他', applicableTypes: ['equity', 'fixed_income', 'term_deposit'] }
+]
 
 export type ProductStatus = 'holding' | 'closed' | 'watchlist' | 'matured'
 
@@ -69,6 +82,7 @@ export interface NavHistory {
   code: string          // 产品代码（全局唯一维度）
   date: number          // 净值日期（零点时间戳）
   nav: number           // 单位净值
+  accNav?: number       // 累计净值（包含分红再投资）
   note: string          // 更新说明
   createdAt: number     // 记录创建时间
 }
