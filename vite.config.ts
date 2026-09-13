@@ -93,6 +93,11 @@ export default defineConfig({
         changeOrigin: true,
         timeout: 600000
       },
+      '/api/index': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        timeout: 600000
+      },
       // 通用后端代理：/api/products, /api/transactions, /api/nav-history, /api/transactions/add, /api/batch-import 等
       // 放在更具体的 /api/* 代理之后，匹配不到的 /api/* 请求都转到 db-server (3002)
       '/api/products': {

@@ -131,6 +131,7 @@ export interface Position {
   profitRate: number
   annualRate: number
   holdingDays: number
+  lastSellDate?: number
   lastNavUpdateDate: number
   transactions: Transaction[]
 }

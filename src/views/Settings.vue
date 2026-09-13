@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Download, Upload, Trash2, FileText, AlertCircle, Clock, Play, Table, PieChart } from 'lucide-vue-next'
-import { exportData, importData, clearAllData, logout, getCurrentUser } from '@/utils/storage'
+import { Download, Upload, Trash2, AlertCircle, Clock, Play, Database, RefreshCw } from 'lucide-vue-next'
+import { exportData, importData, clearAllData } from '@/utils/storage'
 import { useFinance } from '@/composables/useFinance'
 import { exportToExcel } from '@/utils/excel'
+import { INDEX_DEFINITIONS } from '@/utils/indexApi'
 
 const importFile = ref<HTMLInputElement | null>(null)
 const showResetConfirm = ref(false)
@@ -14,6 +15,11 @@ const messageType = ref<'success' | 'error'>('success')
 const schedulerStatus = ref<any>(null)
 const loadingScheduler = ref(false)
 const manualRunning = ref(false)
+
+// 业绩基准数据状态
+const indexStatus = ref<any[]>([])
+const loadingIndex = ref(false)
+const refreshRunning = ref(false)
 
 const { products, transactions, calculatePosition, refresh } = useFinance()
 
@@ -83,8 +89,72 @@ const handleToggleScheduler = async () => {
   }
 }
 
+// 获取业绩基准数据状态
+const fetchIndexStatus = async () => {
+  loadingIndex.value = true
+  try {
+    const res = await fetch('/api/index/status')
+    const data = await res.json()
+    if (data.success) {
+      // 把 code 映射到名称，按 INDEX_DEFINITIONS 顺序 + DB 里存在的 code 合并排序
+      const nameMap = Object.fromEntries(INDEX_DEFINITIONS.map(d => [d.code, d]))
+      const enriched = (data.data || []).map((r: any) => ({
+        ...r,
+        name: nameMap[r.code]?.name || r.code,
+        shortName: nameMap[r.code]?.shortName || r.code,
+      }))
+      // 排序：先按 INDEX_DEFINITIONS 里的顺序，再把不在里面的放后面
+      const defOrder = new Map(INDEX_DEFINITIONS.map((d, i) => [d.code, i]))
+      enriched.sort((a: any, b: any) => {
+        const ai = (defOrder.get(a.code) ?? 999) as number
+        const bi = (defOrder.get(b.code) ?? 999) as number
+        return ai - bi
+      })
+      indexStatus.value = enriched
+    }
+  } catch {
+    indexStatus.value = []
+  } finally {
+    loadingIndex.value = false
+  }
+}
+
+// 手动刷新业绩基准数据
+const handleRefreshIndex = async () => {
+  refreshRunning.value = true
+  try {
+    const res = await fetch('/api/index/refresh', { method: 'POST' })
+    const data = await res.json()
+    if (data.success) {
+      const s = data.summary
+      showMessage(`基准数据刷新完成: 成功 ${s.success}, 失败 ${s.failed}`, s.failed > 0 ? 'error' : 'success')
+    } else {
+      showMessage('刷新失败: ' + (data.error || '未知错误'), 'error')
+    }
+    await fetchIndexStatus()
+  } catch (e: any) {
+    showMessage('请求失败: ' + e.message, 'error')
+  } finally {
+    refreshRunning.value = false
+  }
+}
+
+// 数据源标签
+const sourceLabel = (source: string) => {
+  const map: Record<string, string> = { chinabond: '中国债券信息网', csindex: '中证指数官网', tencent: '腾讯' }
+  return map[source] || source || '-'
+}
+
+// 格式化更新时间
+const formatUpdatedAt = (ts: number | null) => {
+  if (!ts) return '-'
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 onMounted(() => {
   fetchSchedulerStatus()
+  fetchIndexStatus()
 })
 
 const handleExport = async () => {
@@ -175,57 +245,36 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
           <Download class="w-5 h-5 text-white" />
         </div>
         <div class="flex-1">
-          <h3 class="text-[15px] font-semibold text-apple-text">导出数据</h3>
-          <p class="text-[13px] text-apple-secondary mt-1">将所有数据导出为JSON文件，方便备份或迁移到其他设备</p>
+          <h3 class="text-[15px] font-semibold text-apple-text">数据备份与迁移</h3>
+          <p class="text-[13px] text-apple-secondary mt-1">导出/导入数据，支持 JSON 备份和 Excel 报表</p>
         </div>
-        <button 
-          @click="handleExport"
-          class="apple-btn-primary px-5 py-2 text-[13px]"
-        >
-          导出
-        </button>
       </div>
-    </div>
-    
-    <div class="glass-card p-6">
-      <div class="flex items-start space-x-4">
-        <div class="w-11 h-11 bg-loss rounded-xl flex items-center justify-center flex-shrink-0">
-          <Table class="w-5 h-5 text-white" />
+      <div class="mt-4 space-y-2">
+        <div class="flex items-center justify-between py-2 px-3 rounded-apple bg-black/[0.025] dark:bg-white/[0.04]">
+          <div>
+            <p class="text-[13px] font-medium text-apple-text">导出为 JSON</p>
+            <p class="text-[11px] text-apple-secondary mt-0.5">完整备份，可迁移到其他设备</p>
+          </div>
+          <button @click="handleExport" class="apple-btn-primary px-4 py-1.5 text-[12px]">导出</button>
         </div>
-        <div class="flex-1">
-          <h3 class="text-[15px] font-semibold text-apple-text">导出投资明细Excel</h3>
-          <p class="text-[13px] text-apple-secondary mt-1">将投资产品汇总、交易明细和投资汇总导出为Excel表格</p>
+        <div class="flex items-center justify-between py-2 px-3 rounded-apple bg-black/[0.025] dark:bg-white/[0.04]">
+          <div>
+            <p class="text-[13px] font-medium text-apple-text">导出投资明细 Excel</p>
+            <p class="text-[11px] text-apple-secondary mt-0.5">产品汇总、交易明细、投资汇总</p>
+          </div>
+          <button @click="handleExportExcel" class="apple-btn-primary px-4 py-1.5 text-[12px]">导出Excel</button>
         </div>
-        <button 
-          @click="handleExportExcel"
-          class="apple-btn-primary px-5 py-2 text-[13px]"
-        >
-          导出Excel
-        </button>
-      </div>
-    </div>
-    
-    <div class="glass-card p-6">
-      <div class="flex items-start space-x-4">
-        <div class="w-11 h-11 bg-amber-500 rounded-xl flex items-center justify-center flex-shrink-0">
-          <Upload class="w-5 h-5 text-white" />
+        <div class="flex items-center justify-between py-2 px-3 rounded-apple bg-black/[0.025] dark:bg-white/[0.04]">
+          <div>
+            <p class="text-[13px] font-medium text-apple-text">导入 JSON 数据</p>
+            <p class="text-[11px] text-apple-secondary mt-0.5">从之前导出的备份文件恢复</p>
+          </div>
+          <input ref="importFile" type="file" accept=".json" @change="handleFileImport" class="hidden" id="import-file" />
+          <label for="import-file" class="inline-flex items-center space-x-1.5 px-4 py-1.5 glass-btn rounded-full cursor-pointer text-[12px] font-medium">
+            <Upload class="w-3.5 h-3.5 text-apple-secondary" />
+            <span>选择文件</span>
+          </label>
         </div>
-        <div class="flex-1">
-          <h3 class="text-[15px] font-semibold text-apple-text">导入数据</h3>
-          <p class="text-[13px] text-apple-secondary mt-1">从JSON文件导入理财数据</p>
-        </div>
-        <input 
-          ref="importFile"
-          type="file" 
-          accept=".json"
-          @change="handleFileImport"
-          class="hidden"
-          id="import-file"
-        />
-        <label for="import-file" class="inline-flex items-center space-x-2 px-4 py-2 glass-btn rounded-full cursor-pointer text-[13px] font-medium">
-          <FileText class="w-4 h-4 text-apple-secondary" />
-          <span>选择JSON文件</span>
-        </label>
       </div>
     </div>
     
@@ -269,6 +318,57 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         </button>
       </div>
     </div>
+
+    <!-- 业绩基准数据状态 -->
+    <div class="glass-card p-6">
+      <div class="flex items-start space-x-4">
+        <div class="w-11 h-11 bg-indigo-500 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Database class="w-5 h-5 text-white" />
+        </div>
+        <div class="flex-1">
+          <h3 class="text-[15px] font-semibold text-apple-text">业绩基准数据</h3>
+          <p class="text-[13px] text-apple-secondary mt-1">持久化存储的指数行情，用于产品业绩基准对比</p>
+        </div>
+        <button
+          @click="handleRefreshIndex"
+          :disabled="refreshRunning"
+          class="apple-btn-primary flex items-center space-x-2 px-4 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshRunning }" />
+          <span>{{ refreshRunning ? '刷新中...' : '刷新' }}</span>
+        </button>
+      </div>
+
+      <div v-if="loadingIndex" class="mt-4 text-[13px] text-apple-secondary">加载中...</div>
+      <div v-else-if="indexStatus.length === 0" class="mt-4 text-[13px] text-apple-secondary">暂无基准数据</div>
+      <div v-else class="mt-4 space-y-2.5">
+        <div
+          v-for="item in indexStatus"
+          :key="item.code"
+          class="flex items-center py-2 px-3 rounded-apple bg-black/[0.025] dark:bg-white/[0.04]"
+        >
+          <!-- 左侧：名称 + 代码 -->
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center space-x-2">
+              <span class="text-[13px] font-medium text-apple-text truncate">{{ item.name }}</span>
+              <span class="text-[11px] text-apple-secondary font-mono bg-black/[0.05] dark:bg-white/[0.06] px-1.5 py-0.5 rounded">{{ item.code }}</span>
+            </div>
+            <div class="flex items-center space-x-3 mt-1 text-[11px] text-apple-secondary">
+              <span>{{ sourceLabel(item.source) }}</span>
+              <span>·</span>
+              <span>{{ item.count?.toLocaleString() || 0 }} 条</span>
+            </div>
+          </div>
+          <!-- 右侧：日期范围 + 更新时间 -->
+          <div class="text-right flex-shrink-0 ml-3">
+            <div class="text-[12px] text-apple-text font-medium">
+              {{ item.startDate || '-' }} ~ {{ item.endDate || '-' }}
+            </div>
+            <div class="text-[11px] text-apple-secondary mt-0.5">更新 {{ formatUpdatedAt(item.updatedAt) }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
     
     <div class="glass-card p-6">
       <div class="flex items-start space-x-4">
@@ -285,59 +385,6 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
         >
           重置
         </button>
-      </div>
-    </div>
-    
-    
-    
-    <div class="glass-card p-6">
-      <div class="flex items-start space-x-4">
-        <div class="w-11 h-11 bg-apple-text rounded-xl flex items-center justify-center flex-shrink-0">
-          <span class="text-white text-[14px] font-semibold">
-            {{ (getCurrentUser().username || '?').charAt(0).toUpperCase() }}
-          </span>
-        </div>
-        <div class="flex-1">
-          <h3 class="text-[15px] font-semibold text-apple-text">账户信息</h3>
-          <p class="text-[13px] text-apple-secondary mt-1">当前登录用户: {{ getCurrentUser().username }}</p>
-        </div>
-        <button 
-          @click="logout"
-          class="px-4 py-2 glass-btn text-apple-text rounded-full text-[13px] font-medium"
-        >
-          退出登录
-        </button>
-      </div>
-    </div>
-    
-    <div class="glass-card p-6">
-      <div class="flex items-start space-x-4">
-        <div class="w-11 h-11 bg-purple-500 rounded-xl flex items-center justify-center flex-shrink-0">
-          <PieChart class="w-5 h-5 text-white" />
-        </div>
-        <div class="flex-1">
-          <h3 class="text-[15px] font-semibold text-apple-text">盈亏计算说明</h3>
-          <p class="text-[13px] text-apple-secondary mt-1">清仓与自选产品在各项统计中的参与情况</p>
-        </div>
-      </div>
-      <div class="mt-4 space-y-3 text-[13px] text-apple-secondary">
-        <div>
-          <p class="font-medium text-apple-text mb-1">概览页面（Dashboard）</p>
-          <ul class="space-y-1 pl-4 list-disc">
-            <li>仅统计持有中的产品（份额 > 0.01）</li>
-            <li>清仓产品的历史盈亏不计入总盈亏和盈亏率</li>
-            <li>自选产品不参与任何计算</li>
-          </ul>
-        </div>
-        <div>
-          <p class="font-medium text-apple-text mb-1">产品列表页</p>
-          <ul class="space-y-1 pl-4 list-disc">
-            <li>总市值：仅包含持有中的产品</li>
-            <li>总盈亏、盈亏率：包含所有有交易记录的产品（含清仓）</li>
-            <li>XIRR 年化收益率：包含所有有交易记录的产品（含清仓）</li>
-            <li>自选产品不参与任何计算</li>
-          </ul>
-        </div>
       </div>
     </div>
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { ArrowLeft, Plus, Edit, TrendingUp, TrendingDown, RefreshCw, Calendar, History, ExternalLink } from 'lucide-vue-next'
+import { ArrowLeft, Plus, Edit, Trash2, TrendingUp, TrendingDown, RefreshCw, Calendar, History, ExternalLink } from 'lucide-vue-next'
 import ProductModal from '@/components/ProductModal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
@@ -19,7 +19,7 @@ echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendCompone
 
 const route = useRoute()
 const router = useRouter()
-const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, updateProduct, updateProductPurchaseLimit, PRODUCT_TYPE_OPTIONS, refresh, getNavHistoryByProductId, getProductDividendsByProduct } = useFinance()
+const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, deleteProduct, updateProduct, updateProductPurchaseLimit, PRODUCT_TYPE_OPTIONS, refresh, getNavHistoryByProductId, getProductDividendsByProduct } = useFinance()
 
 const fetchingNav = ref(false)
 const fetchingNavHistory = ref(false)
@@ -36,6 +36,13 @@ const editingProduct = ref<typeof product.value | null>(null)
 const handleEdit = () => {
   editingProduct.value = product.value
   showProductModal.value = true
+}
+
+const handleDelete = () => {
+  if (confirm('确定要删除这个产品吗？相关的交易记录也会被删除。')) {
+    deleteProduct(product.value!.id)
+    router.push('/products')
+  }
 }
 
 const handleSubmit = (data: { name: string; type: string; subType: string; note: string; code: string; holder: string; dcaAmount: number; dcaCycle: string; navSource: string; holdingTerm: string; benchmarkEnabled: boolean; benchmarkFormula: string; interestRate: number; durationMonths: number; minAmount: number; maturityDate: string; interestMethod: string; bankName: string; purchaseLimit: string }) => {
@@ -976,7 +983,7 @@ const updateChart = () => {
   const navField = navMode.value === 'accNav' ? 'accNav' : 'nav'
   const navValues = navData.map(t => t[navField] as number)
   // 包含比较基准值在 Y 轴范围内
-  const benchmarkSeriesData = getBenchmarkSeriesData(navData)
+  const benchmarkSeriesData = getBenchmarkSeriesData(navData, 0, navField)
   const benchmarkValues = benchmarkSeriesData.filter((v): v is number => v !== null)
   const allValues = benchmarkValues.length > 0
     ? [...navValues, ...benchmarkValues]
@@ -1402,7 +1409,7 @@ const initChart = () => {
     const hasBenchmark = benchmarkData.value.length > 0
     let newBenchmarkData: (number | null)[] = []
     if (hasBenchmark) {
-      newBenchmarkData = getBenchmarkSeriesData(navData, startIdx)
+      newBenchmarkData = getBenchmarkSeriesData(navData, startIdx, nzf)
       // 只取可见区间内的基准值
       const benchVals = newBenchmarkData
         .slice(startIdx, endIdx + 1)
@@ -1528,7 +1535,7 @@ const benchmarkValueMap = computed(() => {
 
 // 将基准数据对齐到净值日期序列（前向填充），并按指定起点重归一化
 // startIdx: 重归一化的起始索引，默认0（区间起点）
-function getBenchmarkSeriesData(navData: { date: string; nav: number }[], startIdx: number = 0): (number | null)[] {
+function getBenchmarkSeriesData(navData: { date: string; nav: number; accNav?: number }[], startIdx: number = 0, navField: 'nav' | 'accNav' = 'nav'): (number | null)[] {
   if (benchmarkData.value.length === 0 || navData.length === 0) return []
   const map = benchmarkValueMap.value
   let lastVal: number | null = null
@@ -1550,7 +1557,8 @@ function getBenchmarkSeriesData(navData: { date: string; nav: number }[], startI
     }
   }
   if (ratioBase === null || ratioBase === 0) return []
-  const startNav = navData[startIdx].nav
+  // 使用当前口径（单位净值/累计净值）的起点做归一化
+  const startNav = navData[startIdx][navField] ?? navData[startIdx].nav
   return aligned.map(v =>
     v === null ? null : parseFloat((startNav * (v / ratioBase)).toFixed(4))
   )
@@ -1629,13 +1637,22 @@ onUnmounted(() => {
         <div class="flex-1 min-w-0">
           <div class="grid grid-cols-[1fr_auto] gap-3 items-center min-w-0">
             <h2 class="text-xl font-semibold text-apple-text" style="overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;max-width:calc(100vw - 100px)!important">{{ product.name }}</h2>
-            <button
-              @click.stop="handleEdit"
-              class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors flex-shrink-0"
-              title="编辑产品"
-            >
-              <Edit class="w-4 h-4" />
-            </button>
+            <div class="flex items-center space-x-1 flex-shrink-0">
+              <button
+                @click.stop="handleEdit"
+                class="p-1.5 text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors"
+                title="编辑产品"
+              >
+                <Edit class="w-4 h-4" />
+              </button>
+              <button
+                @click.stop="handleDelete"
+                class="p-1.5 text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-lg transition-colors"
+                title="删除产品"
+              >
+                <Trash2 class="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <div class="flex items-center space-x-2 mt-1 flex-wrap">
             <span class="apple-tag" :style="{ color: getProductTypeColor(product.type) }">

@@ -90,6 +90,8 @@ const summaryByType = computed(() => {
     const totalProfit = group.positions.reduce((sum, p) => sum + p.profit, 0)
     const totalDailyProfit = group.positions.reduce((sum, p) => sum + calcDailyProfitForPosition(p), 0)
     const totalProfitRate = totalInvestment > 0 ? (totalProfit / totalInvestment) * 100 : 0
+    const prevTotalAssets = totalAssets - totalDailyProfit
+    const dailyProfitRate = prevTotalAssets > 0 ? (totalDailyProfit / prevTotalAssets) * 100 : 0
     
     // 使用 XIRR 计算该类型所有产品的综合年化收益率
     const productIds = new Set(group.positions.map(p => p.product.id))
@@ -112,6 +114,7 @@ const summaryByType = computed(() => {
       totalProfit,
       totalDailyProfit,
       totalProfitRate,
+      dailyProfitRate,
       annualRate
     }
   })
@@ -604,9 +607,14 @@ onUnmounted(() => {
         </div>
         <div class="glass-card p-4">
           <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
-          <p class="text-[22px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-            {{ getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? '+' : '') + group.totalProfitRate.toFixed(2) + '%' : '****' }}
-          </p>
+          <div class="flex items-end justify-between">
+            <p class="text-[22px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+              {{ getSettingsByType(group.type).value.showProfitRate ? (group.totalProfitRate >= 0 ? '+' : '') + group.totalProfitRate.toFixed(2) + '%' : '****' }}
+            </p>
+            <p v-if="getSettingsByType(group.type).value.showProfitRate" class="text-[12px] ml-2 whitespace-nowrap" :class="group.dailyProfitRate >= 0 ? 'text-profit' : 'text-loss'">
+              {{ group.dailyProfitRate >= 0 ? '+' : '' }}{{ group.dailyProfitRate.toFixed(2) }}% 今日
+            </p>
+          </div>
         </div>
         <div class="glass-card p-4">
           <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>

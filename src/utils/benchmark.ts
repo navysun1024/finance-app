@@ -23,8 +23,8 @@ export function parseBenchmarkFormula(formula: string): BenchmarkComponent[] {
   const parts = formula.split('+').map(p => p.trim()).filter(Boolean)
 
   for (const part of parts) {
-    // 匹配 "60%*H11001" 或 "60%*000905" 或 "0.6*H11001"
-    const match = part.match(/^([\d.]+)%?\s*\*\s*([A-Za-z]?\d{5,6})$/)
+    // 匹配 "60%*H11001" 或 "60%*000905" 或 "0.6*CBA00221"（字母前缀支持 0~3 位，如 H/CBA）
+    const match = part.match(/^([\d.]+)%?\s*\*\s*([A-Za-z]{0,3}\d{5,6})$/)
     if (!match) {
       logger.warn(`公式片段解析失败: ${part}`)
       continue

@@ -11,10 +11,14 @@ export interface IndexDefinition {
 
 export const INDEX_DEFINITIONS: IndexDefinition[] = [
   { code: 'H11001', name: '中证全债指数', shortName: '中证全债' },
+  { code: 'CBA00111', name: '中债-新综合财富(1年以下)指数', shortName: '中债新综合1年以下' },
+  { code: 'CBA00221', name: '中债-新综合财富(1-3年)指数', shortName: '中债新综合1-3年' },
+  { code: '000300', name: '沪深300指数', shortName: '沪深300' },
   { code: '000905', name: '中证500指数', shortName: '中证500' },
   { code: '000906', name: '中证800指数', shortName: '中证800' },
-  { code: '000300', name: '沪深300指数', shortName: '沪深300' },
+  { code: '000922', name: '中证红利指数', shortName: '中证红利' },
   { code: '000923', name: '公司债指数', shortName: '公司债' },
+  { code: '000832', name: '中证可转换债券指数', shortName: '中证转债' },
 ]
 
 export const INDEX_NAME_MAP: Record<string, string> = Object.fromEntries(

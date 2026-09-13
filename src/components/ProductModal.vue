@@ -196,27 +196,29 @@ const handleSubmit = () => {
               class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
             />
           </div>
-          <div v-if="!props.defaultType">
-            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">产品类型</label>
-            <select 
-              v-model="type"
-              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
-            >
-              <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">二级属性</label>
-            <select 
-              v-model="subType"
-              class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
-            >
-              <option v-for="option in availableSubTypes" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+          <div class="flex space-x-4">
+            <div v-if="!props.defaultType" class="flex-1">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">产品类型</label>
+              <select 
+                v-model="type"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              >
+                <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
+            <div class="flex-1" :class="{ 'w-full': props.defaultType }">
+              <label class="block text-[11px] font-medium text-apple-secondary uppercase tracking-wider mb-2">二级属性</label>
+              <select 
+                v-model="subType"
+                class="glass-input w-full px-4 py-2.5 rounded-xl outline-none"
+              >
+                <option v-for="option in availableSubTypes" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
           </div>
           <div v-if="type !== 'term_deposit'" class="flex space-x-4">
             <div class="flex-1">

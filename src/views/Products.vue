@@ -13,15 +13,15 @@ import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, 
 import { addNavHistoryRecord } from '@/utils/storage'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, CanvasRenderer])
 
 const props = defineProps<{
   type?: ProductType
 }>()
 
-const { products, addProduct, updateProduct, deleteProduct, calculatePosition, getNavHistoryByProductId, getProductDividendsByProduct, PRODUCT_TYPE_OPTIONS, transactions, equitySettings, fixedIncomeSettings, saveDisplaySettings, refresh } = useFinance()
+const { products, addProduct, updateProduct, calculatePosition, getNavHistoryByProductId, getProductDividendsByProduct, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, equitySettings, fixedIncomeSettings, saveDisplaySettings, refresh } = useFinance()
 
 const { toggleCompare, isInCompare, compareType, compareIds, switchType, clearCompare } = useCompare()
 
@@ -310,6 +310,33 @@ const updateCompareChart = () => {
       }
     }
 
+    // 构建买入/卖出标记点
+    const buySellTxs = getTransactionsByProductId(item.product.id).filter(
+      t => t.type === 'buy' || t.type === 'sell'
+    )
+    const markPointData = buySellTxs
+      .map(tx => {
+        const txDate = getDateOnly(tx.date)
+        const nav = navMap.get(txDate)
+        if (nav === undefined) return null
+        const normalized = (nav / firstNav) * 100
+        const isBuy = tx.type === 'buy'
+        return {
+          name: isBuy ? '买入' : '卖出',
+          coord: [txDate, parseFloat(normalized.toFixed(4))] as [number, number],
+          value: isBuy ? '买' : '卖',
+          symbol: 'circle',
+          symbolSize: 7,
+          itemStyle: {
+            color: isBuy ? '#b91c1c' : '#22c55e',
+            borderColor: '#fff',
+            borderWidth: 1.5
+          },
+          label: { show: false }
+        }
+      })
+      .filter(Boolean)
+
     return {
       name: item.product.name,
       type: 'line',
@@ -320,7 +347,19 @@ const updateCompareChart = () => {
       symbolSize: 6,
       lineStyle: { color: item.color, width: 2 },
       itemStyle: { color: item.color },
-      emphasis: { focus: 'series' }
+      emphasis: { focus: 'series' },
+      markPoint: markPointData.length > 0 ? {
+        data: markPointData,
+        symbolKeepAspect: true,
+        tooltip: {
+          formatter: (params: any) => {
+            const d = params.data
+            return `<div style="font-weight:600;margin-bottom:2px">${params.seriesName}</div>
+              <div style="color:${d.itemStyle?.color || '#333'}">${d.name} · ${d.value}</div>
+              <div style="color:#9ca3af;font-size:11px">${new Date(d.coord[0]).toLocaleDateString('zh-CN')}</div>`
+          }
+        }
+      } : undefined
     }
   })
 
@@ -774,10 +813,8 @@ const fixedIncomeAnnualRateMap = computed(() => {
   if (props.type !== 'fixed_income') return map
 
   for (const product of products.value) {
-    if (product.type !== 'fixed_income' || !product.code) continue
-    // 银行理财无东方财富数据，跳过（其阶段涨幅走内部 nav_history 计算）
-    if (product.subType === 'bank_wm') continue
-
+    if (product.type !== 'fixed_income') continue
+    // 需要 nav_history 数据（债券基金走天天基金，银行理财走 icbc/cmb，都存入 nav_history）
     const navList = getNavHistoryByProductId(product.id)
 
     if (navList.length < 2) continue
@@ -1011,6 +1048,8 @@ const summaryStats = computed(() => {
     const dailyProfit = getRowData(product).dailyProfit
     return sum + (dailyProfit ?? 0)
   }, 0)
+  const prevTotalAssets = totalMarketValue - totalDailyProfit
+  const dailyProfitRate = prevTotalAssets > 0 ? (totalDailyProfit / prevTotalAssets) * 100 : 0
   
   // 计算加权平均年化收益率（按市值加权）
   let weightedAnnualRate = 0
@@ -1043,6 +1082,7 @@ const summaryStats = computed(() => {
     totalCost,
     totalProfit,
     totalDailyProfit,
+    dailyProfitRate,
     profitRate,
     annualRate,
     portfolioAnnualRate
@@ -1325,6 +1365,11 @@ const getFixedIncomeRemainingDays = (product: any, position: any): number | null
 }
 
 // 格式化存款期限：超过1年显示年
+const formatShortDate = (ts: number): string => {
+  const d = new Date(ts)
+  return `${String(d.getFullYear()).slice(2)}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+}
+
 const formatDuration = (durationMonths: number): string => {
   if (!durationMonths || durationMonths <= 0) return '-'
   if (durationMonths >= 12) {
@@ -1375,12 +1420,6 @@ const handleAdd = () => {
 const handleEdit = (product: typeof products.value[0]) => {
   editingProduct.value = product
   showModal.value = true
-}
-
-const handleDelete = (id: string) => {
-  if (confirm('确定要删除这个产品吗？相关的交易记录也会被删除。')) {
-    deleteProduct(id)
-  }
 }
 
 let isRestoringFromQuery = false
@@ -1578,9 +1617,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
       </div>
       <div class="glass-card p-4">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益率</p>
-        <p class="text-[22px] font-semibold tracking-tight" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-          {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
-        </p>
+        <div class="flex items-end justify-between">
+          <p class="text-[22px] font-semibold tracking-tight" :class="pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
+            {{ pageSettings.showProfitRate ? (summaryStats.profitRate >= 0 ? '+' : '') + summaryStats.profitRate.toFixed(2) + '%' : '****' }}
+          </p>
+          <p v-if="pageSettings.showProfitRate" class="text-[12px] ml-2 whitespace-nowrap" :class="summaryStats.dailyProfitRate >= 0 ? 'text-profit' : 'text-loss'">
+            {{ summaryStats.dailyProfitRate >= 0 ? '+' : '' }}{{ summaryStats.dailyProfitRate.toFixed(2) }}% 今日
+          </p>
+        </div>
       </div>
       <div class="glass-card p-4">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">年化收益率</p>
@@ -2358,7 +2402,13 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                   <template v-if="getPosition(product.id)">
                     <p class="text-[12px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }}天</p>
                     <p 
-                      v-if="product.type === 'fixed_income' && getFixedIncomeRemainingDays(product, getPosition(product.id)) !== null" 
+                      v-if="(getPosition(product.id) as any).totalShares === 0 && (getPosition(product.id) as any).lastSellDate > 0" 
+                      class="text-[9px] text-apple-secondary mt-0.5"
+                    >
+                      清{{ formatShortDate((getPosition(product.id) as any).lastSellDate) }}
+                    </p>
+                    <p 
+                      v-else-if="product.type === 'fixed_income' && getFixedIncomeRemainingDays(product, getPosition(product.id)) !== null" 
                       class="text-[9px] text-apple-secondary mt-0.5"
                     >
                       剩{{ getFixedIncomeRemainingDays(product, getPosition(product.id)) }}天
@@ -2940,7 +2990,13 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                 <template v-if="getPosition(product.id)">
                   <p class="text-[14px] font-semibold text-apple-text">{{ (getPosition(product.id) as any).holdingDays }} 天</p>
                   <p 
-                    v-if="product.type === 'fixed_income' && getFixedIncomeRemainingDays(product, getPosition(product.id)) !== null" 
+                    v-if="(getPosition(product.id) as any).totalShares === 0 && (getPosition(product.id) as any).lastSellDate > 0" 
+                    class="text-[10px] text-apple-secondary mt-0.5"
+                  >
+                    清仓 {{ formatShortDate((getPosition(product.id) as any).lastSellDate) }}
+                  </p>
+                  <p 
+                    v-else-if="product.type === 'fixed_income' && getFixedIncomeRemainingDays(product, getPosition(product.id)) !== null" 
                     class="text-[10px] text-apple-secondary mt-0.5"
                   >
                     剩余{{ getFixedIncomeRemainingDays(product, getPosition(product.id)) }}天
@@ -3073,12 +3129,6 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                     class="w-7 h-7 flex items-center justify-center text-apple-secondary hover:text-primary-500 hover:bg-primary-50 rounded-md transition-colors"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                  </button>
-                  <button
-                    @click="handleDelete(product.id)"
-                    class="w-7 h-7 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/5 rounded-md transition-colors"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                   </button>
                 </div>
               </td>

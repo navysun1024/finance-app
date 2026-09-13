@@ -14,7 +14,11 @@ RUN sed -i "s/dl-cdn.alpinelinux.org/${ALPINE_MIRROR}/g" /etc/apk/repositories \
     && apk add --no-cache python3 make g++
 
 # 配置 npm 镜像 + 构建环境变量
+# sqlite3 的 prebuild-install 不走 npm registry，需要单独指定二进制镜像
+# node-gyp 下载 Node.js headers 也走独立路径（unofficial-builds.nodejs.org）
 ENV npm_config_registry=${NPM_REGISTRY} \
+    npm_config_sqlite3_binary_host_mirror=https://npmmirror.com/mirrors/sqlite3 \
+    npm_config_disturl=https://npmmirror.com/mirrors/node \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     NODE_OPTIONS="--max-old-space-size=2048"
 
@@ -43,7 +47,7 @@ WORKDIR /app
 # 镜像标签
 LABEL org.opencontainers.image.title="personal-finance-app" \
       org.opencontainers.image.description="个人理财收益率统计Web应用" \
-      org.opencontainers.image.version="1.6.1" \
+      org.opencontainers.image.version="1.6.3" \
       org.opencontainers.image.source="https://github.com/haijun/finance-app"
 
 # 生产层换源 + 一次性安装运行时依赖

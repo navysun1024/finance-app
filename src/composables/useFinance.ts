@@ -358,6 +358,7 @@ export function useFinance() {
  let currentNav = 1;
  let remainingShares = 0;
  let firstBuyDate = 0;
+ let lastSellDate = 0;
  let lastNavUpdateDate = 0;
  const buyTransactions: Transaction[] = [];
  const sellTransactions: Transaction[] = [];
@@ -375,6 +376,9 @@ export function useFinance() {
  else if (t.type === 'sell') {
  sellTransactions.push(t);
  remainingShares -= t.shares;
+ if (t.date > lastSellDate) {
+  lastSellDate = t.date;
+ }
  }
  else if (t.type === 'dividend') {
  dividendTransactions.push(t);
@@ -440,8 +444,14 @@ export function useFinance() {
  }
  const isMatured = maturityTime > 0 && Date.now() > maturityTime;
 
- // 到期后停止计算收益，使用到期日作为截止日期
- const endDate = isMatured ? maturityTime : Date.now();
+ // 到期后停止计算收益，清仓后也停止
+ const isCleared = remainingShares === 0;
+ let endDate = Date.now();
+ if (isMatured) {
+  endDate = maturityTime;
+ } else if (isCleared && lastSellDate > 0) {
+  endDate = lastSellDate;
+ }
  const holdingDays = startDate > 0 ? Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24))) : 0;
  // 已到期且有明确存款期限时按整存期计息（整存整取规则），未到期时按实际持有天数计息
  const yearsElapsed = isMatured && product.durationMonths
@@ -481,6 +491,7 @@ export function useFinance() {
  profitRate,
  annualRate,
  holdingDays,
+ lastSellDate,
  lastNavUpdateDate: startDate,
  transactions: productTransactions
  };
@@ -493,7 +504,9 @@ export function useFinance() {
  const profitRate = remainingShares > 0
   ? (unrealizedProfit / (remainingShares * avgCost)) * 100
   : (totalInvestment > 0 ? (realizedProfit / totalInvestment) * 100 : 0);
- const holdingDays = firstBuyDate > 0 ? Math.max(1, Math.ceil((Date.now() - firstBuyDate) / (1000 * 60 * 60 * 24))) : 0;
+ // 已清仓产品的持有天数在最后一次卖出后不再增加
+ const holdingEndDate = remainingShares === 0 && lastSellDate > 0 ? lastSellDate : Date.now();
+ const holdingDays = firstBuyDate > 0 ? Math.max(1, Math.ceil((holdingEndDate - firstBuyDate) / (1000 * 60 * 60 * 24))) : 0;
  const xirrRate = calculateXIRR(
  buyTransactions.map(t => ({ date: t.date, amount: t.amount, fee: t.fee })),
  sellTransactions.map(t => ({ date: t.date, amount: t.amount })),
@@ -513,6 +526,7 @@ export function useFinance() {
  profitRate,
  annualRate,
  holdingDays,
+ lastSellDate,
  lastNavUpdateDate,
  transactions: productTransactions
  };

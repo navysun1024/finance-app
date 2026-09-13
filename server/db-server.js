@@ -204,6 +204,21 @@ db.run(`ALTER TABLE nav_history ADD COLUMN accNav REAL DEFAULT 0`, (err) => {
   if (err) { /* 列已存在，忽略 */ }
 })
 
+// ==================== 指数历史表（index_history） ====================
+// 业绩基准使用的指数历史行情（持久化，外部源拉取后落库，4小时缓存不再走外部源）
+db.run(`
+  CREATE TABLE IF NOT EXISTS index_history (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    date TEXT NOT NULL,
+    value REAL NOT NULL,
+    source TEXT NOT NULL,
+    updatedAt INTEGER NOT NULL
+  )
+`)
+db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_index_history_unique ON index_history(code, date)`)
+db.run(`CREATE INDEX IF NOT EXISTS idx_index_history_code_date ON index_history(code, date DESC)`)
+
 // 应用元数据表（存迁移状态等）
 db.run(`
   CREATE TABLE IF NOT EXISTS app_meta (
@@ -2762,6 +2777,14 @@ async function runNavUpdate() {
         }
       }
 
+      // ==================== 同步刷新业绩基准指数（净值更新完毕后，独立 try/catch 隔离）====================
+      try {
+        const idxSummary = await refreshAllIndexHistory()
+        summary.index = idxSummary
+      } catch (idxErr) {
+        log(`[NAV调度] 业绩基准刷新异常: ${idxErr.message}`, 'ERROR')
+      }
+
   } catch (e) {
     log(`[NAV调度] 执行异常: ${e.message}`, 'ERROR')
     summary.error = e.message
@@ -2861,10 +2884,54 @@ app.get('/api/nav-scheduler/status', (req, res) => {
       total: schedulerState.lastRunSummary.total,
       success: schedulerState.lastRunSummary.success,
       skipped: schedulerState.lastRunSummary.skipped,
-      failed: schedulerState.lastRunSummary.failed
+      failed: schedulerState.lastRunSummary.failed,
+      index: schedulerState.lastRunSummary.index || null
     } : null,
     totalRuns: schedulerState.totalRuns
   })
+})
+
+// 业绩基准指数数据状态（汇总 index_history 表）
+app.get('/api/index/status', (req, res) => {
+  db.all(
+    `SELECT code, source,
+            COUNT(*) as count,
+            MIN(date) as startDate,
+            MAX(date) as endDate,
+            MAX(updatedAt) as updatedAt
+     FROM index_history
+     GROUP BY code
+     ORDER BY code ASC`,
+    [],
+    (err, rows) => {
+      if (err) {
+        res.status(500).json({ success: false, error: err.message })
+        return
+      }
+      res.json({ success: true, data: rows || [] })
+    }
+  )
+})
+
+// 手动刷新指定业绩基准指数（或全部）
+app.post('/api/index/refresh', async (req, res) => {
+  try {
+    const { code } = req.body || {}
+    let summary
+    if (code) {
+      if (!INDEX_CHINABOND_MAP[code] && !INDEX_CSI_HCODES.has(code) && !INDEX_TENCENT_CODES.has(code)) {
+        return res.status(400).json({ success: false, error: `不支持的指数代码: ${code}` })
+      }
+      const history = await fetchIndexHistoryServer(code)
+      await upsertIndexHistory(code, history)
+      summary = { total: 1, success: 1, failed: 0, details: [{ code, status: 'ok', count: history.length, latest: history[history.length - 1]?.date }] }
+    } else {
+      summary = await refreshAllIndexHistory()
+    }
+    res.json({ success: true, summary })
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message })
+  }
 })
 
 // 手动触发净值更新
@@ -3665,8 +3732,16 @@ app.get('/cmb/nav-history/:code', async (req, res) => {
 // ==================== 指数历史数据 API ====================
 
 // 腾讯 API 支持的指数前缀（用于路由）
-const INDEX_TENCENT_CODES = new Set(['000905', '000906', '000923', '000300'])
+const INDEX_TENCENT_CODES = new Set(['000905', '000906', '000923', '000300', '000922', '000832'])
 const INDEX_CSI_HCODES = new Set(['H11001'])
+
+// 中债指数(yield.chinabond.com.cn)配置
+// indexId: 中债网站内部指数ID; qxlxt: 待偿期分段(00=总值,01=1年以下,02=1-3年,03=3-5年...); zslxt: 指标类型(CFZS=财富,QJZS=全价,JJZS=净价)
+const INDEX_CHINABOND_MAP = {
+  // 中债-新综合财富指数系列（同一个 indexId，qxlxt 区分待偿期分段）
+  'CBA00111': { indexId: '8a8b2ca0332abed20134ea76d8885831', qxlxt: '01', zslxt: 'CFZS' }, // 1年以下
+  'CBA00221': { indexId: '8a8b2ca0332abed20134ea76d8885831', qxlxt: '02', zslxt: 'CFZS' }, // 1-3年
+}
 
 const INDEX_CACHE_TTL = 4 * 60 * 60 * 1000 // 4小时
 
@@ -3684,19 +3759,20 @@ function getSystemProxy() {
  * @param {string} extraHeaders - 额外的 curl 头参数
  * @param {number} maxTime - --max-time 值（秒）
  * @param {number} execTimeout - execSync 超时（毫秒）
+ * @param {string} [extraOpts] - 额外 curl 参数（如 '-X POST'）
  * @returns {string} curl 输出文本
  */
-function execCurlWithProxyFallback(baseUrl, extraHeaders, maxTime, execTimeout) {
+function execCurlWithProxyFallback(baseUrl, extraHeaders, maxTime, execTimeout, extraOpts = '') {
   const proxy = getSystemProxy()
   // 先尝试直连（--noproxy '*' 绕过系统代理环境变量）
-  const directCmd = `curl -sL --noproxy '*' --max-time ${maxTime} ${extraHeaders} '${baseUrl}'`
+  const directCmd = `curl -sL --noproxy '*' --max-time ${maxTime} ${extraOpts} ${extraHeaders} '${baseUrl}'`
   try {
     return execSync(directCmd, { encoding: 'utf-8', timeout: execTimeout })
   } catch (directErr) {
     // 直连失败且系统代理可用时，尝试走代理
     if (proxy) {
       log(`[指数] 直连失败，尝试走代理 ${proxy}`)
-      const proxyCmd = `curl -sL --proxy '${proxy}' --max-time ${maxTime} ${extraHeaders} '${baseUrl}'`
+      const proxyCmd = `curl -sL --proxy '${proxy}' --max-time ${maxTime} ${extraOpts} ${extraHeaders} '${baseUrl}'`
       return execSync(proxyCmd, { encoding: 'utf-8', timeout: execTimeout })
     }
     throw directErr
@@ -3708,8 +3784,12 @@ function execCurlWithProxyFallback(baseUrl, extraHeaders, maxTime, execTimeout) 
  * API 返回格式: {"code":0,"msg":"","data":{"sh{code}":{"day":[[date,open,close,high,low,volume],...]}}}
  * 收盘价在 day 数组的 index 2
  */
-async function fetchFromTencent(indexCode) {
-  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh${indexCode},day,,,1000,qfq`
+async function fetchFromTencent(indexCode, startDate, limit) {
+  // 腾讯 param 格式: sh{code},day,startDate,endDate,limit,qfq
+  // startDate/endDate 可传 'YYYY-MM-DD'，留空则取最近 limit 条
+  const start = startDate || ''
+  const size = limit || 1000
+  const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh${indexCode},day,${start},,${size},qfq`
   const headers = `-H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' -H 'Referer: https://qt.gtimg.cn/'`
   let lastErr = null
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -3734,14 +3814,21 @@ async function fetchFromTencent(indexCode) {
  * 从中证指数官网(www.csindex.com.cn)获取 H 开头债券指数历史行情
  * 返回字段: [日期, 指数代码, 全称, 简称, 英全, 英简, 开盘, 最高, 最低, 收盘, ...]
  */
-async function fetchFromCsindex(indexCode) {
+async function fetchFromCsindex(indexCode, startDate) {
   const today = new Date()
   const yyyy = today.getFullYear()
   const mm = String(today.getMonth() + 1).padStart(2, '0')
   const dd = String(today.getDate()).padStart(2, '0')
   const endDate = `${yyyy}${mm}${dd}`
-  const startDate = `${yyyy - 10}${mm}${dd}`
-  const url = `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=${indexCode}&startDate=${startDate}&endDate=${endDate}`
+  // 增量模式用传入的 startDate；否则默认取 10 年前做全量
+  let startDateParam = startDate
+  if (!startDateParam) {
+    startDateParam = `${yyyy - 10}${mm}${dd}`
+  } else {
+    // 传入的 startDate 是 'YYYY-MM-DD'，要去掉横杠
+    startDateParam = startDateParam.replace(/-/g, '')
+  }
+  const url = `https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=${indexCode}&startDate=${startDateParam}&endDate=${endDate}`
   const headers = `-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' -H 'Referer: https://www.csindex.com.cn/'`
   let lastErr = null
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -3772,12 +3859,232 @@ async function fetchFromCsindex(indexCode) {
   throw lastErr || new Error(`指数 ${indexCode} 中证官网获取失败`)
 }
 
-async function fetchIndexHistoryServer(indexCode) {
+/**
+ * 从中国债券信息网(yield.chinabond.com.cn)获取中债指数历史行情
+ * 接口返回格式: { "CFZS_02": { "毫秒时间戳": 指数值, ... }, dqcName: {"02":"1-3年"}, dqcList: ["02"] }
+ * 系列 key 规则: {zslxt}_{qxlxt}，如 CFZS_02 = 财富指数 1-3年分段
+ */
+async function fetchFromChinabond(indexCode) {
+  const cfg = INDEX_CHINABOND_MAP[indexCode]
+  if (!cfg) throw new Error(`未配置的中债指数代码: ${indexCode}`)
+  const url = `https://yield.chinabond.com.cn/cbweb-mn/indices/singleIndexQueryResult?indexid=${cfg.indexId}&&qxlxt=${cfg.qxlxt}&&ltcslx=&&zslxt=${cfg.zslxt}&&zslxt1=&&lx=1&locale=`
+  const headers = `-H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' -H 'Referer: https://yield.chinabond.com.cn/cbweb-mn/indices/single_index_query' -H 'X-Requested-With: XMLHttpRequest'`
+  const seriesKey = `${cfg.zslxt}_${cfg.qxlxt}`
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // 接口为 POST（参数均在 URL 上，body 为空）
+      const text = execCurlWithProxyFallback(url, headers, 25, 30000, '-X POST')
+      if (!text) throw new Error(`指数 ${indexCode} 中债官网空响应`)
+      const parsed = JSON.parse(text)
+      if (parsed.emsg) throw new Error(`指数 ${indexCode} 中债官网返回: ${parsed.emsg}`)
+      const series = parsed[seriesKey]
+      if (!series || typeof series !== 'object') throw new Error(`指数 ${indexCode} 中债官网无 ${seriesKey} 数据`)
+      const result = []
+      for (const [ts, val] of Object.entries(series)) {
+        const v = parseFloat(val)
+        if (isNaN(v)) continue
+        // 时间戳为毫秒，对应北京时间(UTC+8)当日 0 点，加 8 小时后取 UTC 日期即为交易日
+        const dateStr = new Date(parseInt(ts) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        result.push({ date: dateStr, value: v })
+      }
+      result.sort((a, b) => a.date.localeCompare(b.date))
+      if (result.length === 0) throw new Error(`指数 ${indexCode} 中债官网解析后无有效数据`)
+      return result
+    } catch (err) {
+      lastErr = err
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000))
+    }
+  }
+  throw lastErr || new Error(`指数 ${indexCode} 中债官网获取失败`)
+}
+
+// 指数代码 → 数据源标识（用于落库记录 source 字段）
+function indexSourceOf(indexCode) {
+  if (INDEX_CHINABOND_MAP[indexCode]) return 'chinabond'
+  if (INDEX_CSI_HCODES.has(indexCode)) return 'csindex'
+  if (INDEX_TENCENT_CODES.has(indexCode)) return 'tencent'
+  return 'unknown'
+}
+
+/**
+ * 查 DB 中某指数的最新日期（用于增量计算 startDate）
+ * @returns {Promise<string|null>} 'YYYY-MM-DD' 或 null
+ */
+async function getIndexMaxDate(indexCode) {
+  return new Promise((resolve) => {
+    db.get('SELECT MAX(date) as maxDate FROM index_history WHERE code = ?', [indexCode], (err, row) => {
+      if (err || !row) resolve(null)
+      else resolve(row.maxDate || null)
+    })
+  })
+}
+
+/**
+ * 给定一个 'YYYY-MM-DD'，返回向前 offset 天的 'YYYY-MM-DD'
+ */
+function shiftDate(dateStr, offsetDays) {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() - offsetDays)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * 批量 upsert 指数历史到持久化表（INSERT OR REPLACE，(code,date) 唯一索引保证幂等）
+ */
+async function upsertIndexHistory(indexCode, rows) {
+  if (!rows || rows.length === 0) return 0
+  return new Promise((resolve, reject) => {
+    const now = Date.now()
+    const source = indexSourceOf(indexCode)
+    db.run('BEGIN TRANSACTION', (err) => {
+      if (err) { reject(err); return }
+      const stmt = db.prepare(
+        `INSERT OR REPLACE INTO index_history (id, code, date, value, source, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      let pending = rows.length
+      let failed = false
+      for (const row of rows) {
+        if (failed) break
+        const id = `${indexCode}_${row.date}`
+        stmt.run(id, indexCode, row.date, row.value, source, now, (err2) => {
+          if (err2 && !failed) { failed = true; db.run('ROLLBACK'); stmt.finalize(); reject(err2); return }
+          if (--pending === 0 && !failed) {
+            stmt.finalize()
+            db.run('COMMIT', (err3) => {
+              if (err3) { reject(err3); return }
+              log(`[指数] ${indexCode} 落库完成, ${rows.length} 条`)
+              resolve(rows.length)
+            })
+          }
+        })
+      }
+    })
+  })
+}
+
+/**
+ * 从持久化表读取指数历史
+ * @returns {Promise<{data: Array<{date:string,value:number}>, latestDate: string|null}>}
+ */
+async function queryIndexHistory(indexCode) {
+  return new Promise((resolve) => {
+    db.all(
+      'SELECT date, value FROM index_history WHERE code = ? ORDER BY date ASC',
+      [indexCode],
+      (err, rows) => {
+        if (err || !rows || rows.length === 0) {
+          resolve({ data: [], latestDate: null })
+          return
+        }
+        const latestDate = rows[rows.length - 1].date
+        resolve({
+          data: rows.map(r => ({ date: r.date, value: r.value })),
+          latestDate
+        })
+      }
+    )
+  })
+}
+
+/**
+ * 收集需要刷新的指数代码：DB 里已存过的 + 已注册但未存的（不重复）
+ */
+async function collectIndexCodesToRefresh() {
+  // 1) DB 中已存在的所有指数代码
+  const dbCodes = await new Promise((resolve) => {
+    db.all('SELECT DISTINCT code FROM index_history', [], (err, rows) => {
+      if (err || !rows) { resolve([]); return }
+      resolve(rows.map(r => r.code))
+    })
+  })
+
+  // 2) 从 products 的 benchmarkFormula 中收集被实际使用的指数代码
+  const usedCodes = await new Promise((resolve) => {
+    db.all(
+      "SELECT benchmarkFormula FROM products WHERE benchmarkEnabled = 1 AND benchmarkFormula IS NOT NULL AND benchmarkFormula != ''",
+      [],
+      (err, rows) => {
+        if (err || !rows) { resolve([]); return }
+        const re = /\*\s*([A-Za-z]{0,3}\d{5,6})/g
+        const set = new Set()
+        for (const r of rows) {
+          let m
+          while ((m = re.exec(r.benchmarkFormula)) !== null) set.add(m[1])
+        }
+        resolve([...set])
+      }
+    )
+  })
+
+  // 3) 合并去重（实际使用的 + 已在 DB 存过的，覆盖后续可能启用的）
+  const all = new Set([...dbCodes, ...usedCodes])
+  // 只保留已在 fetchIndexHistoryServer 中注册的
+  const supported = [...all].filter(c =>
+    INDEX_CHINABOND_MAP[c] || INDEX_CSI_HCODES.has(c) || INDEX_TENCENT_CODES.has(c)
+  )
+  return supported
+}
+
+/**
+ * 刷新所有需要更新的指数历史（用于每日净值定时调度时同步执行）
+ * 逐个调用 fetchIndexHistoryServer + upsertIndexHistory，任何一个失败不影响其他
+ * @returns {{ total:number, success:number, failed:number, details:Array }}
+ */
+async function refreshAllIndexHistory() {
+  const startTime = Date.now()
+  const summary = { total: 0, success: 0, failed: 0, details: [] }
+  let codes = []
+  try {
+    codes = await collectIndexCodesToRefresh()
+  } catch (e) {
+    log(`[指数调度] 收集指数代码失败: ${e.message}`, 'WARN')
+    return summary
+  }
+  summary.total = codes.length
+  if (codes.length === 0) {
+    log('[指数调度] 未发现需要刷新的指数（DB 为空且无产品启用业绩基准）')
+    return summary
+  }
+  log(`[指数调度] 开始同步 ${codes.length} 个业绩基准指数: ${codes.join(', ')}`)
+
+  for (const code of codes) {
+    try {
+      // 增量策略：先查 DB 里该 code 最新日期，传 MAX(date)-3天 给 fetch 函数
+      // （3 天 overlap 防数据源延迟修正；中债接口不支持日期过滤仍会全量拉）
+      const maxDate = await getIndexMaxDate(code)
+      const startDate = maxDate ? shiftDate(maxDate, 3) : null
+      const history = await fetchIndexHistoryServer(code, startDate)
+      const upsertCount = await upsertIndexHistory(code, history)
+      // 同步清掉 data_cache，让后续请求直接走 DB
+      db.run('DELETE FROM data_cache WHERE cache_key = ?', [`index_history_${code}`])
+      const mode = startDate ? `增量(>=${startDate})` : '全量'
+      log(`[指数调度] [${code}] [${mode}] 拉到 ${history.length} 条, upsert ${upsertCount}, 最新: ${history[history.length - 1]?.date}`)
+      summary.success++
+      summary.details.push({ code, status: 'ok', mode, fetched: history.length, upserted: upsertCount, latest: history[history.length - 1]?.date })
+    } catch (e) {
+      log(`[指数调度] [${code}] 刷新失败: ${e.message}`, 'WARN')
+      summary.failed++
+      summary.details.push({ code, status: 'fail', error: e.message })
+    }
+  }
+  log(`[指数调度] 完成, 耗时 ${Date.now() - startTime}ms, 总计 ${summary.total}, 成功 ${summary.success}, 失败 ${summary.failed}`)
+  return summary
+}
+
+async function fetchIndexHistoryServer(indexCode, startDate) {
+  if (INDEX_CHINABOND_MAP[indexCode]) {
+    // 中债接口不支持增量日期过滤，始终全量
+    return fetchFromChinabond(indexCode)
+  }
   if (INDEX_CSI_HCODES.has(indexCode)) {
-    return fetchFromCsindex(indexCode)
+    return fetchFromCsindex(indexCode, startDate)
   }
   if (INDEX_TENCENT_CODES.has(indexCode)) {
-    return fetchFromTencent(indexCode)
+    // 增量模式 limit 30（3 年约 750 交易日，30 是为了只拉最近一个多月）；全量默认 1000
+    const limit = startDate ? 30 : 1000
+    return fetchFromTencent(indexCode, startDate, limit)
   }
   throw new Error(`不支持的指数代码: ${indexCode}`)
 }
@@ -3789,17 +4096,51 @@ app.get('/index/history', async (req, res) => {
       return res.status(400).json({ success: false, error: '缺少 code 参数' })
     }
 
-    const cacheKey = `index_history_${code}`
-    const cached = await getCache(cacheKey)
-    if (cached && !cached.isExpired) {
-      return res.json({ success: true, data: cached.data, fromCache: true })
+    // 1) 先查持久化表
+    const dbResult = await queryIndexHistory(code)
+
+    // 2) 判断是否需要刷新：库为空，或最新一条距今 ≥ 3 天（指数仅交易日发布，周末/节假日不更新）
+    const todayStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    let needRefresh = dbResult.data.length === 0
+    if (!needRefresh && dbResult.latestDate) {
+      const latestTs = new Date(dbResult.latestDate + 'T00:00:00+08:00').getTime()
+      const todayTs = new Date(todayStr + 'T00:00:00+08:00').getTime()
+      needRefresh = (todayTs - latestTs) >= 3 * 24 * 60 * 60 * 1000
     }
 
-    const history = await fetchIndexHistoryServer(code)
-    await setCache(cacheKey, history, INDEX_CACHE_TTL)
-    log(`[指数] 获取 ${code} 历史数据成功, ${history.length} 条`)
+    if (!needRefresh) {
+      // 数据库已覆盖今日，直接返回（不再走 data_cache）
+      return res.json({ success: true, data: dbResult.data, fromCache: 'db', latestDate: dbResult.latestDate })
+    }
 
-    res.json({ success: true, data: history, fromCache: false })
+    // 3) 刷新：先尝试外部源，成功则落库 + 更新 data_cache 加速后续请求
+    try {
+      // 增量：DB 里有历史就传 MAX(date)-3天，否则全量
+      const maxDate = dbResult.latestDate || null
+      const startDate = maxDate ? shiftDate(maxDate, 3) : null
+      const history = await fetchIndexHistoryServer(code, startDate)
+      await upsertIndexHistory(code, history)
+      // 清掉 data_cache，后续请求直接走 DB
+      db.run('DELETE FROM data_cache WHERE cache_key = ?', [`index_history_${code}`])
+      // 增量模式下 history 只是补充的几条，需要再查 DB 拿完整序列返回给前端
+      const finalResult = await queryIndexHistory(code)
+      const mode = startDate ? `增量(>=${startDate})` : '全量'
+      log(`[指数] ${code} [${mode}] 外部刷新成功, 拉回 ${history.length} 条, DB 完整 ${finalResult.data.length} 条`)
+      return res.json({ success: true, data: finalResult.data, fromCache: false, latestDate: finalResult.latestDate })
+    } catch (refreshErr) {
+      // 外部源失败但库里有历史数据，降级返回
+      if (dbResult.data.length > 0) {
+        log(`[指数] ${code} 外部刷新失败，降级使用库里 ${dbResult.data.length} 条: ${refreshErr.message}`)
+        return res.json({
+          success: true,
+          data: dbResult.data,
+          fromCache: 'db_fallback',
+          latestDate: dbResult.latestDate,
+          warning: `外部数据源不可用，返回 ${dbResult.latestDate} 之前的数据`
+        })
+      }
+      throw refreshErr
+    }
   } catch (err) {
     log(`[指数] 获取失败: ${err.message}`, 'ERROR')
     res.status(500).json({ success: false, error: err.message })

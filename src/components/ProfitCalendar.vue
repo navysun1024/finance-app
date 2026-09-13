@@ -39,6 +39,20 @@ const showTooltip = (event: MouseEvent, dateStr: string, profit: number, product
   tooltipVisible.value = true
 }
 
+const showMonthTooltip = (event: MouseEvent, item: { month: number; totalProfit: number; productProfits: ProductProfit[] }) => {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  tooltipPos.value = {
+    x: rect.left + rect.width / 2,
+    y: rect.top - 4
+  }
+  tooltipData.value = {
+    date: `${currentYear.value}年${item.month}月`,
+    profit: item.totalProfit,
+    products: item.productProfits
+  }
+  tooltipVisible.value = true
+}
+
 const hideTooltip = () => {
   tooltipVisible.value = false
 }
@@ -100,10 +114,12 @@ const calendarDays = computed(() => {
 
 // 年视图：获取每月收益汇总
 const yearlySummary = computed(() => {
-  const summary: { month: number; totalProfit: number; days: number }[] = []
+  const summary: { month: number; totalProfit: number; days: number; productProfits: ProductProfit[] }[] = []
   for (let month = 1; month <= 12; month++) {
     let totalProfit = 0
     let days = 0
+    // 按月聚合各产品收益（同名产品跨天累加）
+    const productMap = new Map<string, number>()
     const daysInMonth = getDaysInMonth(currentYear.value, month)
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${currentYear.value}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -111,9 +127,15 @@ const yearlySummary = computed(() => {
       if (data !== undefined) {
         totalProfit += data.profit
         days++
+        for (const p of data.productProfits) {
+          productMap.set(p.productName, (productMap.get(p.productName) || 0) + p.profit)
+        }
       }
     }
-    summary.push({ month, totalProfit, days })
+    const productProfits = Array.from(productMap.entries())
+      .map(([productName, profit]) => ({ productName, profit }))
+      .sort((a, b) => b.profit - a.profit)
+    summary.push({ month, totalProfit, days, productProfits })
   }
   return summary
 })
@@ -133,6 +155,11 @@ const monthSummary = computed(() => {
   }
   
   return { totalProfit, positiveDays, negativeDays }
+})
+
+// 年度总收益
+const yearTotalProfit = computed(() => {
+  return yearlySummary.value.reduce((sum, m) => sum + m.totalProfit, 0)
 })
 
 // 切换月份
@@ -190,8 +217,8 @@ const getProfitBg = (profit: number | null) => {
 <template>
   <div class="profit-calendar flex flex-col h-full">
     <!-- 头部控制区 -->
-    <div class="flex items-center justify-between mb-1 flex-shrink-0">
-      <div class="flex items-center space-x-0.5">
+    <div class="flex items-center mb-1 flex-shrink-0">
+      <div class="flex items-center space-x-1.5">
         <button 
           @click="viewMode === 'month' ? prevMonth() : prevYear()"
           class="p-0.5 hover:bg-black/5 rounded-full transition-colors"
@@ -212,28 +239,28 @@ const getProfitBg = (profit: number | null) => {
         >
           <ChevronRight class="w-3 h-3 text-apple-secondary" />
         </button>
-      </div>
-      
-      <!-- 视图切换 -->
-      <div class="flex items-center space-x-0.5 bg-black/5 rounded-full p-0.5">
-        <button
-          @click="viewMode = 'month'"
-          :class="[
-            'px-1.5 py-0.5 text-[9px] rounded-full transition-all',
-            viewMode === 'month' ? 'bg-white shadow-sm text-apple-text font-medium' : 'text-apple-secondary hover:text-apple-text'
-          ]"
-        >
-          月
-        </button>
-        <button
-          @click="viewMode = 'year'"
-          :class="[
-            'px-1.5 py-0.5 text-[9px] rounded-full transition-all',
-            viewMode === 'year' ? 'bg-white shadow-sm text-apple-text font-medium' : 'text-apple-secondary hover:text-apple-text'
-          ]"
-        >
-          年
-        </button>
+
+        <!-- 视图切换 -->
+        <div class="flex items-center space-x-0.5 bg-black/5 rounded-full p-0.5">
+          <button
+            @click="viewMode = 'month'"
+            :class="[
+              'px-1.5 py-0.5 text-[9px] rounded-full transition-all',
+              viewMode === 'month' ? 'bg-white shadow-sm text-apple-text font-medium' : 'text-apple-secondary hover:text-apple-text'
+            ]"
+          >
+            月
+          </button>
+          <button
+            @click="viewMode = 'year'"
+            :class="[
+              'px-1.5 py-0.5 text-[9px] rounded-full transition-all',
+              viewMode === 'year' ? 'bg-white shadow-sm text-apple-text font-medium' : 'text-apple-secondary hover:text-apple-text'
+            ]"
+          >
+            年
+          </button>
+        </div>
       </div>
 
       <!-- 月度盈亏汇总（月视图时显示） -->
@@ -246,6 +273,14 @@ const getProfitBg = (profit: number | null) => {
         </span>
         <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
           {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(monthSummary.totalProfit) }}
+        </span>
+      </div>
+
+      <!-- 年度汇总（年视图时显示） -->
+      <div v-if="viewMode === 'year'" class="ml-auto flex items-center space-x-2 text-[10px]">
+        <span class="text-apple-secondary">年度收益</span>
+        <span :class="['font-semibold', getProfitColor(yearTotalProfit)]">
+          {{ yearTotalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(yearTotalProfit) }}
         </span>
       </div>
     </div>
@@ -297,13 +332,15 @@ const getProfitBg = (profit: number | null) => {
 
     <!-- 年视图 -->
     <div v-else class="flex flex-col flex-1 min-h-0">
-      <div class="grid grid-cols-4 gap-1.5 flex-1 content-start px-2 sm:px-4">
+      <div class="grid grid-cols-4 gap-1.5 flex-1 auto-rows-fr px-2 sm:px-4">
         <div
           v-for="item in yearlySummary"
           :key="item.month"
+          @mouseenter="item.productProfits.length > 0 && showMonthTooltip($event, item)"
+          @mouseleave="hideTooltip"
           @click="currentMonth = item.month; viewMode = 'month'"
           :class="[
-            'relative px-1.5 py-1 rounded-apple cursor-pointer transition-all hover:shadow-apple',
+            'relative px-1.5 py-1.5 rounded-apple cursor-pointer transition-all hover:shadow-apple h-full flex flex-col justify-center',
             item.days > 0 ? getProfitBg(item.totalProfit) : 'bg-black/3'
           ]"
         >
@@ -317,14 +354,6 @@ const getProfitBg = (profit: number | null) => {
           </div>
           <div v-else class="text-[11px] text-apple-secondary">-</div>
         </div>
-      </div>
-      
-      <!-- 年度汇总 -->
-      <div class="mt-2 pt-1.5 border-t border-apple-border/30 flex justify-between items-center flex-shrink-0">
-        <span class="text-[10px] text-apple-secondary">{{ currentYear }} 年度汇总</span>
-        <span :class="['text-xs font-semibold', getProfitColor(yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0))]">
-          {{ yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0) >= 0 ? '+' : '' }}{{ formatCurrency1(yearlySummary.reduce((sum, m) => sum + m.totalProfit, 0)) }}
-        </span>
       </div>
     </div>
 
