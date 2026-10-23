@@ -4,12 +4,11 @@ import { ArrowLeft, Plus, Edit, Trash2, TrendingUp, TrendingDown, RefreshCw, Cal
 import ProductModal from '@/components/ProductModal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFinance, initFinance } from '@/composables/useFinance'
-import { formatCurrency, formatCurrency1, formatPercent, formatDate, getDateOnly } from '@/utils/format'
-import { fetchEquityNav, fetchCmbNav, fetchIcbcNav, fetchCmbNavHistory, fetchIcbcNavHistory, fetchEquityStageGains, fetchEquityHoldings, type NavResult, type StageGains, type EquityHoldingsResult } from '@/utils/equityApi'
+import { useProductNavFetch } from '@/composables/useProductNavFetch'
+import { formatCurrency, formatNumber1, formatPercent, formatDate } from '@/utils/format'
 import { fetchMultipleIndexHistory } from '@/utils/indexApi'
 import { calcBenchmarkSeries, getFormulaIndexCodes, parseBenchmarkFormula, type BenchmarkComponent } from '@/utils/benchmark'
 import type { BenchmarkPoint, NavHistory } from '@/types'
-import { getAuthHeaders, addNavHistoryRecord } from '@/utils/storage'
 import TransactionModal from '@/components/TransactionModal.vue'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -19,16 +18,10 @@ echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendCompone
 
 const route = useRoute()
 const router = useRouter()
-const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, deleteProduct, updateProduct, updateProductPurchaseLimit, PRODUCT_TYPE_OPTIONS, refresh, getNavHistoryByProductId, getProductDividendsByProduct } = useFinance()
+const { getProductById, getPositionById, getTransactionsByProductId, addTransaction, updateTransaction, deleteTransaction, deleteNavHistoryItem, deleteProductDividend, deleteProduct, updateProduct, PRODUCT_TYPE_OPTIONS, getNavHistoryByProductId, getProductDividendsByProduct } = useFinance()
 
-const fetchingNav = ref(false)
-const fetchingNavHistory = ref(false)
-const fetchingStageGains = ref(false)
-const fetchingHoldings = ref(false)
-const navFetchError = ref('')
-const navHistorySuccess = ref('')
-const stageGains = ref<StageGains | null>(null)
-const holdingsData = ref<EquityHoldingsResult | null>(null)
+const productId = computed(() => route.params.id as string)
+const product = computed(() => getProductById(productId.value))
 
 const showProductModal = ref(false)
 const editingProduct = ref<typeof product.value | null>(null)
@@ -52,202 +45,14 @@ const handleSubmit = (data: { name: string; type: string; subType: string; note:
   showProductModal.value = false
 }
 
-const handleFetchStageGains = async () => {
-  if (!product.value?.code) return
+// 净值/行情爬取逻辑（已抽取到 useProductNavFetch）
+const {
+  fetchingNav, fetchingNavHistory, fetchingStageGains, fetchingHoldings,
+  navFetchError, navHistorySuccess, backfillingNav,
+  stageGains, holdingsData,
+  handleFetchStageGains, handleFetchHoldings, handleFetchNav, handleFetchNavHistory, handleBackfillNav,
+} = useProductNavFetch({ product, productId })
 
-  fetchingStageGains.value = true
-  try {
-    const result = await fetchEquityStageGains(product.value.code)
-    stageGains.value = result.data
-  } catch (e: any) {
-    console.error('获取阶段涨幅失败:', e)
-  } finally {
-    fetchingStageGains.value = false
-  }
-}
-
-const handleFetchHoldings = async () => {
-  if (!product.value?.code || product.value.type !== 'equity') return
-
-  fetchingHoldings.value = true
-  try {
-    holdingsData.value = await fetchEquityHoldings(product.value.code)
-  } catch (e: any) {
-    console.error('获取持仓信息失败:', e)
-  } finally {
-    fetchingHoldings.value = false
-  }
-}
-
-const handleFetchNav = async () => {
-  if (!product.value?.code) return
-
-  fetchingNav.value = true
-  navFetchError.value = ''
-  try {
-    let result: NavResult
-    
-    const allowedSources = (product.value.type === 'equity' )
-      ? ['tiantian'] 
-      : ['tiantian', 'cmb', 'icbc']
-    const navSrc = allowedSources.includes(product.value.navSource || '') 
-      ? product.value.navSource 
-      : (product.value.type === 'equity'  ? 'tiantian' : 'cmb')
-    
-    if (navSrc === 'tiantian') {
-      result = await fetchEquityNav(product.value.code)
-    } else if (navSrc === 'icbc') {
-      result = await fetchIcbcNav(product.value.code)
-    } else {
-      result = await fetchCmbNav(product.value.code)
-    }
-    let dateTimestamp = Date.now()
-    if (result.date) {
-      const cleaned = result.date.trim()
-      if (/^\d{8}$/.test(cleaned)) {
-        dateTimestamp = new Date(
-          parseInt(cleaned.substring(0, 4)),
-          parseInt(cleaned.substring(4, 6)) - 1,
-          parseInt(cleaned.substring(6, 8))
-        ).getTime()
-      } else {
-        const parts = cleaned.split(/[-/]/)
-        if (parts.length === 3) {
-          dateTimestamp = new Date(
-            parseInt(parts[0]),
-            parseInt(parts[1]) - 1,
-            parseInt(parts[2])
-          ).getTime()
-        }
-      }
-    }
-
-    // 统一使用当天零点作为日期，确保唯一性
-    const navDateMidnight = getDateOnly(dateTimestamp)
-
-    // 查询到的限购信息写入产品限购属性（不写入备注）
-    // 放在净值重复检查之前：即使当天净值已存在，也始终刷新限购信息
-    if (result.purchaseLimitLabel) {
-      updateProductPurchaseLimit(product.value.id, result.purchaseLimitLabel)
-    }
-
-    const existingNavs = getNavHistoryByProductId(productId.value)
-    if (existingNavs.some(n => getDateOnly(n.date) === navDateMidnight)) {
-      fetchingNav.value = false
-      return
-    }
-
-    const updateTime = new Date().toLocaleString('zh-CN')
-    await addNavHistoryRecord({ code: product.value.code, date: navDateMidnight, nav: result.nav, note: updateTime })
-  } catch (e: any) {
-    navFetchError.value = e.message || '查询失败'
-  } finally {
-    fetchingNav.value = false
-  }
-}
-
-const handleFetchNavHistory = async () => {
-  if (!product.value?.code) return
-  
-  const allowedSources = (product.value.type === 'equity' )
-    ? ['tiantian'] 
-    : ['tiantian', 'cmb', 'icbc']
-  const navSrc = allowedSources.includes(product.value.navSource || '') 
-    ? product.value.navSource 
-    : (product.value.type === 'equity'  ? 'tiantian' : 'cmb')
-  
-  if (navSrc === 'tiantian') return
-
-  fetchingNavHistory.value = true
-  navFetchError.value = ''
-  navHistorySuccess.value = ''
-  
-  try {
-    const existingNavs = getNavHistoryByProductId(productId.value)
-    const existingDates = new Set(existingNavs.map(n => getDateOnly(n.date)))
-
-    let results: NavResult[]
-    if (navSrc === 'icbc') {
-      results = await fetchIcbcNavHistory(product.value.code, 50)
-    } else {
-      results = await fetchCmbNavHistory(product.value.code, 50)
-    }
-    let addedCount = 0
-
-    for (const result of results) {
-      let dateTimestamp = Date.now()
-      if (result.date) {
-        const cleaned = result.date.trim()
-        if (/^\d{8}$/.test(cleaned)) {
-          dateTimestamp = new Date(
-            parseInt(cleaned.substring(0, 4)),
-            parseInt(cleaned.substring(4, 6)) - 1,
-            parseInt(cleaned.substring(6, 8))
-          ).getTime()
-        } else {
-          const parts = cleaned.split(/[-/]/)
-          if (parts.length === 3) {
-            dateTimestamp = new Date(
-              parseInt(parts[0]),
-              parseInt(parts[1]) - 1,
-              parseInt(parts[2])
-            ).getTime()
-          }
-        }
-      }
-
-      const dateKey = getDateOnly(dateTimestamp)
-      if (!existingDates.has(dateKey)) {
-        const now = new Date()
-        const timeStr = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
-        await addNavHistoryRecord({ code: product.value.code, date: dateTimestamp, nav: result.nav, note: timeStr })
-        existingDates.add(dateKey)
-        addedCount++
-      }
-    }
-
-    if (addedCount > 0) {
-      navHistorySuccess.value = `成功更新 ${addedCount} 条净值数据`
-    } else {
-      navHistorySuccess.value = '所有日期的净值数据已存在，无需更新'
-    }
-  } catch (e: any) {
-    navFetchError.value = e.message || '查询失败'
-  } finally {
-    fetchingNavHistory.value = false
-  }
-}
-
-// 补全权益历史净值
-const backfillingNav = ref(false)
-
-const handleBackfillNav = async () => {
-  const canBackfill = (product.value?.type === 'equity' ) ||
-    (product.value?.type === 'fixed_income' && product.value?.navSource === 'tiantian')
-  if (!product.value?.code || !canBackfill) return
-
-  backfillingNav.value = true
-  navFetchError.value = ''
-  navHistorySuccess.value = ''
-  try {
-    const res = await fetch(`/api/db/fund/backfill-nav/${productId.value}`, { method: 'POST', headers: getAuthHeaders() })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '补全失败')
-    if (data.inserted > 0) {
-      navHistorySuccess.value = `补全成功！共 ${data.total} 条历史净值，新增 ${data.inserted} 条`
-      await refresh()
-    } else {
-      navHistorySuccess.value = `无缺失数据，共 ${data.total} 条历史净值已是完整`
-    }
-  } catch (e: any) {
-    navFetchError.value = e.message || '补全失败'
-  } finally {
-    backfillingNav.value = false
-  }
-}
-
-const productId = computed(() => route.params.id as string)
-const product = computed(() => getProductById(productId.value))
 const position = computed(() => getPositionById(productId.value))
 const transactions = computed(() => getTransactionsByProductId(productId.value))
 
@@ -641,6 +446,18 @@ const handleDeleteTransaction = (id: string) => {
   }
 }
 
+const handleDeleteNavHistory = (id: string) => {
+  if (confirm('确定要删除这条净值记录吗？删除后无法恢复。')) {
+    deleteNavHistoryItem(id)
+  }
+}
+
+const handleDeleteDividend = (id: string) => {
+  if (confirm('确定要删除这条分红记录吗？删除后无法恢复。')) {
+    deleteProductDividend(id)
+  }
+}
+
 const handleSubmitTransaction = (data: { productId: string; type: string; date: number; amount: number; price: number; shares: number; fee: number; note: string }) => {
   if (editingTransaction.value) {
     updateTransaction(
@@ -886,10 +703,10 @@ const renderTermDepositChart = () => {
         const value = p.value[1]
         const profit = value - projection.principal
         return `<div style="font-weight:600;margin-bottom:4px">${p.value[0]}</div>
-                <div>本金: <b>${formatCurrency1(projection.principal)}</b></div>
-                <div>预计本息: <b>${formatCurrency1(value)}</b></div>
+                <div>本金: <b>${formatNumber1(projection.principal)}</b></div>
+                <div>预计本息: <b>${formatNumber1(value)}</b></div>
                 <div style="color:${profit >= 0 ? '#f59e0b' : '#22c55e'};margin-top:4px;padding-top:4px;border-top:1px solid rgba(0,0,0,0.05)">
-                  累计收益: <b>${profit >= 0 ? '+' : ''}${formatCurrency1(profit)}</b>
+                  累计收益: <b>${profit >= 0 ? '+' : ''}${formatNumber1(profit)}</b>
                 </div>`
       }
     },
@@ -910,7 +727,7 @@ const renderTermDepositChart = () => {
       axisLabel: {
         fontSize: 10,
         color: '#6b7280',
-        formatter: (value: number) => formatCurrency1(value)
+        formatter: (value: number) => formatNumber1(value)
       },
       splitLine: { lineStyle: { color: '#f3f4f6' } }
     },
@@ -1736,12 +1553,12 @@ onUnmounted(() => {
         <div class="grid grid-cols-4 gap-2">
           <div class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
             <p class="text-[10px] font-medium text-apple-secondary truncate">当前市值</p>
-            <p class="text-[13px] font-semibold text-apple-text mt-0.5">{{ formatCurrency1(position?.marketValue || 0) }}</p>
+            <p class="text-[13px] font-semibold text-apple-text mt-0.5">{{ formatNumber1(position?.marketValue || 0) }}</p>
           </div>
           <div class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
             <p class="text-[10px] font-medium text-apple-secondary truncate">盈亏金额</p>
             <p :class="['text-[13px] font-semibold mt-0.5', (position?.profit ?? 0) >= 0 ? 'text-profit' : 'text-loss']">
-              {{ (position?.profit ?? 0) >= 0 ? '+' : '' }}{{ formatCurrency1(position?.profit || 0) }}
+              {{ (position?.profit ?? 0) >= 0 ? '+' : '' }}{{ formatNumber1(position?.profit || 0) }}
             </p>
           </div>
           <div class="text-center py-1 bg-black/[0.02] rounded-lg min-w-0">
@@ -1782,7 +1599,7 @@ onUnmounted(() => {
             </div>
             <div v-if="product.minAmount">
               <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">本金</p>
-              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(product.minAmount) }}</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatNumber1(product.minAmount) }}</p>
             </div>
             <div v-if="product.interestMethod">
               <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">付息方式</p>
@@ -1840,15 +1657,15 @@ onUnmounted(() => {
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
             <div>
               <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">本金</p>
-              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(termDepositProjection.principal) }}</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatNumber1(termDepositProjection.principal) }}</p>
             </div>
             <div>
               <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">预计收益</p>
-              <p class="text-[15px] font-semibold text-amber-600 mt-1">{{ formatCurrency1(termDepositProjection.totalInterest) }}</p>
+              <p class="text-[15px] font-semibold text-amber-600 mt-1">{{ formatNumber1(termDepositProjection.totalInterest) }}</p>
             </div>
             <div>
               <p class="text-[11px] font-medium text-apple-secondary uppercase tracking-wider">到期本息</p>
-              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatCurrency1(termDepositProjection.maturityAmount) }}</p>
+              <p class="text-[15px] font-semibold text-apple-text mt-1">{{ formatNumber1(termDepositProjection.maturityAmount) }}</p>
             </div>
           </div>
           <div ref="termDepositChartRef" class="w-full h-48"></div>
@@ -2317,6 +2134,7 @@ onUnmounted(() => {
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 100px;">日涨跌</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 120px;">累计涨跌</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary">备注</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary" style="width: 70px;">操作</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-apple-border/50">
@@ -2331,6 +2149,15 @@ onUnmounted(() => {
                     {{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode) >= 0 ? '+' : '' }}{{ getNavCumulativeChange(productNavHistory, productNavHistory.length - 1 - idx, navMode).toFixed(2) }}%
                   </td>
                   <td class="px-4 py-3 text-sm text-left text-apple-secondary break-words">{{ nav.note || '-' }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-center">
+                    <button
+                      @click="handleDeleteNavHistory(nav.id)"
+                      class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/10 rounded-full transition-colors"
+                      title="删除净值记录"
+                    >
+                      <Trash2 class="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -2397,6 +2224,7 @@ onUnmounted(() => {
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 140px;">每10份派</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-right text-[11px] font-semibold text-apple-secondary" style="width: 130px;">每份派</th>
                   <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-left text-[11px] font-semibold text-apple-secondary" style="width: 150px;">派息日</th>
+                  <th class="sticky top-0 z-20 bg-[#FAFAFA] px-4 py-3 whitespace-nowrap text-center text-[11px] font-semibold text-apple-secondary" style="width: 70px;">操作</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-apple-border/50">
@@ -2412,6 +2240,15 @@ onUnmounted(() => {
                   <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-apple-text">{{ pd.per10Shares.toFixed(4) }} 元</td>
                   <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-apple-secondary">{{ pd.perShare.toFixed(4) }} 元</td>
                   <td class="px-4 py-3 whitespace-nowrap text-sm text-left text-apple-secondary">{{ pd.payDate ? new Date(pd.payDate).toLocaleDateString('zh-CN') : '-' }}</td>
+                  <td class="px-4 py-3 whitespace-nowrap text-center">
+                    <button
+                      @click="handleDeleteDividend(pd.id)"
+                      class="w-8 h-8 flex items-center justify-center text-apple-secondary hover:text-profit hover:bg-profit/10 rounded-full transition-colors"
+                      title="删除分红记录"
+                    >
+                      <Trash2 class="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>

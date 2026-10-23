@@ -5,6 +5,7 @@ const logger = createLogger('EquityApi')
 export interface NavResult {
   code?: string
   nav: number
+  accNav?: number | null
   date: string
   name: string
   dailyReturn?: number | null
@@ -54,9 +55,10 @@ export async function fetchEquityNav(equityCode: string): Promise<NavResult> {
         throw new Error(`后端返回数据格式异常`)
       }
 
-      logger.info(`权益 ${equityCode} 净值查询成功(后端API): nav=${result.nav}, date=${result.date}, name=${result.name}, dailyReturn=${result.dailyReturn}, limit=${result.purchaseLimitLabel}`)
+      logger.info(`权益 ${equityCode} 净值查询成功(后端API): nav=${result.nav}, accNav=${result.accNav}, date=${result.date}, name=${result.name}, dailyReturn=${result.dailyReturn}, limit=${result.purchaseLimitLabel}`)
       return {
         nav: result.nav,
+        accNav: result.accNav ?? null,
         date: result.date,
         name: result.name || '',
         dailyReturn: result.dailyReturn ?? null,
@@ -111,11 +113,25 @@ async function fetchEquityNavLegacy(equityCode: string): Promise<NavResult> {
     }
   }
 
+  // 解析累计净值 Data_ACWorthTrend
+  let accNav: number | null = null
+  const accTrendMatch = text.match(/var Data_ACWorthTrend\s*=\s*(\[[\s\S]+?\]);/)
+  if (accTrendMatch) {
+    try {
+      const accTrend = JSON.parse(accTrendMatch[1])
+      if (accTrend && accTrend.length > 0) {
+        const lastAcc = accTrend[accTrend.length - 1]
+        accNav = parseFloat(lastAcc[1]) || null
+      }
+    } catch (_) { /* 忽略 */ }
+  }
+
   const purchaseLimitLabel = await fetchEquityPurchaseLimit(equityCode)
 
-  logger.info(`权益 ${equityCode} 净值查询成功(旧接口): nav=${last.y}, date=${dateStr}, name=${equityName}, dailyReturn=${dailyReturn}, limit=${purchaseLimitLabel}`)
+  logger.info(`权益 ${equityCode} 净值查询成功(旧接口): nav=${last.y}, accNav=${accNav}, date=${dateStr}, name=${equityName}, dailyReturn=${dailyReturn}, limit=${purchaseLimitLabel}`)
   return {
     nav: last.y,
+    accNav,
     date: dateStr,
     name: equityName,
     dailyReturn,

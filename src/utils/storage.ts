@@ -193,6 +193,20 @@ export async function deleteNavHistory(productId: string): Promise<void> {
   })
 }
 
+// 单条删除净值记录
+export async function deleteNavHistoryRecord(id: string): Promise<void> {
+  return logger.withTiming(`DELETE /nav-history-record/${id}`, async () => {
+    const response = await fetch(`${API_BASE}/nav-history-record/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      logger.error(`删除净值记录失败: ${response.status}`)
+      throw new Error('Failed to delete nav history record')
+    }
+  })
+}
+
 // ==================== 产品分红历史（product_dividends）API ====================
 
 export async function getProductDividends(): Promise<ProductDividend[]> {
@@ -237,6 +251,20 @@ export async function batchAddProductDividends(records: Array<Omit<ProductDivide
       throw new Error('Failed to batch add product dividends')
     }
     return response.json()
+  })
+}
+
+// 单条删除分红记录
+export async function deleteProductDividendRecord(id: string): Promise<void> {
+  return logger.withTiming(`DELETE /product-dividends-record/${id}`, async () => {
+    const response = await fetch(`${API_BASE}/product-dividends-record/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    })
+    if (!response.ok) {
+      logger.error(`删除分红记录失败: ${response.status}`)
+      throw new Error('Failed to delete product dividend record')
+    }
   })
 }
 

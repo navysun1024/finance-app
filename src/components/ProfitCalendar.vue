@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { formatCurrency1 } from '@/utils/format'
+import { formatNumber1 } from '@/utils/format'
 
 interface ProductProfit {
   productName: string
@@ -272,7 +272,7 @@ const getProfitBg = (profit: number | null) => {
           亏 <span class="text-loss font-medium">{{ monthSummary.negativeDays }}</span>
         </span>
         <span :class="['font-semibold', getProfitColor(monthSummary.totalProfit)]">
-          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(monthSummary.totalProfit) }}
+          {{ monthSummary.totalProfit >= 0 ? '+' : '' }}{{ formatNumber1(monthSummary.totalProfit) }}
         </span>
       </div>
 
@@ -280,7 +280,7 @@ const getProfitBg = (profit: number | null) => {
       <div v-if="viewMode === 'year'" class="ml-auto flex items-center space-x-2 text-[10px]">
         <span class="text-apple-secondary">年度收益</span>
         <span :class="['font-semibold', getProfitColor(yearTotalProfit)]">
-          {{ yearTotalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(yearTotalProfit) }}
+          {{ yearTotalProfit >= 0 ? '+' : '' }}{{ formatNumber1(yearTotalProfit) }}
         </span>
       </div>
     </div>
@@ -350,7 +350,7 @@ const getProfitBg = (profit: number | null) => {
             v-if="item.days > 0"
             :class="['text-[11px] font-semibold', getProfitColor(item.totalProfit)]"
           >
-            {{ item.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency1(item.totalProfit) }}
+            {{ item.totalProfit >= 0 ? '+' : '' }}{{ formatNumber1(item.totalProfit) }}
           </div>
           <div v-else class="text-[11px] text-apple-secondary">-</div>
         </div>

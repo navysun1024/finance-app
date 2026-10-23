@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { TrendingUp, TrendingDown } from 'lucide-vue-next'
 import type { Position } from '@/types'
-import { formatCurrency1, formatPercent } from '@/utils/format'
+import { formatNumber1, formatPercent } from '@/utils/format'
 import { useRouter } from 'vue-router'
 import { PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 
@@ -59,7 +59,7 @@ const getProductTypeColor = (type: string) => {
     <div class="grid grid-cols-2 gap-x-4 gap-y-3">
       <div>
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">市值</p>
-        <p class="text-[15px] font-semibold text-apple-text mt-0.5">{{ formatCurrency1(position.marketValue) }}</p>
+        <p class="text-[15px] font-semibold text-apple-text mt-0.5">{{ formatNumber1(position.marketValue) }}</p>
       </div>
       <div>
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">持有天数</p>
@@ -84,7 +84,7 @@ const getProductTypeColor = (type: string) => {
       <div>
         <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">盈亏</p>
         <p :class="['text-[15px] font-semibold mt-0.5', position.profit >= 0 ? 'text-profit' : 'text-loss']">
-          {{ showProfitAmount ? formatCurrency1(position.profit) : '****' }}
+          {{ showProfitAmount ? formatNumber1(position.profit) : '****' }}
         </p>
       </div>
     </div>

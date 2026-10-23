@@ -16,7 +16,7 @@ export function formatCurrencyInt(value: number): string {
   }).format(Math.round(value))
 }
 
-export function formatCurrency1(value: number): string {
+export function formatNumber1(value: number): string {
   return new Intl.NumberFormat('zh-CN', {
     style: 'decimal',
     minimumFractionDigits: 1,
@@ -53,4 +53,18 @@ export function formatDateTime(timestamp: number): string {
 export function getDateOnly(timestamp: number): number {
   const d = new Date(timestamp)
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+/**
+ * 将 timestamp 转换为本地时间日期字符串 "YYYY-MM-DD"
+ * 不使用 toISOString（UTC 偏移可能导致日期差一天）
+ * 业务数据（nav_history, transactions 等）均以 CST 零点时间戳存储，
+ * 必须用本地时间提取日期
+ */
+export function getDateStr(timestamp: number): string {
+  const d = new Date(timestamp)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }

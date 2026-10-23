@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Edit2, Trash2, ArrowRight, Scale } from 'lucide-vue-next'
 import type { Position, ProductStatus } from '@/types'
 import { DCA_CYCLE_OPTIONS, PRODUCT_STATUS_OPTIONS } from '@/types'
-import { formatCurrency1, formatPercent, formatDate } from '@/utils/format'
+import { formatNumber1, formatPercent, formatDate } from '@/utils/format'
 
 const props = withDefaults(defineProps<{
   position: Position
@@ -206,7 +206,7 @@ const formatDuration = (durationMonths: number): string => {
     </div>
     
     <div class="mt-1.5 text-[11px]">
-      <!-- 自选模式：一行 3 列（成立天数、近1月年化、成立年化） -->
+      <!-- 自选模式：一行 3 列（成立天数、近1月年化、近1年年化） -->
       <template v-if="isWatchlistMode">
         <div class="grid grid-cols-3 gap-x-2">
           <div class="min-w-0">
@@ -223,7 +223,7 @@ const formatDuration = (durationMonths: number): string => {
             </p>
           </div>
           <div class="min-w-0 text-left">
-            <p class="text-apple-secondary/70 text-[10px]">成立年化</p>
+            <p class="text-apple-secondary/70 text-[10px]">近1年年化</p>
             <p 
               class="text-[12px] font-semibold"
               :class="(inceptionAnnualRate ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
@@ -238,7 +238,7 @@ const formatDuration = (durationMonths: number): string => {
         <div class="grid grid-cols-4 gap-x-2">
           <div class="min-w-0">
             <p class="text-apple-secondary/70 text-[10px]">市值</p>
-            <p class="text-[12px] font-semibold text-apple-text truncate">{{ formatCurrency1(position.marketValue) }}</p>
+            <p class="text-[12px] font-semibold text-apple-text truncate">{{ formatNumber1(position.marketValue) }}</p>
           </div>
           <!-- 定存产品：不显示当日收益，替换为利率 -->
           <div v-if="position.product.type !== 'term_deposit'" class="min-w-0 text-left">
@@ -269,7 +269,7 @@ const formatDuration = (durationMonths: number): string => {
               class="text-[12px] font-semibold"
               :class="showProfitAmount ? (position.profit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
             >
-              {{ showProfitAmount ? (position.profit >= 0 ? '+' : '') + formatCurrency1(position.profit) : '****' }}
+              {{ showProfitAmount ? (position.profit >= 0 ? '+' : '') + formatNumber1(position.profit) : '****' }}
             </p>
           </div>
         </div>

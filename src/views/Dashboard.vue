@@ -5,7 +5,7 @@ import ProfitCalendar from '@/components/ProfitCalendar.vue'
 import PullRefresh from '@/components/PullRefresh.vue'
 import { useFinance, PRODUCT_TYPE_OPTIONS } from '@/composables/useFinance'
 import { calculateXIRR } from '@/utils/xirr'
-import { formatCurrency, formatCurrencyInt, formatCurrency1 } from '@/utils/format'
+import { formatCurrency, formatCurrencyInt, formatNumber1 } from '@/utils/format'
 import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -100,7 +100,7 @@ const summaryByType = computed(() => {
       date: t.date, amount: t.amount, fee: t.fee
     }))
     const sellTxs = typeTransactions.filter(t => t.type === 'sell').map(t => ({
-      date: t.date, amount: t.amount
+      date: t.date, amount: t.amount - (t.fee || 0)
     }))
     const dividendTxs = typeTransactions.filter(t => t.type === 'dividend').map(t => ({
       date: t.date, amount: t.amount
@@ -444,20 +444,20 @@ const getSettingsByType = (type: string) => {
   return dashboardSettings
 }
 
-// 判断指定类型的收益是否显示
+// 判断指定类型的金额是否显示（收益率始终显示）
 const getShowProfitStatus = (type: string) => {
   const settings = getSettingsByType(type)
-  return settings.value.showProfitAmount && settings.value.showProfitRate && settings.value.showMarketValue && settings.value.showCost
+  return settings.value.showProfitAmount && settings.value.showMarketValue && settings.value.showCost
 }
 
-// 切换指定类型的收益显示/隐藏
+// 切换指定类型的金额显示/隐藏（只隐藏金额类数据，收益率保持显示）
 const toggleShowProfit = (type: string) => {
   const settings = getSettingsByType(type)
-  const current = settings.value.showProfitAmount && settings.value.showProfitRate && settings.value.showMarketValue && settings.value.showCost
+  const current = settings.value.showProfitAmount && settings.value.showMarketValue && settings.value.showCost
   settings.value.showProfitAmount = !current
-  settings.value.showProfitRate = !current
   settings.value.showMarketValue = !current
   settings.value.showCost = !current
+  // showProfitRate 始终保持 true，不参与切换
   saveDisplaySettings()
 }
 
@@ -533,7 +533,7 @@ onUnmounted(() => {
         <button
           @click="toggleShowProfit(group.type)"
           class="ml-2 p-1.5 rounded-lg hover:bg-black/5 transition-colors"
-          :title="getShowProfitStatus(group.type) ? '点击隐藏收益' : '点击显示收益'"
+          :title="getShowProfitStatus(group.type) ? '点击隐藏金额' : '点击显示金额'"
         >
           <Eye v-if="getShowProfitStatus(group.type)" class="w-4 h-4 text-apple-secondary" />
           <EyeOff v-else class="w-4 h-4 text-apple-secondary" />
@@ -545,7 +545,7 @@ onUnmounted(() => {
         <div class="mb-2.5">
           <p class="text-[12px] text-apple-secondary uppercase font-medium">总市值</p>
           <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">
-            {{ getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****' }}
+            {{ getSettingsByType(group.type).value.showMarketValue ? formatNumber1(group.totalAssets) : '****' }}
           </p>
         </div>
         <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益，与产品页完全一致） -->
@@ -556,7 +556,7 @@ onUnmounted(() => {
               class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
               :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
             >
-              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatCurrency1(group.totalProfit) : '****' }}
+              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatNumber1(group.totalProfit) : '****' }}
             </p>
           </div>
           <div class="min-w-0 text-left">
@@ -583,7 +583,7 @@ onUnmounted(() => {
               class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate"
               :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'"
             >
-              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(group.totalDailyProfit) : '****' }}
+              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalDailyProfit >= 0 ? '+' : '') + formatNumber1(group.totalDailyProfit) : '****' }}
             </p>
           </div>
         </div>
@@ -592,16 +592,16 @@ onUnmounted(() => {
       <div class="hidden md:grid grid-cols-4 gap-3">
         <div class="glass-card p-4">
           <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
-          <p class="text-[22px] font-semibold text-apple-text tracking-tight">{{ getSettingsByType(group.type).value.showMarketValue ? formatCurrency1(group.totalAssets) : '****' }}</p>
+          <p class="text-[22px] font-semibold text-apple-text tracking-tight">{{ getSettingsByType(group.type).value.showMarketValue ? formatNumber1(group.totalAssets) : '****' }}</p>
         </div>
         <div class="glass-card p-4">
           <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
           <div class="flex items-end justify-between">
             <p class="text-[22px] font-semibold tracking-tight" :class="getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatCurrency1(group.totalProfit) : '****' }}
+              {{ getSettingsByType(group.type).value.showProfitAmount ? (group.totalProfit >= 0 ? '+' : '') + formatNumber1(group.totalProfit) : '****' }}
             </p>
             <p v-if="getSettingsByType(group.type).value.showProfitAmount" class="text-[12px] ml-2 whitespace-nowrap" :class="group.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
-              {{ group.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(group.totalDailyProfit) }} 今日
+              {{ group.totalDailyProfit >= 0 ? '+' : '' }}{{ formatNumber1(group.totalDailyProfit) }} 今日
             </p>
           </div>
         </div>
@@ -652,7 +652,7 @@ onUnmounted(() => {
           <span class="w-2.5 h-2.5 rounded-full mr-2" :style="{ backgroundColor: group.color }"></span>
           <h3 class="text-[15px] font-semibold text-apple-text">{{ group.label }}分布</h3>
           <span class="ml-auto text-[12px] text-apple-secondary font-medium">
-            合计 {{ formatCurrency1(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}
+            合计 {{ formatNumber1(group.positions.reduce((s, p) => s + p.marketValue, 0)) }}
           </span>
         </div>
         <div :ref="setChartRef(group.type)" class="h-44 md:h-56"></div>

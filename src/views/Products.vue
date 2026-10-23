@@ -7,7 +7,7 @@ import { useCompare } from '@/composables/useCompare'
 import { useRouter, useRoute } from 'vue-router'
 import type { ProductType, ProductStatus, Product } from '@/types'
 import { PRODUCT_STATUS_OPTIONS, PRODUCT_SUB_TYPE_OPTIONS, DCA_CYCLE_OPTIONS } from '@/types'
-import { formatCurrency1, formatPercent, getDateOnly } from '@/utils/format'
+import { formatNumber1, formatPercent, getDateOnly } from '@/utils/format'
 import { calculateXIRR } from '@/utils/xirr'
 import { fetchEquityStageGainsBatch, fetchAggregatedHoldings, fetchCmbNavBatch, fetchEquityNav, type StageGains, type AggregatedHoldingsResult, type AggregatedStock } from '@/utils/equityApi'
 import { addNavHistoryRecord } from '@/utils/storage'
@@ -21,7 +21,7 @@ const props = defineProps<{
   type?: ProductType
 }>()
 
-const { products, addProduct, updateProduct, calculatePosition, getNavHistoryByProductId, getProductDividendsByProduct, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, equitySettings, fixedIncomeSettings, saveDisplaySettings, refresh } = useFinance()
+const { products, addProduct, updateProduct, calculatePosition, getNavHistoryByProductId, getProductDividendsByProduct, getTransactionsByProductId, PRODUCT_TYPE_OPTIONS, transactions, equitySettings, fixedIncomeSettings, termDepositSettings, saveDisplaySettings, refresh } = useFinance()
 
 const { toggleCompare, isInCompare, compareType, compareIds, switchType, clearCompare } = useCompare()
 
@@ -518,7 +518,7 @@ const openComparePanel = async () => {
 
 // 根据当前页面类型选择对应的显示设置
 const pageSettings = computed(() => {
-  return props.type === 'equity' ? equitySettings.value : fixedIncomeSettings.value
+  return props.type === 'equity' ? equitySettings.value : props.type === 'term_deposit' ? termDepositSettings.value : fixedIncomeSettings.value
 })
 const router = useRouter()
 const route = useRoute()
@@ -537,13 +537,15 @@ const openProductDetail = (id: string) => {
   window.open(base + url, '_blank')
 }
 
-// 切换当前页面的所有显示控制
+// 切换当前页面的金额显示控制（只隐藏金额类数据，收益率保持显示）
 const togglePageDisplay = () => {
-  const current = pageSettings.value.showProfitAmount && pageSettings.value.showProfitRate && pageSettings.value.showMarketValue && pageSettings.value.showCost
-  pageSettings.value.showProfitAmount = !current
-  pageSettings.value.showProfitRate = !current
+  // 金额类：市值、收益金额、成本（切换隐藏）
+  // 收益率：百分比率（始终保持显示）
+  const current = pageSettings.value.showMarketValue && pageSettings.value.showProfitAmount && pageSettings.value.showCost
   pageSettings.value.showMarketValue = !current
+  pageSettings.value.showProfitAmount = !current
   pageSettings.value.showCost = !current
+  // showProfitRate 始终保持 true，不参与切换
   saveDisplaySettings()
 }
 
@@ -552,15 +554,6 @@ const editingProduct = ref<typeof products.value[0] | null>(null)
 const searchQuery = ref('')
 const filterType = ref<ProductType | 'all'>('all')
 const filterStatus = ref<ProductStatus | 'all'>(props.type === 'term_deposit' ? 'holding' : 'holding')
-const filterSubType = ref<string>('all')
-
-// 当前页面适用的子类型选项
-const filteredSubTypeOptions = computed(() => {
-  const currentType = props.type || filterType.value
-  return PRODUCT_SUB_TYPE_OPTIONS.filter(opt =>
-    opt.applicableTypes.includes(currentType as ProductType)
-  )
-})
 
 const filterStatusOptions = computed(() => {
   if (props.type === 'term_deposit') {
@@ -1069,12 +1062,16 @@ const summaryStats = computed(() => {
     date: t.date, amount: t.amount, fee: t.fee
   }))
   const sellTxs = typeTransactions.filter(t => t.type === 'sell').map(t => ({
-    date: t.date, amount: t.amount
+    date: t.date, amount: t.amount - (t.fee || 0)
   }))
   const dividendTxs = typeTransactions.filter(t => t.type === 'dividend').map(t => ({
     date: t.date, amount: t.amount
   }))
-  const portfolioAnnualRate = calculateXIRR(buyTxs, sellTxs, dividendTxs, totalMarketValue) * 100
+  let portfolioAnnualRate = calculateXIRR(buyTxs, sellTxs, dividendTxs, totalMarketValue) * 100
+  // 定存等无交易记录的场景下 XIRR 为 0，回退到按产品利率加权的年化
+  if (!portfolioAnnualRate || !isFinite(portfolioAnnualRate)) {
+    portfolioAnnualRate = annualRate
+  }
   
   return {
     count: filteredProducts.value.length,
@@ -1147,9 +1144,6 @@ const filteredProducts = computed(() => {
   }
   if (filterStatus.value !== 'all') {
     result = result.filter(p => productStatusMap.value.get(p.id) === filterStatus.value)
-  }
-  if (filterSubType.value !== 'all') {
-    result = result.filter(p => (p.subType || '') === filterSubType.value)
   }
   result.sort((a, b) => {
     const posA = positionMap.value.get(a.id)
@@ -1248,7 +1242,7 @@ const subTypeGroups = computed<SubTypeGroup[]>(() => {
 
 /** 根据产品类型计算表格总列数，用于分组标题行的 colspan */
 const tableColSpan = computed(() => {
-  if (props.type === 'equity') return 11
+  if (props.type === 'equity') return 12
   if (props.type === 'fixed_income') return 12
   if (props.type === 'term_deposit') return 10
   return 1
@@ -1273,6 +1267,16 @@ const getDcaLabel = (dcaAmount: number, dcaCycle: string) => {
   if (!dcaAmount || !dcaCycle) return ''
   const cycleOption = DCA_CYCLE_OPTIONS.find(o => o.value === dcaCycle)
   return cycleOption ? `${dcaAmount}元/${cycleOption.label}` : ''
+}
+
+// 从限购原始文本中提取简洁金额显示
+const formatPurchaseLimit = (raw: string | null | undefined): string => {
+  if (!raw) return ''
+  if (raw.includes('不限购')) return '不限购'
+  if (raw.includes('暂停申购')) return '暂停'
+  const m = raw.match(/(\d+(?:\.\d+)?\s*万?元)/)
+  if (m) return m[1].replace(/\s+/g, '')
+  return raw
 }
 
 // 计算定期存款进度
@@ -1505,12 +1509,12 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
             {{ props.type === 'equity' ? '权益' : props.type === 'fixed_income' ? '固收理财' : props.type === 'term_deposit' ? '定期存款' : '产品' }}
           </h2>
           <button
-            v-if="props.type === 'equity' || props.type === 'fixed_income'"
+            v-if="props.type === 'equity' || props.type === 'fixed_income' || props.type === 'term_deposit'"
             @click="togglePageDisplay()"
             class="p-1.5 rounded-lg hover:bg-black/5 transition-colors"
-            :title="(pageSettings.showProfitAmount && pageSettings.showProfitRate && pageSettings.showMarketValue && pageSettings.showCost) ? '点击隐藏收益' : '点击显示收益'"
+            :title="(pageSettings.showProfitAmount && pageSettings.showMarketValue && pageSettings.showCost) ? '点击隐藏金额' : '点击显示金额'"
           >
-            <Eye v-if="pageSettings.showProfitAmount && pageSettings.showProfitRate && pageSettings.showMarketValue && pageSettings.showCost" class="w-4 h-4 text-apple-secondary" />
+            <Eye v-if="pageSettings.showProfitAmount && pageSettings.showMarketValue && pageSettings.showCost" class="w-4 h-4 text-apple-secondary" />
             <EyeOff v-else class="w-4 h-4 text-apple-secondary" />
           </button>
         </div>
@@ -1568,14 +1572,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
       <!-- 第一行：总市值 -->
       <div class="mb-2.5">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
-        <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+        <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatNumber1(summaryStats.totalMarketValue) : '****' }}</p>
       </div>
       <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益） -->
       <div class="grid grid-cols-4 gap-x-2 border-t border-black/5 pt-2.5">
         <div class="min-w-0">
           <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
           <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatNumber1(summaryStats.totalProfit) : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
@@ -1593,7 +1597,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
         <div class="min-w-0 text-left">
           <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
           <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-            {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalDailyProfit) : '****' }}
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatNumber1(summaryStats.totalDailyProfit) : '****' }}
           </p>
         </div>
       </div>
@@ -1602,16 +1606,16 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
     <div class="hidden md:grid grid-cols-4 gap-3">
       <div class="glass-card p-4">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">总市值</p>
-        <p class="text-[22px] font-semibold text-apple-text tracking-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+        <p class="text-[22px] font-semibold text-apple-text tracking-tight">{{ pageSettings.showMarketValue ? formatNumber1(summaryStats.totalMarketValue) : '****' }}</p>
       </div>
       <div class="glass-card p-4">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium mb-1.5">持仓收益</p>
         <div class="flex items-end justify-between">
           <p class="text-[22px] font-semibold tracking-tight" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatNumber1(summaryStats.totalProfit) : '****' }}
           </p>
           <p v-if="pageSettings.showProfitAmount" class="text-[12px] ml-2 whitespace-nowrap" :class="summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss'">
-            {{ summaryStats.totalDailyProfit >= 0 ? '+' : '' }}{{ formatCurrency1(summaryStats.totalDailyProfit) }} 今日
+            {{ summaryStats.totalDailyProfit >= 0 ? '+' : '' }}{{ formatNumber1(summaryStats.totalDailyProfit) }} 今日
           </p>
         </div>
       </div>
@@ -1639,14 +1643,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
       <!-- 第一行：总市值 -->
       <div class="mb-2.5">
         <p class="text-[12px] text-apple-secondary uppercase tracking-wider font-medium">总市值</p>
-        <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatCurrency1(summaryStats.totalMarketValue) : '****' }}</p>
+        <p class="text-[24px] font-semibold text-apple-text tracking-tight leading-tight">{{ pageSettings.showMarketValue ? formatNumber1(summaryStats.totalMarketValue) : '****' }}</p>
       </div>
       <!-- 第二行：4 项指标同一行（持仓收益 / 总收益率 / 年化收益率 / 今日收益） -->
       <div class="grid grid-cols-4 gap-x-2 border-t border-black/5 pt-2.5">
         <div class="min-w-0">
           <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">持仓收益</p>
           <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalProfit) : '****' }}
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalProfit >= 0 ? '+' : '') + formatNumber1(summaryStats.totalProfit) : '****' }}
           </p>
         </div>
         <div class="min-w-0 text-left">
@@ -1664,7 +1668,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
         <div class="min-w-0 text-left">
           <p class="text-[13px] text-apple-secondary uppercase font-medium leading-tight">今日收益</p>
           <p class="text-[15px] font-semibold tracking-tight leading-tight mt-0.5 truncate" :class="pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? 'text-profit' : 'text-loss') : 'text-apple-secondary'">
-            {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatCurrency1(summaryStats.totalDailyProfit) : '****' }}
+            {{ pageSettings.showProfitAmount ? (summaryStats.totalDailyProfit >= 0 ? '+' : '') + formatNumber1(summaryStats.totalDailyProfit) : '****' }}
           </p>
         </div>
       </div>
@@ -1760,7 +1764,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                 </div>
               </td>
               <td class="px-2 py-2.5 text-apple-secondary text-[12px]">{{ stock.code }}</td>
-              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatCurrency1(stock.totalValue) }}</td>
+              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatNumber1(stock.totalValue) }}</td>
               <td class="px-2 py-2.5 text-right whitespace-nowrap">
                 <span class="apple-tag bg-primary-50 text-primary-500 text-[11px]">
                   {{ stock.ratio.toFixed(2) }}%
@@ -1805,7 +1809,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                 </div>
               </td>
               <td class="px-2 py-2.5 text-apple-secondary/50 text-[12px]">—</td>
-              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatCurrency1(cat.totalValue) }}</td>
+              <td class="px-2 py-2.5 text-right font-medium text-apple-text text-[13px] whitespace-nowrap">{{ formatNumber1(cat.totalValue) }}</td>
               <td class="px-2 py-2.5 text-right whitespace-nowrap">
                 <span 
                   class="apple-tag text-[11px]"
@@ -1891,7 +1895,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
             class="inline-flex items-center px-2 py-1 rounded-md bg-orange-100 text-orange-700 text-[11px] gap-1.5 cursor-pointer hover:bg-orange-200 transition-colors select-none"
           >
             <span class="font-mono">{{ fund.code }}</span>
-            <span class="text-orange-500/70">{{ formatCurrency1(fund.marketValue) }}</span>
+            <span class="text-orange-500/70">{{ formatNumber1(fund.marketValue) }}</span>
           </span>
         </div>
       </div>
@@ -1934,33 +1938,22 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
     <div class="flex items-center gap-2 sm:gap-3">
       <!-- 搜索框 -->
       <div class="relative flex-1 min-w-0">
-        <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-apple-secondary" />
+        <Search class="absolute left-3 md:left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 md:w-[18px] md:h-[18px] text-apple-secondary" />
         <input 
           v-model="searchQuery"
           type="text" 
           placeholder="搜索产品名称、代码、持有人或备注..."
-          class="glass-input w-full pl-10 pr-4 py-2.5 rounded-apple outline-none text-[15px]"
+          class="glass-input w-full pl-9 pr-3 py-1.5 md:pl-10 md:pr-4 md:py-2.5 rounded-apple outline-none !text-[13px] md:!text-[15px]"
         />
       </div>
       <!-- 产品类型（仅"全部产品"页面显示） -->
       <select 
         v-if="!props.type"
         v-model="filterType"
-        class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px] flex-shrink-0 min-w-[100px] touch-target min-h-[44px]"
+        class="glass-input px-2.5 py-1.5 md:px-4 md:py-2.5 rounded-apple outline-none !text-[13px] md:!text-[15px] flex-shrink-0 min-w-[78px] min-h-[34px] md:min-w-[100px] md:min-h-[44px]"
       >
         <option value="all">全部类型</option>
         <option v-for="option in PRODUCT_TYPE_OPTIONS" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
-      <!-- 二级属性筛选（仅固定类型页面或已选择类型时显示） -->
-      <select
-        v-if="filteredSubTypeOptions.length > 2"
-        v-model="filterSubType"
-        class="glass-input px-4 py-2.5 rounded-apple outline-none text-[15px] flex-shrink-0 min-w-[110px] touch-target min-h-[44px]"
-      >
-        <option value="all">全部属性</option>
-        <option v-for="option in filteredSubTypeOptions" :key="option.value" :value="option.value">
           {{ option.label }}
         </option>
       </select>
@@ -1970,7 +1963,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
           v-for="status in filterStatusOptions"
           :key="status"
           @click="filterStatus = status"
-          class="px-3 py-2 text-[13px] font-medium transition-all touch-target min-h-[40px]"
+          class="px-2.5 py-1.5 md:px-3 md:py-2 text-[12px] md:text-[13px] font-medium transition-all inline-flex items-center justify-center min-h-[34px] md:min-h-[40px]"
           :class="filterStatus === status 
             ? 'bg-primary-500 text-white' 
             : 'bg-transparent text-apple-secondary hover:text-apple-text'"
@@ -1983,7 +1976,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
     <!-- 移动端表格布局（固定产品列 + 横向滚动） -->
     <div v-if="subTypeGroups.length > 0" class="md:hidden glass-card glass-table-card overflow-hidden -mx-3 md:mx-0 rounded-[var(--apple-radius-lg)]">
       <div class="mobile-table-scroll rounded-[var(--apple-radius-lg)]">
-        <div :class="props.type === 'term_deposit' ? 'min-w-[750px]' : props.type === 'fixed_income' ? 'min-w-[830px]' : 'min-w-[770px]'">
+        <div :class="props.type === 'term_deposit' ? 'min-w-[750px]' : props.type === 'fixed_income' ? 'min-w-[830px]' : 'min-w-[922px]'">
           <table :class="['w-full apple-table mobile-product-table rounded-[var(--apple-radius-lg)]', { 'term-deposit-table': props.type === 'term_deposit' }]">
             <thead>
               <tr>
@@ -2240,15 +2233,23 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                     <ArrowDown v-else class="w-2.5 h-2.5 text-primary-500" />
                   </span>
                 </th>
+                <th
+                  v-if="props.type === 'equity'"
+                  class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap select-none"
+                  style="width: 72px; min-width: 72px; max-width: 72px;"
+                >
+                  限购
+                </th>
                 <th class="px-2 py-2 text-center text-[10px] font-semibold text-apple-secondary uppercase tracking-wider whitespace-nowrap" style="width: 56px; min-width: 56px; max-width: 56px;">操作</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-apple-border/50">
               <template v-for="group in subTypeGroups" :key="group.subType">
                 <tr class="bg-gray-50 border-t border-apple-border/30">
-                  <td :colspan="tableColSpan" class="px-2 py-1.5 text-[10px] text-apple-secondary font-medium">{{ group.label }} ({{ group.products.length }})</td>
+                  <td class="sticky bg-gray-50 px-2 py-1.5 text-[10px] text-apple-secondary font-medium left-0" style="width: 155px; min-width: 155px; max-width: 155px;">{{ group.label }} ({{ group.products.length }})</td>
+                  <td :colspan="tableColSpan - 1" class="bg-gray-50"></td>
                 </tr>
-                <tr 
+                <tr
                   v-for="product in group.products" 
                   :key="product.id" 
                   class="hover:bg-primary-50/30 transition-colors"
@@ -2299,14 +2300,9 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                         </span>
                       </template>
                     </div>
-                    <div v-if="props.type === 'equity' && product.purchaseLimit" class="mt-0.5">
-                      <span 
-                        class="text-[10px] text-amber-500 truncate block max-w-[150px]" 
-                        :title="product.purchaseLimit"
-                      >{{ product.purchaseLimit }}</span>
-                    </div>
                   </div>
                 </td>
+
                 <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 58px; min-width: 58px; max-width: 58px;">
                   <template v-if="getRowData(product).dailyReturn">
                     <p
@@ -2326,7 +2322,10 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                   </template>
                 </td>
                 <td v-if="props.type !== 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 65px; min-width: 65px; max-width: 65px;">
-                  <template v-if="getRowData(product).dailyProfit !== null">
+                  <template v-if="!pageSettings.showProfitAmount">
+                    <p class="text-[12px] font-semibold text-apple-secondary">****</p>
+                  </template>
+                  <template v-else-if="getRowData(product).dailyProfit !== null">
                     <p
                       class="text-[12px] font-semibold"
                       :class="(getRowData(product).dailyProfit ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
@@ -2374,7 +2373,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                       class="text-[12px] font-semibold"
                       :class="(getPosition(product.id) as any).profit >= 0 ? 'text-profit' : 'text-loss'"
                     >
-                      {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency1((getPosition(product.id) as any).profit) }}
+                      {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatNumber1((getPosition(product.id) as any).profit) }}
                     </p>
                   </template>
                   <template v-else-if="getPosition(product.id) && !pageSettings.showProfitAmount">
@@ -2385,9 +2384,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                   </template>
                 </td>
                 <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 70px; min-width: 70px; max-width: 70px;">
-                  <p class="text-[12px] font-semibold text-apple-text">
-                    {{ getTermDepositMaturityProfit(product, getPosition(product.id)) !== null ? Math.round(getTermDepositMaturityProfit(product, getPosition(product.id)) as number).toLocaleString() : '-' }}
-                  </p>
+                  <template v-if="pageSettings.showProfitAmount">
+                    <p class="text-[12px] font-semibold text-apple-text">
+                      {{ getTermDepositMaturityProfit(product, getPosition(product.id)) !== null ? Math.round(getTermDepositMaturityProfit(product, getPosition(product.id)) as number).toLocaleString() : '-' }}
+                    </p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[12px] font-semibold text-apple-secondary">****</p>
+                  </template>
                 </td>
                 <td v-if="props.type === 'term_deposit'" class="px-2 py-2 text-right whitespace-nowrap" style="width: 55px; min-width: 55px; max-width: 55px;">
                   <p class="text-[12px] font-semibold text-apple-text">{{ formatDuration(product.durationMonths || 0) }}</p>
@@ -2518,6 +2522,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                 <td v-if="props.type !== 'equity'" class="px-2 py-2 text-center whitespace-nowrap" style="width: 55px; min-width: 55px; max-width: 55px;">
                   <p class="text-[12px] text-apple-secondary">{{ product.holder || '-' }}</p>
                 </td>
+                <td v-if="props.type === 'equity'" class="px-2 py-2 text-center whitespace-nowrap" style="width: 72px; min-width: 72px; max-width: 72px;">
+                  <template v-if="product.purchaseLimit">
+                    <p class="text-[12px] text-apple-secondary truncate" :title="product.purchaseLimit">{{ formatPurchaseLimit(product.purchaseLimit) }}</p>
+                  </template>
+                  <template v-else>
+                    <p class="text-[12px] text-apple-secondary">-</p>
+                  </template>
+                </td>
                 <td class="px-2 py-2 text-center whitespace-nowrap" @click.stop style="width: 56px; min-width: 56px; max-width: 56px;">
                   <div class="flex items-center justify-center space-x-0">
                     <button
@@ -2556,7 +2568,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
 
     <!-- 桌面端表格布局 -->
     <div v-if="subTypeGroups.length > 0" class="hidden md:block glass-card overflow-hidden">
-      <div class="overflow-x-auto">
+      <div class="overflow-auto max-h-[840px]">
         <table :class="['w-full apple-table', { 'term-deposit-table': props.type === 'term_deposit' }]">
           <thead>
             <tr>
@@ -2571,6 +2583,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </div>
               </th>
+
               <th
                 v-if="props.type !== 'term_deposit'"
                 class="px-2 py-2.5 text-right text-[11px] font-semibold text-apple-secondary uppercase tracking-wider cursor-pointer hover:bg-black/4 transition-colors select-none relative pr-3"
@@ -2803,7 +2816,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                   <ArrowDown v-else class="w-3 h-3 text-primary-500" />
                 </span>
               </th>
-              <th class="px-2 py-2.5 text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider w-16">操作</th>
+              <th
+                v-if="props.type === 'equity'"
+                class="px-2 py-2.5 text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider select-none"
+                style="width: 90px; min-width: 90px; max-width: 90px;"
+              >
+                <span>限购</span>
+              </th>
+                            <th class="px-2 py-2.5 text-center text-[11px] font-semibold text-apple-secondary uppercase tracking-wider w-16">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-apple-border/50">
@@ -2862,7 +2882,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                     <!-- 定存产品特有信息 -->
                     <template v-if="product.type === 'term_deposit'">
                       <span v-if="product.bankName" class="text-[11px] text-apple-secondary shrink-0">{{ product.bankName }}</span>
-                      <span v-if="product.minAmount" class="text-[11px] text-apple-secondary shrink-0">本金{{ product.minAmount.toLocaleString() }}元</span>
+                      <span v-if="product.minAmount && pageSettings.showCost" class="text-[11px] text-apple-secondary shrink-0">本金{{ product.minAmount.toLocaleString() }}元</span>
                     </template>
                     <!-- 其他产品类型信息 -->
                     <template v-else>
@@ -2881,8 +2901,6 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                         </a>
                       </span>
                       <span v-if="product.type === 'fixed_income' && (product as any).holdingTerm" class="text-[11px] text-fixed-income shrink-0 bg-fixed-income/5 px-1.5 py-0.5 rounded">期限: {{ (product as any).holdingTerm }}</span>
-                      <!-- PC端权益产品显示限购信息（不显示备注） -->
-                      <span v-if="props.type === 'equity' && product.purchaseLimit" class="text-[11px] text-amber-500 truncate max-w-[150px]" :title="product.purchaseLimit">{{ product.purchaseLimit }}</span>
                       <span v-if="product.dcaAmount && product.dcaCycle" class="text-[11px] text-primary-500 shrink-0">定投: {{ getDcaLabel(product.dcaAmount, product.dcaCycle) }}</span>
                     </template>
                   </div>
@@ -2907,7 +2925,10 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                 </template>
               </td>
               <td v-if="props.type !== 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
-                <template v-if="getRowData(product).dailyProfit !== null">
+                <template v-if="!pageSettings.showProfitAmount">
+                  <p class="text-[14px] font-semibold text-apple-secondary">****</p>
+                </template>
+                <template v-else-if="getRowData(product).dailyProfit !== null">
                   <p
                     class="text-[14px] font-semibold"
                     :class="(getRowData(product).dailyProfit ?? 0) >= 0 ? 'text-profit' : 'text-loss'"
@@ -2958,7 +2979,7 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
                     class="text-[14px] font-semibold"
                     :class="(getPosition(product.id) as any).profit >= 0 ? 'text-profit' : 'text-loss'"
                   >
-                    {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatCurrency1((getPosition(product.id) as any).profit) }}
+                    {{ (getPosition(product.id) as any).profit >= 0 ? '+' : '' }}{{ formatNumber1((getPosition(product.id) as any).profit) }}
                   </p>
                 </template>
                 <template v-else-if="getPosition(product.id) && !pageSettings.showProfitAmount">
@@ -2970,9 +2991,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
               </td>
               <!-- 定存产品特有列：到期收益 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
-                <p class="text-[14px] font-semibold text-apple-text">
-                  {{ getTermDepositMaturityProfit(product, getPosition(product.id)) !== null ? Math.round(getTermDepositMaturityProfit(product, getPosition(product.id)) as number).toLocaleString() : '-' }}
-                </p>
+                <template v-if="pageSettings.showProfitAmount">
+                  <p class="text-[14px] font-semibold text-apple-text">
+                    {{ getTermDepositMaturityProfit(product, getPosition(product.id)) !== null ? Math.round(getTermDepositMaturityProfit(product, getPosition(product.id)) as number).toLocaleString() : '-' }}
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="text-[14px] font-semibold text-apple-secondary">****</p>
+                </template>
               </td>
               <!-- 定存产品特有列：期限 -->
               <td v-if="props.type === 'term_deposit'" class="px-2 py-3 text-right whitespace-nowrap">
@@ -3108,6 +3134,14 @@ const handleSubmit = (data: { name: string; type: ProductType; subType: string; 
               </td>
               <td v-if="props.type !== 'equity'" class="px-2 py-3 text-center whitespace-nowrap">
                 <p class="text-[14px] text-apple-secondary">{{ product.holder || '-' }}</p>
+              </td>
+              <td v-if="props.type === 'equity'" class="px-2 py-3 text-center whitespace-nowrap" style="width: 90px; min-width: 90px; max-width: 90px;">
+                <template v-if="product.purchaseLimit">
+                  <p class="text-[14px] text-apple-secondary truncate" :title="product.purchaseLimit">{{ formatPurchaseLimit(product.purchaseLimit) }}</p>
+                </template>
+                <template v-else>
+                  <p class="text-[13px] text-apple-secondary">-</p>
+                </template>
               </td>
               <td class="px-2 py-3 text-center whitespace-nowrap" @click.stop>
                 <div class="flex items-center justify-center space-x-0.5">

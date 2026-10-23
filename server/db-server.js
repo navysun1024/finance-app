@@ -229,32 +229,16 @@ db.run(`
 `)
 
 // ==================== 数据迁移：transactions.nav_update → nav_history ====================
+// 注：nav_history 已改为 code 维度存储，迁移脚本已在 nav_history_migration_done 标记后完成
+// 启动时直接标记完成（如果尚未标记），不再执行迁移逻辑
 db.get('SELECT value FROM app_meta WHERE key = ?', ['nav_history_migration_done'], (err, row) => {
   if (row) {
     log('[迁移] nav_history 数据已迁移过，跳过')
     return
   }
-  log('[迁移] 开始将 transactions 中的 nav_update 迁移到 nav_history...')
-  db.all('SELECT * FROM transactions WHERE type = "nav_update"', [], (err, rows) => {
-    if (err) { log(`[迁移] 读取 nav_update 失败: ${err.message}`, 'ERROR'); return }
-    if (!rows || rows.length === 0) {
-      log('[迁移] 无 nav_update 记录，标记迁移完成')
-      db.run('INSERT OR REPLACE INTO app_meta (key, value, updatedAt) VALUES (?, ?, ?)',
-        ['nav_history_migration_done', '1', Date.now()])
-      return
-    }
-    let migrated = 0
-    // 旧迁移脚本：nav_history 已改 code 维度，此脚本不再适用
-    // const stmt = db.prepare('INSERT OR IGNORE INTO nav_history (id, code, date, nav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-    for (const r of rows) {
-      // stmt.run(r.id, products.find(...).code, r.date, r.price, r.note || '', r.date)
-      migrated++
-    }
-    stmt.finalize()
-    db.run('INSERT OR REPLACE INTO app_meta (key, value, updatedAt) VALUES (?, ?, ?)',
-      ['nav_history_migration_done', '1', Date.now()])
-    log(`[迁移] 完成，共迁移 ${migrated} 条 nav_update 记录到 nav_history`)
-  })
+  db.run('INSERT OR REPLACE INTO app_meta (key, value, updatedAt) VALUES (?, ?, ?)',
+    ['nav_history_migration_done', '1', Date.now()])
+  log('[迁移] nav_history 迁移标记已设置（迁移脚本已废弃，直接标记完成）')
 })
 
 // ==================== 产品分红历史表（product_dividends） ====================
@@ -318,13 +302,16 @@ db.get('SELECT value FROM app_meta WHERE key = ?', ['product_dividends_migration
         return
       }
 
-      // 产品名查找表（用于从 note 反推 per10Shares）
-      db.all('SELECT id, name FROM products', [], (err2, products) => {
+      // 产品查找表：productId → code（product_dividends 是 code 维度，无 userId/productId 列）
+      db.all('SELECT id, code FROM products', [], (err2, products) => {
         if (err2) { log(`[迁移] 读取产品失败: ${err2.message}`, 'ERROR'); return }
-        const productNameMap = new Map((products || []).map(p => [p.id, p.name]))
+        const productCodeMap = new Map((products || []).map(p => [p.id, p.code]))
 
         let migrated = 0
         for (const tx of rows) {
+          const code = productCodeMap.get(tx.productId)
+          if (!code) continue  // 无对应产品，跳过
+
           // 从 note 解析 per10Shares: "[历史分红] 每10份派现金0.1500元 (登记日无持仓, 金额=0)"
           const per10Match = (tx.note || '').match(/每10份派[^0-9]*([\d.]+)/)
           const per10 = per10Match ? parseFloat(per10Match[1]) : (tx.price || 0) * 10
@@ -336,8 +323,8 @@ db.get('SELECT value FROM app_meta WHERE key = ?', ['product_dividends_migration
 
           const pdId = generateId()
           db.run(
-            'INSERT OR IGNORE INTO product_dividends (id, userId, productId, registerDate, exDate, payDate, dividendType, perShare, per10Shares, splitRatio, year, source, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [pdId, tx.userId, tx.productId, registerDate, registerDate, payDate, 'cash', per10 / 10, per10, null, '', 'migrated', Date.now()],
+            'INSERT OR IGNORE INTO product_dividends (id, code, registerDate, exDate, payDate, dividendType, perShare, per10Shares, splitRatio, year, source, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [pdId, code, registerDate, registerDate, payDate, 'cash', per10 / 10, per10, null, '', 'migrated', Date.now()],
             () => { migrated++ }
           )
         }
@@ -1201,6 +1188,21 @@ app.post('/api/nav-history/batch', authenticate, async (req, res) => {
 })
 
 // 删除产品的全部净值历史
+// 删除单条净值记录
+app.delete('/api/nav-history-record/:id', authenticate, (req, res) => {
+  const { id } = req.params
+  db.run('DELETE FROM nav_history WHERE id = ?', [id], function (err) {
+    if (err) {
+      log(`[nav_history] 单条删除失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    if (this.changes === 0) return res.status(404).json({ error: '记录不存在' })
+    log(`[nav_history] 单条删除成功: id=${id}`)
+    res.json({ success: true })
+  })
+})
+
+// 删除产品的全部净值历史
 app.delete('/api/nav-history/:productId', authenticate, async (req, res) => {
   const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
   if (!product || !product.code) return res.json({ success: true, affected: 0 })
@@ -1296,6 +1298,20 @@ app.post('/api/product-dividends/batch', authenticate, async (req, res) => {
   res.json({ success: true, inserted, total: records.length })
 })
 
+// 删除单条分红记录
+app.delete('/api/product-dividends-record/:id', authenticate, (req, res) => {
+  const { id } = req.params
+  db.run('DELETE FROM product_dividends WHERE id = ?', [id], function (err) {
+    if (err) {
+      log(`[product_dividends] 单条删除失败: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: err.message })
+    }
+    if (this.changes === 0) return res.status(404).json({ error: '记录不存在' })
+    log(`[product_dividends] 单条删除成功: id=${id}`)
+    res.json({ success: true })
+  })
+})
+
 // 删除产品的全部分红历史
 app.delete('/api/product-dividends/:productId', authenticate, async (req, res) => {
   const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
@@ -1309,177 +1325,10 @@ app.delete('/api/product-dividends/:productId', authenticate, async (req, res) =
   })
 })
 
-app.get('/products', authenticate, (req, res) => {
-  db.all('SELECT * FROM products WHERE userId = ? ORDER BY createdAt DESC', [req.userId], (err, rows) => {
-    if (err) {
-      log(`[legacy] 查询产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-      res.status(500).json({ error: err.message })
-    } else {
-      log(`[legacy] 查询产品 - userId: ${req.userId}, 数量: ${rows?.length || 0}`)
-      res.json(rows)
-    }
-  })
-})
-
-app.post('/products', authenticate, (req, res) => {
-  const products = req.body
-  log(`[legacy] 保存产品 - userId: ${req.userId}, 数量: ${products?.length || 0}`)
-  // 先保存现有限购信息，避免 DELETE+INSERT 覆盖
-  db.all('SELECT id, purchaseLimit FROM products WHERE userId = ?', [req.userId], (err, existingRows) => {
-    if (err) {
-      log(`[legacy] 查询现有限购信息失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-      return res.status(500).json({ error: err.message })
-    }
-    const existingPurchaseLimit = new Map()
-    for (const row of existingRows || []) {
-      if (row.purchaseLimit) existingPurchaseLimit.set(row.id, row.purchaseLimit)
-    }
-    db.run('BEGIN TRANSACTION', () => {
-      db.run('DELETE FROM products WHERE userId = ?', [req.userId], (err) => {
-        if (err) {
-          log(`[legacy] 清空产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-          db.run('ROLLBACK')
-          return res.status(500).json({ error: '清空旧数据失败' })
-        }
-
-        // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
-        const incomingIds = products.map(p => p.id)
-        if (incomingIds.length === 0) {
-          log(`[legacy] 保存产品成功 - userId: ${req.userId}, 数量: 0`)
-          return res.json({ success: true, idMapping: {} })
-        }
-
-        db.all(
-          'SELECT id, userId FROM products WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
-          incomingIds,
-          (err, existingProducts) => {
-            if (err) {
-              log(`[legacy] 检查产品ID冲突失败: ${err.message}`, 'ERROR')
-              db.run('ROLLBACK')
-              return res.status(500).json({ error: '检查ID冲突失败' })
-            }
-
-            // 构建ID映射：旧ID -> 新ID（仅对冲突的ID生成新ID）
-            const idMapping = {}
-            const conflictingIds = new Set(
-              existingProducts.filter(p => p.userId !== req.userId).map(p => p.id)
-            )
-
-            const stmt = db.prepare('INSERT INTO products (id, userId, name, type, code, note, holder, dcaAmount, dcaCycle, navSource, holdingTerm, benchmarkEnabled, benchmarkFormula, createdAt, interestRate, durationMonths, minAmount, maturityDate, interestMethod, bankName, purchaseLimit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            products.forEach(p => {
-              let finalId = p.id
-              if (conflictingIds.has(p.id)) {
-                finalId = generateId()
-                idMapping[p.id] = finalId
-                log(`[legacy] 产品ID冲突，生成新ID: ${p.id} -> ${finalId}`)
-              }
-              // 保留现有限购信息：前端未传或为空时，使用数据库已有值
-              const purchaseLimit = p.purchaseLimit || existingPurchaseLimit.get(p.id) || ''
-              stmt.run(finalId, req.userId, p.name, p.type, p.code || '', p.note || '', p.holder || '', p.dcaAmount || 0, p.dcaCycle || '', p.navSource || '', p.holdingTerm || '', p.benchmarkEnabled ? 1 : 0, p.benchmarkFormula || '', p.createdAt, p.interestRate || 0, p.durationMonths || 0, p.minAmount || 0, p.maturityDate || '', p.interestMethod || '', p.bankName || '', purchaseLimit)
-            })
-          
-          stmt.finalize((err) => {
-            if (err) {
-              log(`[legacy] 写入产品失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-              db.run('ROLLBACK')
-              return res.status(500).json({ error: '数据写入失败' })
-            }
-            db.run('COMMIT', (err) => {
-              if (err) {
-                log(`[legacy] 产品事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-                db.run('ROLLBACK')
-                return res.status(500).json({ error: '事务提交失败' })
-              }
-              log(`[legacy] 保存产品成功 - userId: ${req.userId}, 数量: ${products.length}`)
-              res.json({ success: true, idMapping })
-            })
-          })
-        }
-      )
-    })
-  })
-  })
-})
-
-app.get('/transactions', authenticate, (req, res) => {
-  db.all('SELECT * FROM transactions WHERE userId = ? ORDER BY date DESC', [req.userId], (err, rows) => {
-    if (err) {
-      log(`[legacy] 查询交易失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-      res.status(500).json({ error: err.message })
-    } else {
-      log(`[legacy] 查询交易 - userId: ${req.userId}, 数量: ${rows?.length || 0}`)
-      res.json(rows)
-    }
-  })
-})
-
-app.post('/transactions', authenticate, (req, res) => {
-  const transactions = req.body
-  log(`[legacy] 保存交易 - userId: ${req.userId}, 数量: ${transactions?.length || 0}`)
-  db.run('BEGIN TRANSACTION', () => {
-    db.run('DELETE FROM transactions WHERE userId = ?', [req.userId], (err) => {
-      if (err) {
-        log(`[legacy] 清空交易失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-        db.run('ROLLBACK')
-        return res.status(500).json({ error: '清空旧数据失败' })
-      }
-      
-      // 检查哪些ID已被其他用户使用，为这些ID生成新的ID
-      const incomingIds = transactions.map(t => t.id)
-      if (incomingIds.length === 0) {
-        log(`[legacy] 保存交易成功 - userId: ${req.userId}, 数量: 0`)
-        return res.json({ success: true })
-      }
-      
-      db.all(
-        'SELECT id, userId FROM transactions WHERE id IN (' + incomingIds.map(() => '?').join(',') + ')',
-        incomingIds,
-        (err, existingTxs) => {
-          if (err) {
-            log(`[legacy] 检查交易ID冲突失败: ${err.message}`, 'ERROR')
-            db.run('ROLLBACK')
-            return res.status(500).json({ error: '检查ID冲突失败' })
-          }
-          
-          const conflictingIds = new Set(
-            existingTxs.filter(t => t.userId !== req.userId).map(t => t.id)
-          )
-          
-          const stmt = db.prepare('INSERT INTO transactions (id, userId, productId, type, date, amount, price, shares, fee, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          const validTxs = transactions.filter(t => t.type !== 'nav_update')
-          const skippedNavCount = transactions.length - validTxs.length
-          if (skippedNavCount > 0) {
-            log(`[legacy] 跳过 ${skippedNavCount} 条 nav_update 记录（已废弃）`, 'INFO')
-          }
-          validTxs.forEach(t => {
-            let finalId = t.id
-            if (conflictingIds.has(t.id)) {
-              finalId = generateId()
-            }
-            stmt.run(finalId, req.userId, t.productId, t.type, t.date, t.amount, t.price, t.shares, t.fee || 0, t.note || '')
-          })
-          
-          stmt.finalize((err) => {
-            if (err) {
-              log(`[legacy] 写入交易失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-              db.run('ROLLBACK')
-              return res.status(500).json({ error: '数据写入失败' })
-            }
-            db.run('COMMIT', (err) => {
-              if (err) {
-                log(`[legacy] 交易事务提交失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
-                db.run('ROLLBACK')
-                return res.status(500).json({ error: '事务提交失败' })
-              }
-              log(`[legacy] 保存交易成功 - userId: ${req.userId}, 数量: ${transactions.length}`)
-              res.json({ success: true })
-            })
-          })
-        }
-      )
-    })
-  })
-})
+// ==================== Legacy 路由已移除 ====================
+// 原 /products 和 /transactions (无 /api 前缀) 路由已在 v1.6.x 迁移到 /api/*
+// 前端全部使用 storage.ts 中的 API_BASE = '/api'，此处代码不再被调用
+// 见 /api/products 和 /api/transactions 路由（上方 L690+ 和 L778+）
 
 app.post('/api/batch-import', authenticate, (req, res) => {
   const { products, transactions } = req.body
@@ -1737,20 +1586,21 @@ const schedulerState = {
 
 /**
  * 发起 HTTP/HTTPS 请求（不依赖 axios）
+ * 使用 req.setTimeout 确保超时保护在 request 层面生效
  */
 function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https') ? https : http
-    const defaultOpts = url.startsWith('https')
-      ? { timeout: 15000, rejectUnauthorized: false }
-      : { timeout: 15000 }
-    const req = protocol.get(url, { ...defaultOpts, ...options }, (res) => {
+    const timeoutMs = options.timeout || 15000
+    const req = protocol.get(url, { ...options, timeout: undefined }, (res) => {
       let data = ''
       res.on('data', chunk => data += chunk)
       res.on('end', () => resolve({ status: res.statusCode, data, headers: res.headers }))
     })
     req.on('error', reject)
-    req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')) })
+    req.on('timeout', () => { req.destroy(); reject(new Error(`请求超时(${timeoutMs}ms): ${url}`)) })
+    // 使用 req.setTimeout 替代依赖 socket timeout 选项，更可靠
+    req.setTimeout(timeoutMs)
   })
 }
 
@@ -2797,6 +2647,24 @@ async function runNavUpdate() {
 
   log(`[NAV调度] 执行完成, 耗时 ${elapsed}ms, 总计: ${summary.total}, 成功: ${summary.success}, 跳过: ${summary.skipped}, 失败: ${summary.failed}`)
 
+  // ==================== 清理 nav_history 中无对应产品的残留数据 ====================
+  try {
+    const cleanupSql = "DELETE FROM nav_history WHERE code NOT IN (SELECT code FROM products)"
+    await new Promise((resolve, reject) => {
+      db.run(cleanupSql, function(err) {
+        if (err) reject(err)
+        else {
+          if (this.changes > 0) {
+            log(`[NAV调度] 清理 nav_history 残留数据: 删除 ${this.changes} 条`)
+          }
+          resolve()
+        }
+      })
+    })
+  } catch (cleanupErr) {
+    log(`[NAV调度] 清理残留数据异常: ${cleanupErr.message}`, 'WARN')
+  }
+
   isNavUpdating = false
   return summary
 }
@@ -3253,62 +3121,52 @@ app.post('/fund/backfill-nav/:productId', authenticate, async (req, res) => {
       } catch (e) { /* 忽略 */ }
     }
 
-    // 查询全局已有的净值记录（code 维度，无需 userId）
-    const existingNavs = await dbAllAsync(
-      'SELECT date FROM nav_history WHERE code = ?',
-      [product.code]
-    )
-    const existingDateSet = new Set(existingNavs.map(t => getDateOnlyTimestamp(t.date)))
-
-    // 过滤出缺失的净值记录
-    const missingNavs = trendData.filter(item => {
-      const ts = getDateOnlyTimestamp(item.x)
-      return !existingDateSet.has(ts)
-    })
-
-    if (missingNavs.length === 0) {
-      return res.json({ inserted: 0, total: trendData.length, message: '无缺失数据，已是完整' })
-    }
-
-    // 批量插入缺失的净值记录（只写 nav_history，code 维度全局唯一）
-    // 用一个事务一次性提交，避免逐条 INSERT 的 1700 次 transaction 开销
+    // 批量 UPSERT：对全部 trendData 写入
+    // 用 ON CONFLICT DO UPDATE 确保存量记录的 accNav 也能被更新（此前存量 accNav 均为 0）
     const updateTime = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
     const nowTs = Date.now()
 
-    const placeholders = missingNavs.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(',')
+    const placeholders = trendData.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(',')
     const flatParams = []
-    for (const navItem of missingNavs) {
+    for (const navItem of trendData) {
       const ts = getDateOnlyTimestamp(navItem.x)
       const accNavVal = accTrendMap.get(ts) || 0
       flatParams.push(generateId(), product.code, ts, navItem.y, accNavVal, updateTime, nowTs)
     }
 
-    let inserted = 0
+    let upserted = 0
+    const upsertSql = `INSERT INTO nav_history (id, code, date, nav, accNav, note, createdAt) VALUES ${placeholders}
+      ON CONFLICT(code, date) DO UPDATE SET
+        nav = excluded.nav,
+        accNav = CASE WHEN excluded.accNav > 0 THEN excluded.accNav ELSE nav_history.accNav END,
+        note = excluded.note`
     try {
-      const sql = `INSERT OR IGNORE INTO nav_history (id, code, date, nav, accNav, note, createdAt) VALUES ${placeholders}`
-      const result = await dbRunAsync(sql, flatParams)
-      inserted = result.changes || missingNavs.length
+      upserted = await dbRunAsync(upsertSql, flatParams).then(r => r.changes || trendData.length)
     } catch (e) {
-      // 批量失败时回退到逐条插入，保证数据不丢
-      log(`[补全净值] 批量插入失败，回退逐条: ${e.message}`, 'WARN')
-      for (const navItem of missingNavs) {
+      log(`[补全净值] 批量 UPSERT 失败，回退逐条: ${e.message}`, 'WARN')
+      upserted = 0
+      for (const navItem of trendData) {
         const ts = getDateOnlyTimestamp(navItem.x)
         const accNavVal = accTrendMap.get(ts) || 0
         try {
           await dbRunAsync(
-            'INSERT OR IGNORE INTO nav_history (id, code, date, nav, accNav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            `INSERT INTO nav_history (id, code, date, nav, accNav, note, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(code, date) DO UPDATE SET
+               nav = excluded.nav,
+               accNav = CASE WHEN excluded.accNav > 0 THEN excluded.accNav ELSE nav_history.accNav END,
+               note = excluded.note`,
             [generateId(), product.code, ts, navItem.y, accNavVal, updateTime, nowTs]
           )
-          inserted++
+          upserted++
         } catch (_) { /* 忽略单条失败 */ }
       }
     }
 
-    log(`[补全净值] ${product.name} (${product.code}): 共 ${trendData.length} 条, 新增 ${inserted} 条`)
+    log(`[补全净值] ${product.name} (${product.code}): 共 ${trendData.length} 条, UPSERT ${upserted} 条`)
 
     // ---- 附带分红自动同步（fire-and-forget，不阻塞响应） ----
     // 分红同步涉及额外 HTTP 请求，Docker 网络下可能较慢，不阻塞用户
-    res.json({ inserted, total: trendData.length })
+    res.json({ inserted: upserted, total: trendData.length })
     autoSyncDividends(product.id, req.userId, product.code, product.name)
       .then(dividendResult => {
         if (dividendResult.addedPD > 0 || dividendResult.addedTx > 0) {
