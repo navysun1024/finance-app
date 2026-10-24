@@ -752,6 +752,59 @@ const authenticate = (req, res, next) => {
   next()
 }
 
+app.post('/auth/change-password', authenticate, async (req, res) => {
+  const { currentPassword, newPassword } = req.body
+  const token = req.headers['authorization']?.replace('Bearer ', '')
+
+  if (!currentPassword || typeof currentPassword !== 'string') {
+    return res.status(400).json({ error: '请输入当前密码' })
+  }
+
+  const passwordError = validatePassword(newPassword)
+  if (passwordError) return res.status(400).json({ error: passwordError })
+
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: '新密码不能与当前密码相同' })
+  }
+
+  db.get('SELECT id, username, password FROM users WHERE id = ?', [req.userId], async (err, user) => {
+    if (err) {
+      log(`修改密码失败 - userId: ${req.userId}, 错误: ${err.message}`, 'ERROR')
+      return res.status(500).json({ error: '服务器内部错误' })
+    }
+    if (!user) {
+      return res.status(401).json({ error: '用户不存在' })
+    }
+
+    try {
+      const isValid = await verifyPassword(currentPassword, user.password)
+      if (!isValid) {
+        log(`修改密码失败 - 用户: ${user.username}, 原因: 当前密码错误`, 'WARN')
+        return res.status(400).json({ error: '当前密码错误' })
+      }
+
+      const hashedPassword = await hashPassword(newPassword)
+      db.run('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, user.id], (updateErr) => {
+        if (updateErr) {
+          log(`修改密码失败 - 用户: ${user.username}, 错误: ${updateErr.message}`, 'ERROR')
+          return res.status(500).json({ error: '服务器内部错误' })
+        }
+
+        // 密码变更后使该用户在其它设备上的会话失效，当前会话保留
+        for (const [t, s] of sessions.entries()) {
+          if (s.userId === user.id && t !== token) sessions.delete(t)
+        }
+
+        log(`修改密码成功 - 用户: ${user.username}`)
+        res.json({ success: true })
+      })
+    } catch (e) {
+      log(`修改密码异常 - userId: ${req.userId}, 错误: ${e.message}`, 'ERROR')
+      res.status(500).json({ error: '服务器内部错误' })
+    }
+  })
+})
+
 app.get('/api/products', authenticate, (req, res) => {
   db.all('SELECT * FROM products WHERE userId = ? ORDER BY createdAt DESC', [req.userId], (err, rows) => {
     if (err) {

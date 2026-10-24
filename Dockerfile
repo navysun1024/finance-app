@@ -47,7 +47,7 @@ WORKDIR /app
 # 镜像标签
 LABEL org.opencontainers.image.title="personal-finance-app" \
       org.opencontainers.image.description="个人理财收益率统计Web应用" \
-      org.opencontainers.image.version="1.6.4" \
+      org.opencontainers.image.version="1.6.5" \
       org.opencontainers.image.source="https://github.com/haijun/finance-app"
 
 # 生产层换源 + 一次性安装运行时依赖

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Download, Upload, Trash2, AlertCircle, Clock, Play, Database, RefreshCw } from 'lucide-vue-next'
-import { exportData, importData, clearAllData } from '@/utils/storage'
+import { Download, Upload, Trash2, AlertCircle, Clock, Play, Database, RefreshCw, Lock } from 'lucide-vue-next'
+import { exportData, importData, clearAllData, changePassword } from '@/utils/storage'
 import { useFinance } from '@/composables/useFinance'
 import { exportToExcel } from '@/utils/excel'
 import { INDEX_DEFINITIONS } from '@/utils/indexApi'
@@ -226,6 +226,32 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
     message.value = ''
   }, 3000)
 }
+
+// 修改密码
+const currentPassword = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const changingPassword = ref(false)
+
+const handleChangePassword = async () => {
+  if (!currentPassword.value) return showMessage('请输入当前密码', 'error')
+  if (newPassword.value.length < 8) return showMessage('新密码至少8个字符', 'error')
+  if (newPassword.value !== confirmPassword.value) return showMessage('两次输入的新密码不一致', 'error')
+  if (newPassword.value === currentPassword.value) return showMessage('新密码不能与当前密码相同', 'error')
+
+  changingPassword.value = true
+  try {
+    await changePassword(currentPassword.value, newPassword.value)
+    currentPassword.value = ''
+    newPassword.value = ''
+    confirmPassword.value = ''
+    showMessage('密码修改成功', 'success')
+  } catch (e: any) {
+    showMessage(e.message || '修改密码失败', 'error')
+  } finally {
+    changingPassword.value = false
+  }
+}
 </script>
 
 <template>
@@ -239,6 +265,60 @@ const showMessage = (msg: string, type: 'success' | 'error') => {
       {{ message }}
     </div>
     
+    <!-- 账户安全：修改密码 -->
+    <div class="glass-card p-6">
+      <div class="flex items-start space-x-4">
+        <div class="w-11 h-11 bg-amber-500 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Lock class="w-5 h-5 text-white" />
+        </div>
+        <div class="flex-1">
+          <h3 class="text-[15px] font-semibold text-apple-text">账户安全</h3>
+          <p class="text-[13px] text-apple-secondary mt-1">修改登录密码，修改成功后其它设备需重新登录</p>
+        </div>
+      </div>
+      <form @submit.prevent="handleChangePassword" class="mt-4 space-y-3">
+        <div>
+          <label class="block text-[12px] font-semibold text-apple-secondary mb-1.5">当前密码</label>
+          <input
+            v-model="currentPassword"
+            type="password"
+            autocomplete="current-password"
+            placeholder="请输入当前密码"
+            class="glass-input w-full px-4 py-2.5 rounded-apple outline-none text-[14px]"
+          />
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[12px] font-semibold text-apple-secondary mb-1.5">新密码</label>
+            <input
+              v-model="newPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="至少 8 个字符"
+              class="glass-input w-full px-4 py-2.5 rounded-apple outline-none text-[14px]"
+            />
+          </div>
+          <div>
+            <label class="block text-[12px] font-semibold text-apple-secondary mb-1.5">确认新密码</label>
+            <input
+              v-model="confirmPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="请再次输入新密码"
+              class="glass-input w-full px-4 py-2.5 rounded-apple outline-none text-[14px]"
+            />
+          </div>
+        </div>
+        <button
+          type="submit"
+          :disabled="changingPassword"
+          class="apple-btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {{ changingPassword ? '提交中...' : '修改密码' }}
+        </button>
+      </form>
+    </div>
+
     <div class="glass-card p-6">
       <div class="flex items-start space-x-4">
         <div class="w-11 h-11 bg-primary-500 rounded-xl flex items-center justify-center flex-shrink-0">

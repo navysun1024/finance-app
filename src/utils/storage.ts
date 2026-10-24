@@ -488,3 +488,23 @@ export function logout(): void {
   localStorage.removeItem('username')
   window.location.href = '/login'
 }
+
+// 修改当前登录用户的密码
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return logger.withTiming('POST /auth/change-password', async () => {
+    const response = await fetch(`${API_BASE}/db/auth/change-password`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ currentPassword, newPassword })
+    })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      if (response.status === 401) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('username')
+        window.location.href = '/login'
+      }
+      throw new Error(data.error || '修改密码失败')
+    }
+  })
+}
