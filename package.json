@@ -1,12 +1,14 @@
 {
   "name": "personal-finance-app",
   "version": "1.6.5",
-  "description": "\u4e2a\u4eba\u7406\u8d22\u6536\u76ca\u7387\u7edf\u8ba1Web\u5e94\u7528 - \u652f\u6301\u57fa\u91d1\u4ee3\u7801\u67e5\u8be2\u51c0\u503c\u3001XIRR\u5e74\u5316\u6536\u76ca\u7387\u3001Excel\u5bfc\u51fa",
+  "description": "个人理财收益率统计Web应用 - 支持基金代码查询净值、XIRR年化收益率、Excel导出",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
     "dev:all": "node server/scraper.mjs & vite --port 5173",
     "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run test",
     "build": "node --max-old-space-size=2048 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit && node --max-old-space-size=3072 ./node_modules/vite/bin/vite.js build",
     "build:ci": "node --max-old-space-size=3072 ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
@@ -35,6 +37,7 @@
     "postcss": "^8.4.35",
     "typescript": "^5.4.5",
     "vite": "^5.2.8",
+    "vitest": "^2.1.9",
     "vue-tsc": "^2.0.0"
   }
 }

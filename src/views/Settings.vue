@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Download, Upload, Trash2, AlertCircle, Clock, Play, Database, RefreshCw, Lock } from 'lucide-vue-next'
-import { exportData, importData, clearAllData, changePassword } from '@/utils/storage'
+import { exportData, importData, clearAllData, changePassword, getAuthHeaders } from '@/utils/storage'
 import { useFinance } from '@/composables/useFinance'
 import { exportToExcel } from '@/utils/excel'
 import { INDEX_DEFINITIONS } from '@/utils/indexApi'
@@ -26,7 +26,8 @@ const { products, transactions, calculatePosition, refresh } = useFinance()
 // 获取调度器状态
 const fetchSchedulerStatus = async () => {
   try {
-    const res = await fetch('/api/nav-scheduler/status')
+    const res = await fetch('/api/nav-scheduler/status', { headers: getAuthHeaders() })
+    if (!res.ok) throw new Error('获取调度状态失败')
     schedulerStatus.value = await res.json()
   } catch {
     schedulerStatus.value = null
@@ -58,7 +59,8 @@ const formatScheduleTimes = (times: string[]) => {
 const handleManualRun = async () => {
   manualRunning.value = true
   try {
-    const res = await fetch('/api/nav-scheduler/run', { method: 'POST' })
+    const res = await fetch('/api/nav-scheduler/run', { method: 'POST', headers: getAuthHeaders() })
+    if (!res.ok) throw new Error('未授权或服务异常')
     const data = await res.json()
     if (data.success) {
       const s = data.summary
@@ -78,7 +80,8 @@ const handleManualRun = async () => {
 const handleToggleScheduler = async () => {
   loadingScheduler.value = true
   try {
-    const res = await fetch('/api/nav-scheduler/toggle', { method: 'POST' })
+    const res = await fetch('/api/nav-scheduler/toggle', { method: 'POST', headers: getAuthHeaders() })
+    if (!res.ok) throw new Error('未授权或服务异常')
     const data = await res.json()
     showMessage(data.enabled ? '定时更新已启用' : '定时更新已暂停', 'success')
     await fetchSchedulerStatus()
@@ -93,7 +96,7 @@ const handleToggleScheduler = async () => {
 const fetchIndexStatus = async () => {
   loadingIndex.value = true
   try {
-    const res = await fetch('/api/index/status')
+    const res = await fetch('/api/index/status', { headers: getAuthHeaders() })
     const data = await res.json()
     if (data.success) {
       // 把 code 映射到名称，按 INDEX_DEFINITIONS 顺序 + DB 里存在的 code 合并排序
@@ -123,7 +126,8 @@ const fetchIndexStatus = async () => {
 const handleRefreshIndex = async () => {
   refreshRunning.value = true
   try {
-    const res = await fetch('/api/index/refresh', { method: 'POST' })
+    const res = await fetch('/api/index/refresh', { method: 'POST', headers: getAuthHeaders() })
+    if (!res.ok) throw new Error('未授权或服务异常')
     const data = await res.json()
     if (data.success) {
       const s = data.summary
@@ -278,8 +282,9 @@ const handleChangePassword = async () => {
       </div>
       <form @submit.prevent="handleChangePassword" class="mt-4 space-y-3">
         <div>
-          <label class="block text-[12px] font-semibold text-apple-secondary mb-1.5">当前密码</label>
+          <label for="current-password" class="block text-[12px] font-semibold text-apple-secondary mb-1.5">当前密码</label>
           <input
+            id="current-password"
             v-model="currentPassword"
             type="password"
             autocomplete="current-password"
@@ -289,8 +294,9 @@ const handleChangePassword = async () => {
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-[12px] font-semibold text-apple-secondary mb-1.5">新密码</label>
+            <label for="new-password" class="block text-[12px] font-semibold text-apple-secondary mb-1.5">新密码</label>
             <input
+              id="new-password"
               v-model="newPassword"
               type="password"
               autocomplete="new-password"
@@ -299,8 +305,9 @@ const handleChangePassword = async () => {
             />
           </div>
           <div>
-            <label class="block text-[12px] font-semibold text-apple-secondary mb-1.5">确认新密码</label>
+            <label for="confirm-password" class="block text-[12px] font-semibold text-apple-secondary mb-1.5">确认新密码</label>
             <input
+              id="confirm-password"
               v-model="confirmPassword"
               type="password"
               autocomplete="new-password"

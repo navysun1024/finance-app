@@ -63,7 +63,8 @@ RUN sed -i "s/dl-cdn.alpinelinux.org/${ALPINE_MIRROR}/g" /etc/apk/repositories \
         ttf-freefont
 
 # Puppeteer + Node 环境变量
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+ENV TZ=Asia/Shanghai \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     npm_config_registry=${NPM_REGISTRY} \
     NODE_OPTIONS="--max-old-space-size=1024"

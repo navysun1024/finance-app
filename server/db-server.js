@@ -1,5 +1,4 @@
 import express from 'express'
-import cors from 'cors'
 import sqlite3 from 'sqlite3'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -346,7 +345,40 @@ db.get('SELECT value FROM app_meta WHERE key = ?', ['product_dividends_migration
 })
 
 const app = express()
-app.use(cors())
+// CORS：仅允许同源请求、本机开发地址与显式配置的来源
+const EXTRA_CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/
+// 局域网访问（手机调试页面时 Origin 形如 http://192.168.1.5:5173）
+const LAN_ORIGIN_RE = /^https?:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  if (!origin) return next()
+
+  let allowed = EXTRA_CORS_ORIGINS.includes(origin) || LOCAL_ORIGIN_RE.test(origin) || LAN_ORIGIN_RE.test(origin)
+  if (!allowed) {
+    try { allowed = new URL(origin).host === req.headers.host } catch { allowed = false }
+  }
+
+  if (allowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    res.setHeader('Access-Control-Max-Age', '86400')
+  }
+
+  if (req.method === 'OPTIONS') {
+    return allowed ? res.sendStatus(204) : res.sendStatus(403)
+  }
+  if (!allowed) {
+    log(`CORS 拒绝 - Origin: ${origin}`, 'WARN')
+    return res.status(403).json({ error: 'CORS origin 不被允许' })
+  }
+  next()
+})
+
 app.use(express.json({ limit: '10mb' }))
 
 // 请求日志中间件
@@ -382,21 +414,39 @@ const verifyPassword = async (password, hash) => {
   return bcrypt.compare(password, hash)
 }
 
-// 会话管理（带过期时间）
+// 会话管理（持久化到数据库，服务重启后仍然有效）
 const SESSION_TTL = 24 * 60 * 60 * 1000 // 24 小时
-const sessions = new Map()
+
+db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  userId TEXT NOT NULL,
+  username TEXT NOT NULL,
+  createdAt INTEGER NOT NULL,
+  expiresAt INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expiresAt);`, (err) => {
+  if (err) log(`[会话] 初始化 sessions 表失败: ${err.message}`, 'ERROR')
+})
+
+const createSession = (userId, username) => new Promise((resolve, reject) => {
+  const token = generateToken()
+  const now = Date.now()
+  db.run(
+    'INSERT INTO sessions (token, userId, username, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?)',
+    [token, userId, username, now, now + SESSION_TTL],
+    (err) => err ? reject(err) : resolve(token)
+  )
+})
+
+const deleteSession = (token) => new Promise((resolve) => {
+  db.run('DELETE FROM sessions WHERE token = ?', [token], () => resolve())
+})
 
 // 定期清理过期会话（每小时一次）
 setInterval(() => {
-  const now = Date.now()
-  let cleaned = 0
-  for (const [token, session] of sessions.entries()) {
-    if (now > session.expiresAt) {
-      sessions.delete(token)
-      cleaned++
-    }
-  }
-  if (cleaned > 0) log(`[会话] 清理了 ${cleaned} 个过期会话`)
+  db.run('DELETE FROM sessions WHERE expiresAt < ?', [Date.now()], function (err) {
+    if (!err && this.changes > 0) log(`[会话] 清理了 ${this.changes} 个过期会话`)
+  })
 }, 60 * 60 * 1000)
 
 // 速率限制器
@@ -514,72 +564,6 @@ async function cleanExpiredCache() {
 // 每小时清理一次过期缓存
 setInterval(cleanExpiredCache, 60 * 60 * 1000)
 
-// ==================== 缓存 API ====================
-
-/**
- * 获取缓存
- * GET /cache/:key
- */
-app.get('/cache/:key', async (req, res) => {
-  try {
-    const { key } = req.params
-    const cached = await getCache(key)
-    if (cached) {
-      res.json({
-        success: true,
-        data: cached.data,
-        updatedAt: cached.updatedAt,
-        isExpired: cached.isExpired,
-        fromCache: true
-      })
-    } else {
-      res.json({
-        success: true,
-        data: null,
-        fromCache: false
-      })
-    }
-  } catch (err) {
-    log(`获取缓存失败: ${err.message}`, 'ERROR')
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
-
-/**
- * 批量获取缓存
- * POST /cache/batch
- * Body: { keys: ['key1', 'key2', ...] }
- */
-app.post('/cache/batch', async (req, res) => {
-  try {
-    const { keys } = req.body
-    if (!Array.isArray(keys)) {
-      return res.status(400).json({ success: false, error: 'keys 必须是数组' })
-    }
-    
-    const results = {}
-    await Promise.all(keys.map(async (key) => {
-      const cached = await getCache(key)
-      if (cached) {
-        results[key] = {
-          data: cached.data,
-          updatedAt: cached.updatedAt,
-          isExpired: cached.isExpired
-        }
-      }
-    }))
-    
-    res.json({
-      success: true,
-      data: results,
-      fromCache: true
-    })
-  } catch (err) {
-    log(`批量获取缓存失败: ${err.message}`, 'ERROR')
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
-
 app.get('/', (req, res) => {
   res.json({ 
     message: '个人理财统计系统 API 服务器',
@@ -623,7 +607,7 @@ app.post('/auth/register', async (req, res) => {
     
     db.run('INSERT INTO users (id, username, password, createdAt) VALUES (?, ?, ?, ?)',
       [userId, trimmedUsername, hashedPassword, Date.now()],
-      (err) => {
+      async (err) => {
         if (err) {
           if (err.message.includes('UNIQUE constraint failed')) {
             log(`注册失败 - 用户: ${trimmedUsername}, 原因: 用户名已存在`, 'WARN')
@@ -633,9 +617,7 @@ app.post('/auth/register', async (req, res) => {
           return res.status(500).json({ error: '服务器内部错误' })
         }
         
-        const token = generateToken()
-        const expiresAt = Date.now() + SESSION_TTL
-        sessions.set(token, { userId, username: trimmedUsername, createdAt: Date.now(), expiresAt })
+        const token = await createSession(userId, trimmedUsername)
         log(`注册成功 - 用户: ${trimmedUsername}, userId: ${userId}`)
         res.json({ success: true, token, username: trimmedUsername })
       })
@@ -682,9 +664,7 @@ app.post('/auth/login', async (req, res) => {
         return res.status(401).json({ error: '用户名或密码错误' })
       }
       
-      const token = generateToken()
-      const expiresAt = Date.now() + SESSION_TTL
-      sessions.set(token, { userId: user.id, username: user.username, createdAt: Date.now(), expiresAt })
+      const token = await createSession(user.id, user.username)
       
       log(`登录成功 - 用户: ${trimmedUsername}`)
       res.json({ success: true, token, username: user.username })
@@ -695,24 +675,24 @@ app.post('/auth/login', async (req, res) => {
   })
 })
 
-app.post('/auth/logout', (req, res) => {
+app.post('/auth/logout', async (req, res) => {
   const token = req.headers['authorization']?.replace('Bearer ', '')
-  if (token && sessions.has(token)) {
-    const session = sessions.get(token)
-    sessions.delete(token)
-    log(`用户登出 - 用户: ${session?.username}`)
+  if (token) {
+    const session = await dbGetAsync('SELECT username FROM sessions WHERE token = ?', [token])
+    await deleteSession(token)
+    if (session) log(`用户登出 - 用户: ${session.username}`)
   }
   res.json({ success: true })
 })
 
-app.get('/auth/verify', (req, res) => {
+app.get('/auth/verify', async (req, res) => {
   const token = req.headers['authorization']?.replace('Bearer ', '')
   if (!token) {
     log('认证失败 - 缺少 token', 'WARN')
     return res.status(401).json({ error: '未授权' })
   }
   
-  const session = sessions.get(token)
+  const session = await dbGetAsync('SELECT userId, username, expiresAt FROM sessions WHERE token = ?', [token])
   if (!session) {
     log('认证失败 - token 已过期或无效', 'WARN')
     return res.status(401).json({ error: '登录已过期' })
@@ -720,7 +700,7 @@ app.get('/auth/verify', (req, res) => {
   
   // 检查会话是否过期
   if (session.expiresAt && Date.now() > session.expiresAt) {
-    sessions.delete(token)
+    await deleteSession(token)
     log('认证失败 - 会话已过期', 'WARN')
     return res.status(401).json({ error: '登录已过期，请重新登录' })
   }
@@ -728,14 +708,14 @@ app.get('/auth/verify', (req, res) => {
   res.json({ success: true, username: session.username, userId: session.userId })
 })
 
-const authenticate = (req, res, next) => {
+const authenticate = async (req, res, next) => {
   const token = req.headers['authorization']?.replace('Bearer ', '')
   if (!token) {
     log(`鉴权失败 - ${req.method} ${req.originalUrl}: 缺少 token`, 'WARN')
     return res.status(401).json({ error: '未授权' })
   }
   
-  const session = sessions.get(token)
+  const session = await dbGetAsync('SELECT userId, username, expiresAt FROM sessions WHERE token = ?', [token])
   if (!session) {
     log(`鉴权失败 - ${req.method} ${req.originalUrl}: token 已过期`, 'WARN')
     return res.status(401).json({ error: '登录已过期' })
@@ -743,7 +723,7 @@ const authenticate = (req, res, next) => {
   
   // 检查会话是否过期
   if (session.expiresAt && Date.now() > session.expiresAt) {
-    sessions.delete(token)
+    await deleteSession(token)
     log(`鉴权失败 - ${req.method} ${req.originalUrl}: 会话已过期`, 'WARN')
     return res.status(401).json({ error: '登录已过期，请重新登录' })
   }
@@ -791,9 +771,7 @@ app.post('/auth/change-password', authenticate, async (req, res) => {
         }
 
         // 密码变更后使该用户在其它设备上的会话失效，当前会话保留
-        for (const [t, s] of sessions.entries()) {
-          if (s.userId === user.id && t !== token) sessions.delete(t)
-        }
+        db.run('DELETE FROM sessions WHERE userId = ? AND token <> ?', [user.id, token])
 
         log(`修改密码成功 - 用户: ${user.username}`)
         res.json({ success: true })
@@ -1165,9 +1143,11 @@ app.get('/api/fund/dividends/:code', authenticate, async (req, res) => {
 
 // ==================== 净值历史（nav_history）API ====================
 
-// 读取所有净值历史（用户级）
+// 读取所有净值历史（仅当前用户的产品）
 app.get('/api/nav-history', authenticate, (req, res) => {
-  db.all('SELECT DISTINCT * FROM nav_history ORDER BY date ASC', [], (err, rows) => {
+  db.all(`SELECT nh.* FROM nav_history nh
+    WHERE nh.code IN (SELECT code FROM products WHERE userId = ? AND code <> '')
+    ORDER BY nh.date ASC`, [req.userId], (err, rows) => {
     if (err) {
       log(`[nav_history] 读取失败: ${err.message}`, 'ERROR')
       return res.status(500).json({ error: err.message })
@@ -1179,7 +1159,7 @@ app.get('/api/nav-history', authenticate, (req, res) => {
 // 按产品读取净值历史
 app.get('/api/nav-history/:productId', authenticate, async (req, res) => {
   try {
-    const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+    const product = await dbGetAsync('SELECT code FROM products WHERE id = ? AND userId = ?', [req.params.productId, req.userId])
     if (!product || !product.code) return res.json([])
     db.all('SELECT * FROM nav_history WHERE code = ? ORDER BY date ASC', [product.code], (err, rows) => {
     if (err) {
@@ -1194,7 +1174,7 @@ app.get('/api/nav-history/:productId', authenticate, async (req, res) => {
 // 写入单条净值历史（INSERT OR REPLACE，保证幂等）
 app.post('/api/nav-history', authenticate, async (req, res) => {
   const { productId, code, date, nav, accNav, note } = req.body || {}
-  const realCode = code || (productId ? (await dbGetAsync('SELECT code FROM products WHERE id = ?', [productId]))?.code : null)
+  const realCode = code || (productId ? (await dbGetAsync('SELECT code FROM products WHERE id = ? AND userId = ?', [productId, req.userId]))?.code : null)
   if (!realCode || !date || nav == null) {
     return res.status(400).json({ error: '缺少必要字段 code/productId / date / nav' })
   }
@@ -1222,7 +1202,7 @@ app.post('/api/nav-history/batch', authenticate, async (req, res) => {
   const pidList = [...new Set(records.filter(r => r.productId && !r.code).map(r => r.productId))]
   const pidCodeMap = {}
   if (pidList.length > 0) {
-    const prows = await dbAllAsync('SELECT id, code FROM products WHERE id IN (' + ','.join('?' * pidList.length) + ')', pidList)
+    const prows = await dbAllAsync('SELECT id, code FROM products WHERE userId = ? AND id IN (' + ','.join('?' * pidList.length) + ')', [req.userId, ...pidList])
     prows.forEach(p => { pidCodeMap[p.id] = p.code })
   }
   let inserted = 0
@@ -1240,24 +1220,30 @@ app.post('/api/nav-history/batch', authenticate, async (req, res) => {
   res.json({ success: true, inserted, total: records.length })
 })
 
-// 删除产品的全部净值历史
 // 删除单条净值记录
-app.delete('/api/nav-history-record/:id', authenticate, (req, res) => {
+app.delete('/api/nav-history-record/:id', authenticate, async (req, res) => {
   const { id } = req.params
-  db.run('DELETE FROM nav_history WHERE id = ?', [id], function (err) {
-    if (err) {
-      log(`[nav_history] 单条删除失败: ${err.message}`, 'ERROR')
-      return res.status(500).json({ error: err.message })
-    }
-    if (this.changes === 0) return res.status(404).json({ error: '记录不存在' })
-    log(`[nav_history] 单条删除成功: id=${id}`)
-    res.json({ success: true })
-  })
+  try {
+    const record = await dbGetAsync('SELECT code FROM nav_history WHERE id = ?', [id])
+    if (!record) return res.status(404).json({ error: '记录不存在' })
+    const owned = await dbGetAsync('SELECT 1 AS ok FROM products WHERE code = ? AND userId = ?', [record.code, req.userId])
+    if (!owned) return res.status(403).json({ error: '无权操作该记录' })
+
+    db.run('DELETE FROM nav_history WHERE id = ?', [id], function (err) {
+      if (err) {
+        log(`[nav_history] 单条删除失败: ${err.message}`, 'ERROR')
+        return res.status(500).json({ error: err.message })
+      }
+      if (this.changes === 0) return res.status(404).json({ error: '记录不存在' })
+      log(`[nav_history] 单条删除成功: id=${id}`)
+      res.json({ success: true })
+    })
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // 删除产品的全部净值历史
 app.delete('/api/nav-history/:productId', authenticate, async (req, res) => {
-  const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+  const product = await dbGetAsync('SELECT code FROM products WHERE id = ? AND userId = ?', [req.params.productId, req.userId])
   if (!product || !product.code) return res.json({ success: true, affected: 0 })
   db.run('DELETE FROM nav_history WHERE code = ?', [product.code], function (err) {
     if (err) {
@@ -1270,9 +1256,11 @@ app.delete('/api/nav-history/:productId', authenticate, async (req, res) => {
 
 // ==================== 产品分红历史（product_dividends）API ====================
 
-// 读取所有产品分红（用户级）
+// 读取所有产品分红（仅当前用户的产品）
 app.get('/api/product-dividends', authenticate, (req, res) => {
-  db.all('SELECT DISTINCT * FROM product_dividends ORDER BY registerDate DESC', [], (err, rows) => {
+  db.all(`SELECT pd.* FROM product_dividends pd
+    WHERE pd.code IN (SELECT code FROM products WHERE userId = ? AND code <> '')
+    ORDER BY pd.registerDate DESC`, [req.userId], (err, rows) => {
     if (err) {
       log(`[product_dividends] 读取失败: ${err.message}`, 'ERROR')
       return res.status(500).json({ error: err.message })
@@ -1284,7 +1272,7 @@ app.get('/api/product-dividends', authenticate, (req, res) => {
 // 按产品读取分红历史
 app.get('/api/product-dividends/:productId', authenticate, async (req, res) => {
   try {
-    const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+    const product = await dbGetAsync('SELECT code FROM products WHERE id = ? AND userId = ?', [req.params.productId, req.userId])
     if (!product || !product.code) return res.json([])
     db.all('SELECT * FROM product_dividends WHERE code = ? ORDER BY registerDate DESC', [product.code], (err, rows) => {
     if (err) {
@@ -1299,7 +1287,7 @@ app.get('/api/product-dividends/:productId', authenticate, async (req, res) => {
 // 写入单条产品分红（INSERT OR REPLACE，保证幂等）
 app.post('/api/product-dividends', authenticate, async (req, res) => {
   const { productId, code, registerDate, dividendType, perShare, per10Shares, exDate, payDate, splitRatio, year, source } = req.body || {}
-  const realCode = code || (productId ? (await dbGetAsync('SELECT code FROM products WHERE id = ?', [productId]))?.code : null)
+  const realCode = code || (productId ? (await dbGetAsync('SELECT code FROM products WHERE id = ? AND userId = ?', [productId, req.userId]))?.code : null)
   if (!realCode || registerDate == null || !dividendType || perShare == null || per10Shares == null) {
     return res.status(400).json({ error: '缺少必要字段 code/productId' })
   }
@@ -1330,7 +1318,7 @@ app.post('/api/product-dividends/batch', authenticate, async (req, res) => {
   const pidList = [...new Set(records.filter(r => r.productId && !r.code).map(r => r.productId))]
   const pidCodeMap = {}
   if (pidList.length > 0) {
-    const prows = await dbAllAsync('SELECT id, code FROM products WHERE id IN (' + ','.join('?' * pidList.length) + ')', pidList)
+    const prows = await dbAllAsync('SELECT id, code FROM products WHERE userId = ? AND id IN (' + ','.join('?' * pidList.length) + ')', [req.userId, ...pidList])
     prows.forEach(p => { pidCodeMap[p.id] = p.code })
   }
   let inserted = 0
@@ -1352,22 +1340,29 @@ app.post('/api/product-dividends/batch', authenticate, async (req, res) => {
 })
 
 // 删除单条分红记录
-app.delete('/api/product-dividends-record/:id', authenticate, (req, res) => {
+app.delete('/api/product-dividends-record/:id', authenticate, async (req, res) => {
   const { id } = req.params
-  db.run('DELETE FROM product_dividends WHERE id = ?', [id], function (err) {
-    if (err) {
-      log(`[product_dividends] 单条删除失败: ${err.message}`, 'ERROR')
-      return res.status(500).json({ error: err.message })
-    }
-    if (this.changes === 0) return res.status(404).json({ error: '记录不存在' })
-    log(`[product_dividends] 单条删除成功: id=${id}`)
-    res.json({ success: true })
-  })
+  try {
+    const record = await dbGetAsync('SELECT code FROM product_dividends WHERE id = ?', [id])
+    if (!record) return res.status(404).json({ error: '记录不存在' })
+    const owned = await dbGetAsync('SELECT 1 AS ok FROM products WHERE code = ? AND userId = ?', [record.code, req.userId])
+    if (!owned) return res.status(403).json({ error: '无权操作该记录' })
+
+    db.run('DELETE FROM product_dividends WHERE id = ?', [id], function (err) {
+      if (err) {
+        log(`[product_dividends] 单条删除失败: ${err.message}`, 'ERROR')
+        return res.status(500).json({ error: err.message })
+      }
+      if (this.changes === 0) return res.status(404).json({ error: '记录不存在' })
+      log(`[product_dividends] 单条删除成功: id=${id}`)
+      res.json({ success: true })
+    })
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // 删除产品的全部分红历史
 app.delete('/api/product-dividends/:productId', authenticate, async (req, res) => {
-  const product = await dbGetAsync('SELECT code FROM products WHERE id = ?', [req.params.productId])
+  const product = await dbGetAsync('SELECT code FROM products WHERE id = ? AND userId = ?', [req.params.productId, req.userId])
   if (!product || !product.code) return res.json({ success: true, affected: 0 })
   db.run('DELETE FROM product_dividends WHERE code = ?', [product.code], function (err) {
     if (err) {
@@ -1382,6 +1377,20 @@ app.delete('/api/product-dividends/:productId', authenticate, async (req, res) =
 // 原 /products 和 /transactions (无 /api 前缀) 路由已在 v1.6.x 迁移到 /api/*
 // 前端全部使用 storage.ts 中的 API_BASE = '/api'，此处代码不再被调用
 // 见 /api/products 和 /api/transactions 路由（上方 L690+ 和 L778+）
+
+// 数据库快照：在破坏性操作前调用，最多保留最近 10 份
+function backupDatabase(reason) {
+  const backupDir = join(__dirname, '../data/backups')
+  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
+  const stamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace(/[: ]/g, '-')
+  const dest = join(backupDir, `finance-${stamp}-${reason}.db`)
+  fs.copyFileSync(dbPath, dest)
+
+  const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.db')).sort()
+  while (files.length > 10) fs.unlinkSync(join(backupDir, files.shift()))
+
+  return dest
+}
 
 app.post('/api/batch-import', authenticate, (req, res) => {
   const { products, transactions } = req.body
@@ -1418,6 +1427,15 @@ app.post('/api/batch-import', authenticate, (req, res) => {
     if (responded) return
     responded = true
     res.json(payload)
+  }
+
+  // 导入会先删除用户既有数据，执行前先落一份快照
+  try {
+    result.backupFile = backupDatabase('import')
+    log(`批量导入 - 已创建快照: ${result.backupFile}`)
+  } catch (e) {
+    log(`批量导入 - 快照创建失败: ${e.message}`, 'ERROR')
+    return res.status(500).json({ success: false, error: '无法创建导入前的数据库快照，已中止导入' })
   }
 
   db.run('BEGIN TRANSACTION', (err) => {
@@ -2795,7 +2813,7 @@ function startScheduler() {
 // ==================== 调度器 API 端点 ====================
 
 // 查询调度器状态
-app.get('/api/nav-scheduler/status', (req, res) => {
+app.get('/api/nav-scheduler/status', authenticate, (req, res) => {
   res.json({
     enabled: schedulerState.enabled,
     scheduleTimes: SCHEDULE_TIMES,
@@ -2813,7 +2831,7 @@ app.get('/api/nav-scheduler/status', (req, res) => {
 })
 
 // 业绩基准指数数据状态（汇总 index_history 表）
-app.get('/api/index/status', (req, res) => {
+app.get('/api/index/status', authenticate, (req, res) => {
   db.all(
     `SELECT code, source,
             COUNT(*) as count,
@@ -2835,7 +2853,7 @@ app.get('/api/index/status', (req, res) => {
 })
 
 // 手动刷新指定业绩基准指数（或全部）
-app.post('/api/index/refresh', async (req, res) => {
+app.post('/api/index/refresh', authenticate, async (req, res) => {
   try {
     const { code } = req.body || {}
     let summary
@@ -2856,10 +2874,16 @@ app.post('/api/index/refresh', async (req, res) => {
 })
 
 // 手动触发净值更新
-app.post('/api/nav-scheduler/run', async (req, res) => {
+app.post('/api/nav-scheduler/run', authenticate, async (req, res) => {
+  if (isNavUpdating) {
+    return res.status(409).json({ success: false, error: '净值更新正在进行中，请稍后再试' })
+  }
   log('[NAV调度] 收到手动触发请求')
   try {
     const summary = await runNavUpdate()
+    if (summary.skippedReason) {
+      return res.status(409).json({ success: false, error: summary.skippedReason })
+    }
     res.json({ success: true, summary })
   } catch (e) {
     log(`[NAV调度] 手动触发失败: ${e.message}`, 'ERROR')
@@ -2868,7 +2892,7 @@ app.post('/api/nav-scheduler/run', async (req, res) => {
 })
 
 // 启用/禁用调度器
-app.post('/api/nav-scheduler/toggle', (req, res) => {
+app.post('/api/nav-scheduler/toggle', authenticate, (req, res) => {
   schedulerState.enabled = !schedulerState.enabled
   log(`[NAV调度] 调度器${schedulerState.enabled ? '已启用' : '已禁用'}`)
   res.json({ enabled: schedulerState.enabled })

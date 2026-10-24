@@ -83,6 +83,9 @@ onUnmounted(() => {
           <div ref="userMenuRef" class="relative">
             <button
               @click="toggleUserMenu"
+              aria-label="用户菜单"
+              :aria-expanded="showUserMenu"
+              aria-haspopup="menu"
               class="flex items-center space-x-2 pl-2 pr-3 py-1.5 rounded-full hover:bg-black/5 transition-all duration-200 cursor-pointer"
             >
               <div class="w-7 h-7 rounded-full bg-primary-500 flex items-center justify-center">
@@ -132,6 +135,7 @@ onUnmounted(() => {
         v-for="item in navItems"
         :key="item.name"
         @click="router.push({ name: item.name })"
+        :aria-current="isActive(item.name) ? 'page' : undefined"
         :class="[
           'flex flex-col items-center justify-center flex-1 h-full touch-target transition-all duration-200 active:scale-95',
           isActive(item.name)
@@ -146,6 +150,9 @@ onUnmounted(() => {
       <div ref="mobileUserMenuRef" class="relative flex-1 flex items-stretch justify-center">
         <button
           @click="toggleUserMenu"
+          aria-label="我的"
+          :aria-expanded="showUserMenu"
+          aria-haspopup="menu"
           :class="[
             'flex flex-col items-center justify-center flex-1 h-full touch-target transition-all duration-200 active:scale-95',
             route.name === 'settings' ? 'text-primary-500' : 'text-apple-secondary'
