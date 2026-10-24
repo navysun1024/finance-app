@@ -1861,11 +1861,11 @@ onUnmounted(() => {
       
       <!-- 净值走势 -->
       <div class="glass-card md:p-4 flex flex-col min-h-[240px] md:min-h-[340px]">
-        <div class="flex flex-row items-center justify-between gap-2 md:gap-3 mb-2 md:mb-3 flex-nowrap">
+        <div class="flex flex-wrap md:flex-nowrap items-center justify-between gap-2 md:gap-3 mb-2 md:mb-3">
           <div class="flex items-center gap-2 flex-shrink-0">
-            <h3 class="text-lg font-semibold text-apple-text">净值走势</h3>
+            <h3 class="text-base md:text-lg font-semibold text-apple-text">净值走势</h3>
             <!-- 净值口径切换：单位净值 / 累计净值 -->
-            <div class="hidden sm:flex items-center bg-black/5 rounded-full p-[2px]">
+            <div class="flex items-center bg-black/5 rounded-full p-[2px]">
               <button
                 @click="navMode = 'nav'"
                 :class="[
@@ -1890,7 +1890,7 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
-          <div class="flex-1 min-w-0 flex justify-end">
+          <div class="w-full md:w-auto md:flex-1 min-w-0 flex justify-end">
             <div class="-mx-3 px-3 sm:mx-0 sm:px-0 scroll-x items-center space-x-0.5 bg-black/5 rounded-full p-[1px] sm:overflow-x-visible inline-flex max-w-full">
               <button
                 v-for="opt in navRangeOptions"

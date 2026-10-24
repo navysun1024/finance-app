@@ -12,23 +12,23 @@ const navItems = [
   { name: 'transactions', label: '记账', icon: PlusCircle },
   { name: 'equity', label: '权益', icon: TrendingUp },
   { name: 'fixed-income', label: '固收', icon: DollarSign },
-  { name: 'term-deposit', label: '定存', icon: Landmark },
-  { name: 'settings', label: '设置', icon: Settings }
+  { name: 'term-deposit', label: '定存', icon: Landmark }
 ]
 
 const isActive = (name: string) => route.name === name
 
 const showUserMenu = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
+const mobileUserMenuRef = ref<HTMLElement | null>(null)
 
 const toggleUserMenu = () => {
   showUserMenu.value = !showUserMenu.value
 }
 
 const handleClickOutside = (e: MouseEvent) => {
-  if (userMenuRef.value && !userMenuRef.value.contains(e.target as Node)) {
-    showUserMenu.value = false
-  }
+  const target = e.target as Node
+  if (userMenuRef.value?.contains(target) || mobileUserMenuRef.value?.contains(target)) return
+  showUserMenu.value = false
 }
 
 const handleLogout = () => {
@@ -142,6 +142,49 @@ onUnmounted(() => {
         <component :is="item.icon" :class="['w-[22px] h-[22px]', isActive(item.name) ? 'scale-105' : '']" />
         <span class="text-[10px] mt-0.5 font-medium tracking-tight">{{ item.label }}</span>
       </button>
+      <!-- 移动端用户入口（设置与退出登录） -->
+      <div ref="mobileUserMenuRef" class="relative flex-1 flex items-stretch justify-center">
+        <button
+          @click="toggleUserMenu"
+          :class="[
+            'flex flex-col items-center justify-center flex-1 h-full touch-target transition-all duration-200 active:scale-95',
+            route.name === 'settings' ? 'text-primary-500' : 'text-apple-secondary'
+          ]"
+        >
+          <div class="w-[22px] h-[22px] rounded-full bg-primary-500 flex items-center justify-center">
+            <span class="text-white text-[10px] font-semibold">{{ (getCurrentUser().username || 'U').charAt(0).toUpperCase() }}</span>
+          </div>
+          <span class="text-[10px] mt-0.5 font-medium tracking-tight">我的</span>
+        </button>
+        <Transition name="dropdown">
+          <div
+            v-if="showUserMenu"
+            class="absolute bottom-full right-0 mb-2 w-52 bg-white/95 backdrop-blur-xl border border-black/8 rounded-2xl shadow-apple-xl overflow-hidden z-50"
+          >
+            <div class="px-4 py-3.5 border-b border-black/5">
+              <p class="text-[11px] text-apple-secondary uppercase tracking-wider font-medium">已登录</p>
+              <p class="text-[14px] font-semibold text-apple-text mt-0.5 truncate">{{ getCurrentUser().username }}</p>
+            </div>
+            <div class="py-1.5">
+              <button
+                @click="router.push({ name: 'settings' }); showUserMenu = false"
+                class="w-full flex items-center space-x-2.5 px-4 py-2.5 text-[13px] text-apple-text hover:bg-black/4 transition-colors"
+              >
+                <Settings class="w-4 h-4 text-apple-secondary" />
+                <span>账户设置</span>
+              </button>
+              <div class="mx-3 border-t border-black/5 my-1"></div>
+              <button
+                @click="handleLogout"
+                class="w-full flex items-center space-x-2.5 px-4 py-2.5 text-[13px] text-profit hover:bg-profit/5 transition-colors"
+              >
+                <LogOut class="w-4 h-4" />
+                <span>退出登录</span>
+              </button>
+            </div>
+          </div>
+        </Transition>
+      </div>
     </div>
   </nav>
 </template>

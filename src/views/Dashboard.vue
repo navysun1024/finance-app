@@ -22,11 +22,20 @@ const typeCharts = new Map<string, echarts.ECharts>()
 const mvCharts = new Map<string, echarts.ECharts>()
 let initTimer: ReturnType<typeof setTimeout> | null = null
 
+// 已到期的定期存款：不再计入概览统计（到期判断口径与 useFinance 一致）
+const isMaturedTermDeposit = (product: { type: string; maturityDate?: string }) => {
+  if (product.type !== 'term_deposit' || !product.maturityDate) return false
+  const maturityTime = new Date(product.maturityDate).getTime()
+  return maturityTime > 0 && Date.now() > maturityTime
+}
+
 // 按产品类型分组的持仓
 const positionsByType = computed(() => {
   const positions = portfolioSummary.value.positions
   const map = new Map<string, typeof positions>()
   for (const pos of positions) {
+    // 已到期的定期存款不计入概览
+    if (isMaturedTermDeposit(pos.product)) continue
     // 兼容旧数据：将 'fund' 类型视为 'equity'
     const type = pos.product.type
     if (!map.has(type)) map.set(type, [])
